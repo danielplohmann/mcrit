@@ -1,0 +1,66 @@
+{
+    "info": {
+        "job": {
+            "duration": 1.2345,
+            "timestamp": "2021-07-08 11:22:33"
+        },
+        "sample": {}
+    },
+    "matches": {
+        "aggregation": {
+            "minhash": {
+                "bytes_matched": 74546.0,
+                "num_foreign_functions_matched": 10909,
+                "num_own_functions_matched": 384,
+                "num_own_functions_matched_as_library": 0,
+                "num_self_matches": 73
+            },
+            "pichash": {
+                "bytes_matched": 55561.0,
+                "num_foreign_functions_matched": 7137,
+                "num_own_functions_matched": 344,
+                "num_own_functions_matched_as_library": 0,
+                "num_self_matches": 8
+            }
+        },
+        "functions": [
+            {
+                "fid": "<function_id>",
+                "matches": [
+                    ["<family_id>", "<sample_id>", "<function_id>", "<score>", "<is_pichash_match>", "<is_library>"]
+                ],
+                "num_bytes": "<num_bytes>"
+            }
+        ],
+        "samples": [
+            {
+                "sample_id": "<foreign_sample_id>",
+                "family": "<sample_info.family>",
+                "version": "<sample_info.version>",
+                "bitness": "<sample_info.bitness>",
+                "sha256": "<sample_info.sha256>",
+                "filename": "<sample_info.filename>",
+                "num_bytes": 0,
+                "num_functions": 0,
+                "matched": {
+                    "functions": {
+                        "combined": 0,
+                        "library": 0,
+                        "minhashes": 0,
+                        "pichashes": 0
+                    },
+                    "bytes": {
+                        "unweighted": 0,
+                        "score_weighted": 0,
+                        "frequency_weighted": 0
+                    },
+                    "percent": {
+                        "unweighted": 0,
+                        "score_weighted": 0,
+                        "frequency_weighted": 0
+                    }
+                }
+            }
+        ]
+    }
+}

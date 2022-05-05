@@ -1,0 +1,1256 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>Form</class>
+ <widget class="QWidget" name="Form">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1264</width>
+    <height>1599</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QHBoxLayout" name="horizontalLayout">
+   <property name="sizeConstraint">
+    <enum>QLayout::SetNoConstraint</enum>
+   </property>
+   <item>
+    <widget class="QTabWidget" name="tabIdaMockWidget">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+       <horstretch>0</horstretch>
+       <verstretch>0</verstretch>
+      </sizepolicy>
+     </property>
+     <property name="currentIndex">
+      <number>1</number>
+     </property>
+     <widget class="QWidget" name="tabIdaView">
+      <attribute name="title">
+       <string>IDA View-A</string>
+      </attribute>
+     </widget>
+     <widget class="QWidget" name="tabMcritView">
+      <attribute name="title">
+       <string>MCRIT</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="verticalLayout">
+       <item>
+        <widget class="QToolButton" name="toolButton">
+         <property name="toolTip">
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Convert IDB to SMDA Report&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+         <property name="icon">
+          <iconset>
+           <normaloff>../../../../../../Documents/glyphicons-pro/glyphicons-basic-2-2/png/glyphicons-basic-86-reload.png</normaloff>../../../../../../Documents/glyphicons-pro/glyphicons-basic-2-2/png/glyphicons-basic-86-reload.png</iconset>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_4">
+         <property name="text">
+          <string>Info: 2019-08-07 13:28:06 | Received matching data from MCRIT server.</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="Line" name="line">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_3">
+         <property name="text">
+          <string>Local Sample Overview</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTableWidget" name="tableWidget">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>0</width>
+           <height>210</height>
+          </size>
+         </property>
+         <property name="verticalScrollBarPolicy">
+          <enum>Qt::ScrollBarAsNeeded</enum>
+         </property>
+         <property name="autoScroll">
+          <bool>true</bool>
+         </property>
+         <property name="alternatingRowColors">
+          <bool>true</bool>
+         </property>
+         <attribute name="horizontalHeaderStretchLastSection">
+          <bool>true</bool>
+         </attribute>
+         <row>
+          <property name="text">
+           <string>1</string>
+          </property>
+         </row>
+         <row>
+          <property name="text">
+           <string>2</string>
+          </property>
+         </row>
+         <row>
+          <property name="text">
+           <string>3</string>
+          </property>
+         </row>
+         <row>
+          <property name="text">
+           <string>4</string>
+          </property>
+         </row>
+         <row>
+          <property name="text">
+           <string>5</string>
+          </property>
+         </row>
+         <row>
+          <property name="text">
+           <string>6</string>
+          </property>
+         </row>
+         <column>
+          <property name="text">
+           <string>Field</string>
+          </property>
+         </column>
+         <column>
+          <property name="text">
+           <string>Value</string>
+          </property>
+         </column>
+         <item row="0" column="0">
+          <property name="text">
+           <string>Architecture</string>
+          </property>
+         </item>
+         <item row="0" column="1">
+          <property name="text">
+           <string>Intel</string>
+          </property>
+         </item>
+         <item row="1" column="0">
+          <property name="text">
+           <string>Bitness</string>
+          </property>
+         </item>
+         <item row="1" column="1">
+          <property name="text">
+           <string>32bit</string>
+          </property>
+         </item>
+         <item row="2" column="0">
+          <property name="text">
+           <string>ImageBase</string>
+          </property>
+         </item>
+         <item row="2" column="1">
+          <property name="text">
+           <string>0x00400000</string>
+          </property>
+         </item>
+         <item row="3" column="0">
+          <property name="text">
+           <string>Size</string>
+          </property>
+         </item>
+         <item row="3" column="1">
+          <property name="text">
+           <string>104,131</string>
+          </property>
+         </item>
+         <item row="4" column="0">
+          <property name="text">
+           <string>Functions</string>
+          </property>
+         </item>
+         <item row="4" column="1">
+          <property name="text">
+           <string>641</string>
+          </property>
+         </item>
+         <item row="5" column="0">
+          <property name="text">
+           <string>Instructions</string>
+          </property>
+         </item>
+         <item row="5" column="1">
+          <property name="text">
+           <string>36,051</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTabWidget" name="tabMcritWidget">
+         <property name="enabled">
+          <bool>true</bool>
+         </property>
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="MinimumExpanding" vsizetype="MinimumExpanding">
+           <horstretch>1</horstretch>
+           <verstretch>1</verstretch>
+          </sizepolicy>
+         </property>
+         <property name="maximumSize">
+          <size>
+           <width>20000</width>
+           <height>20000</height>
+          </size>
+         </property>
+         <property name="currentIndex">
+          <number>0</number>
+         </property>
+         <widget class="QWidget" name="tabSampleMatches">
+          <attribute name="title">
+           <string>Sample Matches</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="verticalLayout_2">
+           <item>
+            <widget class="QCheckBox" name="checkBox">
+             <property name="text">
+              <string>Filter Library Matches (37)</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="line_2">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label">
+             <property name="text">
+              <string>Best Family Matches</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="familyMatchTable">
+             <property name="alternatingRowColors">
+              <bool>true</bool>
+             </property>
+             <property name="sortingEnabled">
+              <bool>true</bool>
+             </property>
+             <attribute name="horizontalHeaderCascadingSectionResizes">
+              <bool>false</bool>
+             </attribute>
+             <attribute name="horizontalHeaderDefaultSectionSize">
+              <number>150</number>
+             </attribute>
+             <attribute name="horizontalHeaderMinimumSectionSize">
+              <number>64</number>
+             </attribute>
+             <attribute name="horizontalHeaderStretchLastSection">
+              <bool>true</bool>
+             </attribute>
+             <row>
+              <property name="text">
+               <string>1</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>2</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>3</string>
+              </property>
+             </row>
+             <column>
+              <property name="text">
+               <string>Family</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Version</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>PicHash Matches</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>MinHash Matches</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Combined</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Score</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Percent</string>
+              </property>
+             </column>
+             <item row="0" column="0">
+              <property name="text">
+               <string>win.ice_ix</string>
+              </property>
+             </item>
+             <item row="0" column="1">
+              <property name="text">
+               <string>2012-01-20-1.2.6.0</string>
+              </property>
+             </item>
+             <item row="0" column="2">
+              <property name="text">
+               <string>437</string>
+              </property>
+             </item>
+             <item row="0" column="3">
+              <property name="text">
+               <string>535</string>
+              </property>
+             </item>
+             <item row="0" column="4">
+              <property name="text">
+               <string>620</string>
+              </property>
+             </item>
+             <item row="0" column="5">
+              <property name="text">
+               <string>95,590</string>
+              </property>
+             </item>
+             <item row="0" column="6">
+              <property name="text">
+               <string>91.79</string>
+              </property>
+             </item>
+             <item row="1" column="0">
+              <property name="text">
+               <string>win.citadel</string>
+              </property>
+             </item>
+             <item row="1" column="1">
+              <property name="text">
+               <string>2012-06-15-1.3.4.5</string>
+              </property>
+             </item>
+             <item row="1" column="2">
+              <property name="text">
+               <string>382</string>
+              </property>
+             </item>
+             <item row="1" column="3">
+              <property name="text">
+               <string>420</string>
+              </property>
+             </item>
+             <item row="1" column="4">
+              <property name="text">
+               <string>556</string>
+              </property>
+             </item>
+             <item row="1" column="5">
+              <property name="text">
+               <string>72,636</string>
+              </property>
+             </item>
+             <item row="1" column="6">
+              <property name="text">
+               <string>69.75</string>
+              </property>
+             </item>
+             <item row="2" column="0">
+              <property name="text">
+               <string>win.vmzeus</string>
+              </property>
+             </item>
+             <item row="2" column="1">
+              <property name="text">
+               <string>2015-08-07-3.1.0.0</string>
+              </property>
+             </item>
+             <item row="2" column="2">
+              <property name="text">
+               <string>321</string>
+              </property>
+             </item>
+             <item row="2" column="3">
+              <property name="text">
+               <string>375</string>
+              </property>
+             </item>
+             <item row="2" column="4">
+              <property name="text">
+               <string>407</string>
+              </property>
+             </item>
+             <item row="2" column="5">
+              <property name="text">
+               <string>58,388</string>
+              </property>
+             </item>
+             <item row="2" column="6">
+              <property name="text">
+               <string>48.17</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_2">
+             <property name="text">
+              <string>Sample Matches within Family: win.citadel</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="sampleMatchTable">
+             <property name="alternatingRowColors">
+              <bool>true</bool>
+             </property>
+             <attribute name="horizontalHeaderDefaultSectionSize">
+              <number>150</number>
+             </attribute>
+             <attribute name="horizontalHeaderStretchLastSection">
+              <bool>true</bool>
+             </attribute>
+             <row>
+              <property name="text">
+               <string>1</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>2</string>
+              </property>
+             </row>
+             <column>
+              <property name="text">
+               <string>SHA256</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Sample ID</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Version</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>PicHash Matches</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>MinHash Matches</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Score</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Percent</string>
+              </property>
+             </column>
+             <item row="0" column="0">
+              <property name="text">
+               <string>2c5ab3b92df90bf933da41bc1f3dfb140331c39c0d2d9381913fa73d2cc2ab74</string>
+              </property>
+             </item>
+             <item row="0" column="1">
+              <property name="text">
+               <string>43</string>
+              </property>
+             </item>
+             <item row="0" column="2">
+              <property name="text">
+               <string>2012-06-15-1.3.4.5</string>
+              </property>
+             </item>
+             <item row="0" column="3">
+              <property name="text">
+               <string>420</string>
+              </property>
+             </item>
+             <item row="0" column="4">
+              <property name="text">
+               <string>556</string>
+              </property>
+             </item>
+             <item row="0" column="5">
+              <property name="text">
+               <string>72,636</string>
+              </property>
+             </item>
+             <item row="0" column="6">
+              <property name="text">
+               <string>69.75</string>
+              </property>
+             </item>
+             <item row="1" column="0">
+              <property name="text">
+               <string>97bf981931c9d52abff35eef3ede355e51c61014fad6c9f2698f15d24c14335a</string>
+              </property>
+             </item>
+             <item row="1" column="1">
+              <property name="text">
+               <string>44</string>
+              </property>
+             </item>
+             <item row="1" column="2">
+              <property name="text">
+               <string>2012-11-08-1.3.5.1</string>
+              </property>
+             </item>
+             <item row="1" column="3">
+              <property name="text">
+               <string>386</string>
+              </property>
+             </item>
+             <item row="1" column="4">
+              <property name="text">
+               <string>510</string>
+              </property>
+             </item>
+             <item row="1" column="5">
+              <property name="text">
+               <string>67,352</string>
+              </property>
+             </item>
+             <item row="1" column="6">
+              <property name="text">
+               <string>64.32</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+         <widget class="QWidget" name="tabFunctionMatches">
+          <attribute name="title">
+           <string>Function Matches</string>
+          </attribute>
+          <layout class="QVBoxLayout" name="verticalLayout_3">
+           <item>
+            <widget class="QCheckBox" name="checkBox_2">
+             <property name="text">
+              <string>Filter to Library Functions</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="comboBox">
+             <item>
+              <property name="text">
+               <string>MinHash Threshold: 80</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <widget class="Line" name="line_3">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_5">
+             <property name="text">
+              <string>Local Functions</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="tableWidget_2">
+             <attribute name="horizontalHeaderDefaultSectionSize">
+              <number>150</number>
+             </attribute>
+             <attribute name="horizontalHeaderStretchLastSection">
+              <bool>true</bool>
+             </attribute>
+             <row>
+              <property name="text">
+               <string>1</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>2</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>3</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>4</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>5</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>6</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>7</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>8</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>9</string>
+              </property>
+             </row>
+             <column>
+              <property name="text">
+               <string>Offset</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Function Name</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>PicHash Family</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>PicHash Sample</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>MinHash Family</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>MinHash Sample</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>LibraryMatch?</string>
+              </property>
+             </column>
+             <item row="0" column="0">
+              <property name="text">
+               <string>0x407BF0</string>
+              </property>
+             </item>
+             <item row="0" column="1">
+              <property name="text">
+               <string>sub_407BF0</string>
+              </property>
+             </item>
+             <item row="0" column="2">
+              <property name="text">
+               <string>4</string>
+              </property>
+             </item>
+             <item row="0" column="3">
+              <property name="text">
+               <string>10</string>
+              </property>
+             </item>
+             <item row="0" column="4">
+              <property name="text">
+               <string>6</string>
+              </property>
+             </item>
+             <item row="0" column="5">
+              <property name="text">
+               <string>13</string>
+              </property>
+             </item>
+             <item row="1" column="0">
+              <property name="text">
+               <string>0x407BD0</string>
+              </property>
+             </item>
+             <item row="1" column="1">
+              <property name="text">
+               <string>start</string>
+              </property>
+             </item>
+             <item row="1" column="2">
+              <property name="text">
+               <string>6</string>
+              </property>
+             </item>
+             <item row="1" column="3">
+              <property name="text">
+               <string>16</string>
+              </property>
+             </item>
+             <item row="1" column="4">
+              <property name="text">
+               <string>8</string>
+              </property>
+             </item>
+             <item row="1" column="5">
+              <property name="text">
+               <string>21</string>
+              </property>
+             </item>
+             <item row="2" column="0">
+              <property name="text">
+               <string>0x407CA4</string>
+              </property>
+             </item>
+             <item row="2" column="1">
+              <property name="text">
+               <string>sub_407CA4</string>
+              </property>
+             </item>
+             <item row="2" column="2">
+              <property name="text">
+               <string>4</string>
+              </property>
+             </item>
+             <item row="2" column="3">
+              <property name="text">
+               <string>11</string>
+              </property>
+             </item>
+             <item row="2" column="4">
+              <property name="text">
+               <string>7</string>
+              </property>
+             </item>
+             <item row="2" column="5">
+              <property name="text">
+               <string>13</string>
+              </property>
+             </item>
+             <item row="3" column="0">
+              <property name="text">
+               <string>0x40CC2E</string>
+              </property>
+             </item>
+             <item row="3" column="1">
+              <property name="text">
+               <string>rc4init</string>
+              </property>
+             </item>
+             <item row="3" column="2">
+              <property name="text">
+               <string>12</string>
+              </property>
+             </item>
+             <item row="3" column="3">
+              <property name="text">
+               <string>34</string>
+              </property>
+             </item>
+             <item row="3" column="4">
+              <property name="text">
+               <string>17</string>
+              </property>
+             </item>
+             <item row="3" column="5">
+              <property name="text">
+               <string>51</string>
+              </property>
+             </item>
+             <item row="3" column="6">
+              <property name="text">
+               <string>YES</string>
+              </property>
+             </item>
+             <item row="4" column="0">
+              <property name="text">
+               <string>0x4100D2</string>
+              </property>
+             </item>
+             <item row="4" column="1">
+              <property name="text">
+               <string>sub_4100D2</string>
+              </property>
+             </item>
+             <item row="4" column="2">
+              <property name="text">
+               <string>6</string>
+              </property>
+             </item>
+             <item row="4" column="3">
+              <property name="text">
+               <string>16</string>
+              </property>
+             </item>
+             <item row="4" column="4">
+              <property name="text">
+               <string>8</string>
+              </property>
+             </item>
+             <item row="4" column="5">
+              <property name="text">
+               <string>19</string>
+              </property>
+             </item>
+             <item row="5" column="0">
+              <property name="text">
+               <string>0x410693</string>
+              </property>
+             </item>
+             <item row="5" column="1">
+              <property name="text">
+               <string>sub_410693</string>
+              </property>
+             </item>
+             <item row="5" column="2">
+              <property name="text">
+               <string>4</string>
+              </property>
+             </item>
+             <item row="5" column="3">
+              <property name="text">
+               <string>11</string>
+              </property>
+             </item>
+             <item row="5" column="4">
+              <property name="text">
+               <string>6</string>
+              </property>
+             </item>
+             <item row="5" column="5">
+              <property name="text">
+               <string>12</string>
+              </property>
+             </item>
+             <item row="6" column="0">
+              <property name="text">
+               <string>0x41BD03</string>
+              </property>
+             </item>
+             <item row="6" column="1">
+              <property name="text">
+               <string>sub_41bD03</string>
+              </property>
+             </item>
+             <item row="6" column="2">
+              <property name="text">
+               <string>3</string>
+              </property>
+             </item>
+             <item row="6" column="3">
+              <property name="text">
+               <string>8</string>
+              </property>
+             </item>
+             <item row="6" column="4">
+              <property name="text">
+               <string>3</string>
+              </property>
+             </item>
+             <item row="6" column="5">
+              <property name="text">
+               <string>8</string>
+              </property>
+             </item>
+             <item row="7" column="0">
+              <property name="text">
+               <string>0x41C551</string>
+              </property>
+             </item>
+             <item row="7" column="1">
+              <property name="text">
+               <string>sub_41C551</string>
+              </property>
+             </item>
+             <item row="7" column="2">
+              <property name="text">
+               <string>4</string>
+              </property>
+             </item>
+             <item row="7" column="3">
+              <property name="text">
+               <string>10</string>
+              </property>
+             </item>
+             <item row="7" column="4">
+              <property name="text">
+               <string>5</string>
+              </property>
+             </item>
+             <item row="7" column="5">
+              <property name="text">
+               <string>11</string>
+              </property>
+             </item>
+             <item row="8" column="0">
+              <property name="text">
+               <string>0x41CAD1</string>
+              </property>
+             </item>
+             <item row="8" column="1">
+              <property name="text">
+               <string>sub_41CAD1</string>
+              </property>
+             </item>
+             <item row="8" column="2">
+              <property name="text">
+               <string>5</string>
+              </property>
+             </item>
+             <item row="8" column="3">
+              <property name="text">
+               <string>14</string>
+              </property>
+             </item>
+             <item row="8" column="4">
+              <property name="text">
+               <string>6</string>
+              </property>
+             </item>
+             <item row="8" column="5">
+              <property name="text">
+               <string>16</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="label_6">
+             <property name="text">
+              <string>Matches</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QTableWidget" name="tableWidget_3">
+             <attribute name="horizontalHeaderDefaultSectionSize">
+              <number>150</number>
+             </attribute>
+             <attribute name="horizontalHeaderStretchLastSection">
+              <bool>true</bool>
+             </attribute>
+             <row>
+              <property name="text">
+               <string>1</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>2</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>3</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>4</string>
+              </property>
+             </row>
+             <row>
+              <property name="text">
+               <string>5</string>
+              </property>
+             </row>
+             <column>
+              <property name="text">
+               <string>SHA256</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Family</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Version</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Sample ID</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Pichash Match</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>MinHash Score</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>Label</string>
+              </property>
+             </column>
+             <column>
+              <property name="text">
+               <string>LibraryMatch?</string>
+              </property>
+             </column>
+             <item row="0" column="0">
+              <property name="text">
+               <string>2c5ab3b92df90bf933da41bc1f3dfb140331c39c0d2d9381913fa73d2cc2ab74</string>
+              </property>
+             </item>
+             <item row="0" column="1">
+              <property name="text">
+               <string>win.citadel</string>
+              </property>
+             </item>
+             <item row="0" column="2">
+              <property name="text">
+               <string>2012-06-15-1.3.4.5</string>
+              </property>
+             </item>
+             <item row="0" column="3">
+              <property name="text">
+               <string>43</string>
+              </property>
+             </item>
+             <item row="0" column="4">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="0" column="5">
+              <property name="text">
+               <string>92</string>
+              </property>
+             </item>
+             <item row="0" column="6">
+              <property name="text">
+               <string/>
+              </property>
+             </item>
+             <item row="0" column="7">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="1" column="0">
+              <property name="text">
+               <string>3dfb140331c39c0d2d9381913fa73d2cc2ab742c5ab3b92df90bf933da41bc1f</string>
+              </property>
+             </item>
+             <item row="1" column="1">
+              <property name="text">
+               <string>win.citadel</string>
+              </property>
+             </item>
+             <item row="1" column="2">
+              <property name="text">
+               <string>2013-12-18-2.0.c.0</string>
+              </property>
+             </item>
+             <item row="1" column="3">
+              <property name="text">
+               <string>12</string>
+              </property>
+             </item>
+             <item row="1" column="4">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="1" column="5">
+              <property name="text">
+               <string>91</string>
+              </property>
+             </item>
+             <item row="1" column="7">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="2" column="0">
+              <property name="text">
+               <string>2df90bf933da41bc1f3dfb140331c39c0d2d9381913fa73d2cc2ab742c5ab3b9</string>
+              </property>
+             </item>
+             <item row="2" column="1">
+              <property name="text">
+               <string>win.zeus</string>
+              </property>
+             </item>
+             <item row="2" column="2">
+              <property name="text">
+               <string>2.0.8.9</string>
+              </property>
+             </item>
+             <item row="2" column="3">
+              <property name="text">
+               <string>46</string>
+              </property>
+             </item>
+             <item row="2" column="4">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="2" column="5">
+              <property name="text">
+               <string>88</string>
+              </property>
+             </item>
+             <item row="2" column="7">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="3" column="0">
+              <property name="text">
+               <string>bf933da41bc1f3dfb140331c39c0d2d9381913fa73d2cc2ab742c5ab3b92df90</string>
+              </property>
+             </item>
+             <item row="3" column="1">
+              <property name="text">
+               <string>win.ice_ix</string>
+              </property>
+             </item>
+             <item row="3" column="2">
+              <property name="text">
+               <string>2011-08-09-1.3.4.0</string>
+              </property>
+             </item>
+             <item row="3" column="3">
+              <property name="text">
+               <string>33</string>
+              </property>
+             </item>
+             <item row="3" column="4">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="3" column="5">
+              <property name="text">
+               <string>88</string>
+              </property>
+             </item>
+             <item row="3" column="7">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="4" column="0">
+              <property name="text">
+               <string>d2d9381913fa73d2cc2ab742c5ab3b92df90bf933da41bc1f3dfb140331c39c0</string>
+              </property>
+             </item>
+             <item row="4" column="1">
+              <property name="text">
+               <string>win.vmzeus</string>
+              </property>
+             </item>
+             <item row="4" column="2">
+              <property name="text">
+               <string>2014-04-13-v3.2.1</string>
+              </property>
+             </item>
+             <item row="4" column="3">
+              <property name="text">
+               <string>34</string>
+              </property>
+             </item>
+             <item row="4" column="4">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+             <item row="4" column="5">
+              <property name="text">
+               <string>86</string>
+              </property>
+             </item>
+             <item row="4" column="7">
+              <property name="text">
+               <string>no</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="tabHexView">
+      <attribute name="title">
+       <string>Hex View-A</string>
+      </attribute>
+     </widget>
+     <widget class="QWidget" name="tabStructures">
+      <attribute name="title">
+       <string>Structures</string>
+      </attribute>
+     </widget>
+     <widget class="QWidget" name="tabMore">
+      <attribute name="title">
+       <string>...</string>
+      </attribute>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
