@@ -21,11 +21,24 @@ class MatchingResult(object):
     reference_sample_entry: "SampleEntry"
     other_sample_entry: "SampleEntry"
     match_aggregation: Dict
-    function_matches: List["MatchedFunctionEntry"]
     sample_matches: List["MatchedSampleEntry"]
+    function_matches: List["MatchedFunctionEntry"]
 
     def __init__(self, sample_entry: "SampleEntry") -> None:
         self.reference_sample_entry = sample_entry
+
+    def getFamilyNameByFamilyId(self, family_id):
+        family_name = ""
+        for sample_match in self.sample_matches:
+            if sample_match.family_id == family_id:
+                family_name = sample_match.family
+                break
+        return family_name
+
+    def filterToFamilyId(self, family_id):
+        """ reduce contained matches to chosen family_id by deleting the other sample matches """
+        self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.family_id == family_id]
+        self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_family_id == family_id]
 
     def getBestSampleMatchesPerFamily(self, start=None, limit=None):
         by_family = {}
@@ -40,6 +53,22 @@ class MatchingResult(object):
                 by_family[sample_match.family]["report"] = sample_match
         result_list = []
         for family, score_entry in sorted(by_family.items(), key=lambda e: e[1]["score"], reverse=True):
+            result_list.append(score_entry["report"])
+        if start is not None:
+            result_list = result_list[start:]
+        if limit is not None:
+            result_list = result_list[:limit]
+        return result_list
+
+    def getSampleMatches(self, start=None, limit=None):
+        by_sample_id = {}
+        for sample_match in self.sample_matches:
+            by_sample_id[sample_match.sample_id] = {
+                "score": sample_match.matched_percent_frequency_weighted,
+                "report": sample_match
+            }
+        result_list = []
+        for sample_id, score_entry in sorted(by_sample_id.items(), key=lambda e: e[1]["score"], reverse=True):
             result_list.append(score_entry["report"])
         if start is not None:
             result_list = result_list[start:]

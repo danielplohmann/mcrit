@@ -12,6 +12,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class MatchedSampleEntry(object):
     # basic information
     family: str
+    family_id: int
     version: str
     bitness: int
     sha256: str
@@ -57,6 +58,7 @@ class MatchedSampleEntry(object):
     def toDict(self):
         matching_entry = {
             "family": self.family,
+            "family_id": self.family_id,
             "version": self.version,
             "bitness": self.bitness,
             "sha256": self.sha256,
@@ -95,6 +97,7 @@ class MatchedSampleEntry(object):
     def fromDict(cls, entry_dict):
         matching_entry = cls(None)
         matching_entry.family = entry_dict["family"]
+        matching_entry.family_id = entry_dict["family_id"]
         matching_entry.version = entry_dict["version"]
         matching_entry.bitness = entry_dict["bitness"]
         matching_entry.sha256 = entry_dict["sha256"]

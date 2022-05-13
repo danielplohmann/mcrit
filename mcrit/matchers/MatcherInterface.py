@@ -374,6 +374,7 @@ class MatcherInterface(object):
             sample_info = self._storage.getSampleById(foreign_sample_id)
             sample_summary[foreign_sample_id] = {
                 "family": sample_info.family,
+                "family_id": sample_info.family_id,
                 "version": sample_info.version,
                 "bitness": sample_info.bitness,
                 "sha256": sample_info.sha256,
