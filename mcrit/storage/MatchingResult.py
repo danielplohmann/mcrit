@@ -23,6 +23,8 @@ class MatchingResult(object):
     match_aggregation: Dict
     sample_matches: List["MatchedSampleEntry"]
     function_matches: List["MatchedFunctionEntry"]
+    is_family_filtered: bool
+    is_sample_filtered: bool
 
     def __init__(self, sample_entry: "SampleEntry") -> None:
         self.reference_sample_entry = sample_entry
@@ -35,10 +37,23 @@ class MatchingResult(object):
                 break
         return family_name
 
+    def getFilteredSampleMatch(self):
+        if not self.is_sample_filtered:
+            return None
+        else:
+            return self.sample_matches[0]
+
     def filterToFamilyId(self, family_id):
-        """ reduce contained matches to chosen family_id by deleting the other sample matches """
+        """ reduce contained matches to chosen family_id by deleting the other sample and function matches """
         self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.family_id == family_id]
         self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_family_id == family_id]
+        self.is_family_filtered = True
+
+    def filterToSampleId(self, sample_id):
+        """ reduce contained matches to chosen sample_id by deleting the other sample and function matches """
+        self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id == sample_id]
+        self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_sample_id == sample_id]
+        self.is_sample_filtered = True
 
     def getBestSampleMatchesPerFamily(self, start=None, limit=None):
         by_family = {}
@@ -113,7 +128,6 @@ class MatchingResult(object):
         if limit is not None:
             aggregated_matched = aggregated_matched[:limit]
         return aggregated_matched
-
 
     def getFunctionsSlice(self, start, limit):
         return self.function_matches[start:start+limit]
