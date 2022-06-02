@@ -81,6 +81,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-05-13 v0.9.4: Bug fix for receiving submitted files.
  * 2022-05-13 v0.9.3: Further updates to MatchingResults.
  * 2022-05-13 v0.9.2: Added another field and more convenience functions in MatchingResult for better access - those are breaking changes for previously created MatchingResults.
  * 2022-05-05 v0.9.1: Processing of binary submissions, minor fixes for minhash queuing - INITIAL RELEASE.

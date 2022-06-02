@@ -65,12 +65,13 @@ class SampleResource:
                 }
             )
             resp.status = falcon.HTTP_400
+            LOGGER.info("no body for post")
             return
         # TODO parse respective query fields -> escape / sanitize input
         filename = req.params["filename"] if "filename" in req.params else None
         family = req.params["family"] if "family" in req.params else None
         version = req.params["version"] if "version" in req.params else None
-        is_dump = True if ("version" in req.params and req.params["is_dump"] in ["True", "true", "1", 1]) else False
+        is_dump = True if ("is_dump" in req.params and req.params["is_dump"] in ["True", "true", "1", 1]) else False
         base_address = 0 
         if "base_addr" in req.params:
             try:
