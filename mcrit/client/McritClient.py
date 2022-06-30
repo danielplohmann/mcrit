@@ -293,6 +293,16 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/status")
         return response.json()["data"]
 
+    def getJobCount(self, filter=None):
+        query_string = ""
+        if isinstance(filter, str) and filter is not None:
+            if len(query_string) == 0:
+                query_string = f"?filter={filter}"
+            else:
+                query_string += f"&filter={filter}"
+        jobs = requests.get(f"{self.mcrit_server}/jobs/{query_string}").json()
+        return len(jobs)
+
     def getQueueData(self, start=0, limit=0, filter=None):
         query_string = ""
         if isinstance(start, int) and start > 0:
