@@ -38,7 +38,7 @@ class MatchingResult(object):
         return family_name
 
     def getFilteredSampleMatch(self):
-        if not self.is_sample_filtered:
+        if not self.is_sample_filtered or not len(self.sample_matches):
             return None
         else:
             return self.sample_matches[0]
