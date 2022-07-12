@@ -41,8 +41,12 @@ class Job(object):
         return self._data["priority"]
 
     @property
-    def attempts(self):
-        return self._data["attempts"]
+    def attempts_left(self):
+        return self._data["attempts_left"]
+
+    @property
+    def is_failed(self):
+        return self._data["attempts_left"] == 0
 
     @property
     def locked_by(self):
@@ -132,7 +136,7 @@ class Job(object):
         self._data["locked_by"] = None
         self._data["locked_at"] = None
         self._data["last_error"] = message
-        self._data["attempts"] += 1
+        self._data["attempts_left"] -= 1
 
     def progressor(self, count=0):
         self._data["progress"] = count
@@ -167,6 +171,7 @@ class LocalQueue(object):
         self._job_counter = 0
         self.clean_interval = 10 ** 9
         self.cache_time = 10 ** 9
+        self.max_attempts = 1
 
     def _setup_empty_queue(self):
         self._jobs = defaultdict(lambda: None)
@@ -272,7 +277,7 @@ class LocalQueue(object):
         job_data["number"] = self._job_counter
         self._job_counter += 1
         job_data["payload"] = payload
-        job_data["attempts"] = 0
+        job_data["attempts_left"] = self.max_attempts
         job_data["created_at"] = datetime.now()
         self._jobs[id] = job_data
         self._descriptor_to_job[payload["descriptor"]] = id
