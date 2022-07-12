@@ -138,9 +138,13 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             else:
                 import_report["num_families_skipped"] += 1
             family_id_remapping[exported_family_id] = remapped_family_id
-        LOGGER.info("Family remapping created...")
+        LOGGER.info("Family remapping created: %d families, %d samples.", 
+                len(family_id_remapping), 
+                len(export_data["sample_entries"]))
         # iterate samples
+        index = 0
         for sample_sha256, sample_entry_dict in export_data["sample_entries"].items():
+            index += 1
             # check if sample is already present, and skip if yes
             if self._storage.getSampleBySha256(sample_sha256):
                 LOGGER.info(f"Sample with SHA256 {sample_sha256} already present in database, skipping...")
@@ -172,7 +176,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                     import_report["num_functions_imported"] += 1
                 # ensure that their minhashes / pichashes are added to the respective indices
                 self._storage.addMinHashes(minhashes)
-            LOGGER.info(f"Sample with SHA256 {sample_sha256} added...")
+            LOGGER.info(f"Sample %d with SHA256 %s added...", index, sample_sha256)
         return import_report
 
     def respawn(self):

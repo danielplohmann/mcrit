@@ -129,6 +129,21 @@ class MemoryStorage(StorageInterface):
             self._pichashes[function_entry.pichash].add((function_entry.sample_id, function_entry.function_id))
         return function_entry
 
+
+    def importFunctionEntries(self, function_entries: List["FunctionEntry"]) -> Optional[List["FunctionEntry"]]:
+        for function_entry in function_entries:
+            function_entry.function_id = self._useCounter("functions")
+            # add function to regular storage
+            self._functions[function_entry.function_id] = function_entry
+            if function_entry.sample_id not in self._sample_id_to_function_ids:
+                self._sample_id_to_function_ids[function_entry.sample_id] = []
+            self._sample_id_to_function_ids[function_entry.sample_id].append(function_entry.function_id)
+            if function_entry.pichash:
+                if function_entry.pichash not in self._pichashes:
+                    self._pichashes[function_entry.pichash] = set()
+                self._pichashes[function_entry.pichash].add((function_entry.sample_id, function_entry.function_id))
+        return function_entries
+
     # TODO return type?
     def getLibraryInfoForSampleId(self, sample_id: int) -> Optional[Dict[str, str]]:
         if sample_id not in self._samples:

@@ -111,6 +111,20 @@ class MongoDbStorage(StorageInterface):
             )
             raise ValueError("Database insert failed.")
 
+
+    def _dbInsertMany(self, collection: str, data: List["Dict"]):
+        try:
+            insert_result = self._database[collection].insert_many([self._toBinary(document) for document in data])
+            if insert_result.acknowledged:
+                return insert_result.inserted_ids
+            return None
+        except Exception as exc:
+            self._dbLogError(
+                'Database insert_many for collection "%s" failed.' % collection,
+                {"user": "internal/mcrit", "traceback": traceback.format_exc(exc).split("\n")},
+            )
+            raise ValueError("Database insert failed.")
+
     def _dbQuery(self, collection: str, query: Dict, find_one: bool = False):
         try:
             if find_one:
@@ -316,6 +330,17 @@ class MongoDbStorage(StorageInterface):
         self._encodeFunction(function_dict)
         self._dbInsert("functions", function_dict)
         return function_entry
+
+    def importFunctionEntries(self, function_entries: List["FunctionEntry"]) -> Optional[List["FunctionEntry"]]:
+        functions_as_dicts = []
+        for function_entry in function_entries:
+            function_entry.function_id = self._useCounter("functions")
+            # add function to regular storage
+            function_dict = function_entry.toDict()
+            self._encodeFunction(function_dict)
+            functions_as_dicts.append(function_dict)
+        self._dbInsertMany("functions", functions_as_dicts)
+        return function_entries
 
     def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
         if not self.isSampleId(sample_id):

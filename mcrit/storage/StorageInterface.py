@@ -128,14 +128,26 @@ class StorageInterface:
 
     def importFunctionEntry(self, function_entry: "FunctionEntry") -> Optional["FunctionEntry"]:
         """Import a function_entry to storage based on a previously exported FunctionEntry.
-        We assume that the family_id and sample_id was already remapped by the MinHashIndex, meaning that only the function_id needs to be adjusted
-        When importing similarity hashes (pichash, minhash, ...) make sure they are added to their respective lookup indices. 
+        We assume that the family_id and sample_id were already remapped by the MinHashIndex, meaning that only the function_id needs to be adjusted.
 
         Args:
             function_entry: the FunctionEntry to add to the storage
 
         Returns:
             An adjusted FunctionEntry if successful or None, if we failed somewhere in the procedure
+        """
+        raise NotImplementedError
+
+
+    def importFunctionEntries(self, function_entries: List["FunctionEntry"]) -> Optional[List["FunctionEntry"]]:
+        """Import multiple function_entries to storage based on previously exported FunctionEntry objects.
+        We assume that the family_id and sample_id were already remapped by the MinHashIndex, meaning that only the function_ids need to be adjusted.
+
+        Args:
+            function_entries: List of FunctionEntry objects to add to the storage
+
+        Returns:
+            A list of adjusted FunctionEntry objects if successful or None, if we failed somewhere in the procedure
         """
         raise NotImplementedError
 
