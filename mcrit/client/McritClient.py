@@ -4,6 +4,7 @@ from typing import List, Optional, Tuple
 from multiprocessing.sharedctypes import Value
 
 import requests
+import urllib.parse
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.queue.LocalQueue import Job
@@ -21,9 +22,11 @@ def isJobTerminated(job):
 
     return job.is_terminated
 
+def isJobFailed(job):
+    return (job is not None) and (not job["attempts_left"])
 
-def isJobFinishedOrTerminated(job):
-    return isJobTerminated(job) or (job.result is not None)
+def isJobFinishedTerminatedOrFailed(job):
+    return isJobTerminated(job) or (job.result is not None) or isJobFailed(job)
 
 
 class McritClient:
@@ -345,7 +348,7 @@ class McritClient:
         if job_id is None:
             return None
         job = self.getJobData(job_id)
-        while not isJobFinishedOrTerminated(job):
+        while not isJobFinishedTerminatedOrFailed(job):
             time.sleep(sleep_time)
             job = self.getJobData(job_id)
         if isJobTerminated(job):
@@ -381,5 +384,5 @@ class McritClient:
     ###########################################
 
     def search(self, search_term):
-        result_data = requests.get(f"{self.mcrit_server}/search/{search_term}").json()["data"]
+        result_data = requests.get(f"{self.mcrit_server}/search/{urllib.parse.quote(search_term)}").json()["data"]
         return result_data

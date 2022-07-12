@@ -23,7 +23,6 @@ from pymongo import ReturnDocument
 from bson.objectid import ObjectId
 
 DEFAULT_INSERT = {
-    "attempts": 0,
     "locked_by": None,
     "locked_at": None,
     "last_error": None,
@@ -56,6 +55,8 @@ class MongoQueue(object):
         self.consumer_id = consumer_id
         self.timeout = timeout
         self.max_attempts = max_attempts
+        self._default_insert = dict(DEFAULT_INSERT)
+        self._default_insert["attempts_left"] = max_attempts
         self.fs = gridfs.GridFS(self.collection.database)
         self.fs_files = self.collection.database["fs.files"]
         self._ensure_indices()
@@ -90,16 +91,16 @@ class MongoQueue(object):
         """
         self.collection.find_one_and_update(
             filter={"locked_by": {"$ne": None}, "locked_at": {"$lt": datetime.now() - timedelta(self.timeout)}},
-            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts": 1}},
+            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
         )
 
     def drop_max_attempts(self):
         """ """
-        self.collection.find_one_and_update({"attempts": {"$gte": self.max_attempts}}, remove=True)
+        self.collection.find_one_and_update({"attempts_left": {"$lte": 0}}, remove=True)
 
     def put(self, payload, priority=0):
         """Place a job into the queue"""
-        job = dict(DEFAULT_INSERT)
+        job = dict(self._default_insert)
         job["number"] = _useCounter(self.collection.database, "job")
         job["created_at"] = datetime.now()
         job["priority"] = priority
@@ -116,7 +117,7 @@ class MongoQueue(object):
                 filter={
                     "locked_by": None,
                     "locked_at": None,
-                    "attempts": {"$lt": self.max_attempts},
+                    "attempts_left": {"$gt": 0},
                     "finished_at": None,
                 },
                 update={"$set": {"locked_by": self.consumer_id, "locked_at": current_time, "started_at": current_time}},
@@ -128,7 +129,7 @@ class MongoQueue(object):
 
     def _jobs_to_do(self):
         return self.collection.find(
-            filter={"locked_by": None, "locked_at": None, "attempts": {"$lt": self.max_attempts}, "finished_at": None},
+            filter={"locked_by": None, "locked_at": None, "attempts_left": {"$gt": 0}, "finished_at": None},
             sort=[("priority", pymongo.DESCENDING)],
         )
 
@@ -137,7 +138,7 @@ class MongoQueue(object):
             filter={
                 "locked_by": {"$ne": None},
                 "locked_at": {"$ne": None},
-                "attempts": {"$lt": self.max_attempts},
+                "attempts_left": {"gt": 0},
                 "finished_at": None,
             },
             sort=[("priority", pymongo.DESCENDING)],
@@ -145,7 +146,7 @@ class MongoQueue(object):
 
     def _jobs_given_up(self):
         return self.collection.find(
-            filter={"attempts": {"$ge": self.max_attempts}, "finished_at": None},
+            filter={"attempts_left": {"$le": 0}, "finished_at": None},
             sort=[("priority", pymongo.DESCENDING)],
         )
 
@@ -164,26 +165,11 @@ class MongoQueue(object):
         Use sparingly requires a collection lock.
         """
         querys = []
-        querys.append({"locked_by": None, "attempts": {"$lt": self.max_attempts}})
+        querys.append({"locked_by": None, "attempts_left": {"$gt": 0}})
         querys.append({"locked_by": {"$ne": None}})
-        querys.append({"attempts": {"$gte": self.max_attempts}})
+        querys.append({"attempts_left": {"$lte": 0}})
         querys.append({})
         counts = [self.collection.count_documents(q) for q in querys]
-        js = """function queue_stat(){
-        return db.eval(
-        function(){
-           var a = db.%(collection)s.count(
-               {'locked_by': null,
-                'attempts': {$lt: %(max_attempts)i}});
-           var l = db.%(collection)s.count({'locked_by': /.*/});
-           var e = db.%(collection)s.count(
-               {'attempts': {$gte: %(max_attempts)i}});
-           var t = db.%(collection)s.count();
-           return [a, l, e, t];
-           })}""" % {
-            "collection": self.collection.name,
-            "max_attempts": self.max_attempts,
-        }
 
         return dict(zip(["available", "locked", "errors", "total"], counts))
 
@@ -237,7 +223,7 @@ class MongoQueue(object):
         job = self._wrap_one(
             self.collection.find_one(
                 {
-                    "attempts": {"$lt": self.max_attempts},
+                    "attempts_left": {"$gt": 0},
                     "payload.descriptor": payload["descriptor"],
                     "terminated": False,
                 },
@@ -330,8 +316,12 @@ class Job(object):
         return self._data["priority"]
 
     @property
-    def attempts(self):
-        return self._data["attempts"]
+    def attempts_left(self):
+        return self._data["attempts_left"]
+
+    @property
+    def is_failed(self):
+        return self._data["attempts_left"] == 0
 
     @property
     def locked_by(self):
@@ -407,7 +397,7 @@ class Job(object):
         """note an error processing a job, and return it to the queue."""
         self._queue.collection.find_one_and_update(
             filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
-            update={"$set": {"locked_by": None, "locked_at": None, "last_error": message}, "$inc": {"attempts": 1}},
+            update={"$set": {"locked_by": None, "locked_at": None, "last_error": message}, "$inc": {"attempts_left": -1}},
         )
 
     def progressor(self, count=0):
@@ -422,7 +412,7 @@ class Job(object):
         """put the job back into_queue."""
         return self._queue.collection.find_one_and_update(
             filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
-            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts": 1}},
+            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
             return_document=ReturnDocument.AFTER
         )
 
