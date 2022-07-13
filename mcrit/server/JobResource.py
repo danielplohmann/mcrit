@@ -47,7 +47,7 @@ class JobResource:
                 break
             if limit_job_count and num_jobs_included >= limit_job_count:
                 break
-        resp.data = jsonify(result_data)
+        resp.data = jsonify({"status": "successful", "data": result_data})
 
     @timing
     def on_get(self, req, resp, job_id=None):

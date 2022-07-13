@@ -1,5 +1,6 @@
 import time
 import json
+import logging
 from typing import List, Optional, Tuple
 from multiprocessing.sharedctypes import Value
 
@@ -10,6 +11,12 @@ from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.queue.LocalQueue import Job
 from smda.common.SmdaReport import SmdaReport
 from smda.Disassembler import Disassembler
+
+
+# Only do basicConfig if no handlers have been configured
+if len(logging._handlerList) == 0:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
+LOGGER = logging.getLogger(__name__)
 
 
 class JobTerminatedError(Exception):
@@ -27,6 +34,21 @@ def isJobFailed(job):
 
 def isJobFinishedTerminatedOrFailed(job):
     return isJobTerminated(job) or (job.result is not None) or isJobFailed(job)
+
+
+def handle_response(response):
+    data = None
+    if response.status_code == 500:
+        LOGGER.warn("McritClient received status code 500 from MCRIT.")
+    elif response.status_code in [400, 404]:
+        # nothing to here as of now
+        pass
+    elif response.status_code == 200:
+        json_response = response.json()
+        if "status" in json_response and json_response["status"] == "successful":
+            data = json_response["data"]
+    return data
+
 
 
 class McritClient:
@@ -48,18 +70,19 @@ class McritClient:
         return params
 
     def respawn(self):
-        requests.post(f"{self.mcrit_server}/respawn")
+        response = requests.post(f"{self.mcrit_server}/respawn")
+        return handle_response(response)
 
     def addReport(self, smda_report: SmdaReport) -> Tuple[SampleEntry, Optional[str]]:
         smda_json = smda_report.toDict()
         response = requests.post(f"{self.mcrit_server}/samples", json=smda_json)
-        # assert response.ok
-        data = response.json()["data"]
-        if "job_id" in data:
-            job_id = data["job_id"]
-        else:
-            job_id = None
-        return SampleEntry.fromDict(data["sample_info"]), job_id
+        data = handle_response(response)
+        if data:
+            if "job_id" in data:
+                job_id = data["job_id"]
+            else:
+                job_id = None
+            return SampleEntry.fromDict(data["sample_info"]), job_id
 
     def addBinarySample(self, binary: bytes, filename=None, family=None, version=None, is_dump=False, base_addr=None, bitness=None) -> Tuple[SampleEntry, Optional[str]]:
         query_fields = []
@@ -79,10 +102,7 @@ class McritClient:
         if len(query_fields) > 0:
             query_string = "?" + "&".join(query_fields)
         response = requests.post(f"{self.mcrit_server}/samples/binary{query_string}", data=binary)
-        if response.status_code == 400:
-            return None
-        job_id = response.json()["data"]
-        return job_id
+        return handle_response(response)
 
     ###########################################
     ### Families 
@@ -90,24 +110,23 @@ class McritClient:
 
     def getFamily(self, family_id: int) -> Optional[str]:
         response = requests.get(f"{self.mcrit_server}/families/{family_id}")
-        if response.status_code == 404:
-            return None
-        data = response.json()["data"]
-        family_data = data[str(family_id)]
-        return {
-            "family_id": family_data["family_id"],
-            "family": family_data["family"],
-            "num_samples": family_data["num_samples"],
-            "num_versions": family_data["num_versions"],
-            "samples": [
-                SampleEntry.fromDict(sample_entry_dict)
-                for sample_entry_dict in sorted(family_data["samples"].values(), key=lambda s: s["sample_id"])
-            ]
-        }
+        data = handle_response(response)
+        if data:
+            family_data = data[str(family_id)]
+            return {
+                "family_id": family_data["family_id"],
+                "family": family_data["family"],
+                "num_samples": family_data["num_samples"],
+                "num_versions": family_data["num_versions"],
+                "samples": [
+                    SampleEntry.fromDict(sample_entry_dict)
+                    for sample_entry_dict in sorted(family_data["samples"].values(), key=lambda s: s["sample_id"])
+                ]
+            }
 
     def getFamilies(self):
-        result_data = requests.get(f"{self.mcrit_server}/families").json()["data"]
-        return result_data
+        response = requests.get(f"{self.mcrit_server}/families")
+        return handle_response(response)
 
     ###########################################
     ### Samples 
@@ -115,39 +134,40 @@ class McritClient:
 
     def isSampleId(self, sample_id):
         response = requests.get(f"{self.mcrit_server}/samples/{sample_id}")
-        if response.status_code == 404:
-            return False
-        return True
+        data = handle_response(response)
+        if data is not None:
+            return True
+        return False
 
     def deleteSample(self, sample_id):
         response = requests.delete(f"{self.mcrit_server}/samples/{sample_id}")
-        return response.json()["data"]
+        return handle_response(response)
+
 
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List[SampleEntry]]:
         response = requests.get(f"{self.mcrit_server}/families/{family_id}")
-        if response.status_code == 404:
-            return None
-        data = response.json()["data"][str(family_id)]
-        return [
-            SampleEntry.fromDict(sample_entry_dict)
-            for sample_entry_dict in data["samples"].values()
-        ]
+        data = handle_response(response)
+        if data:
+            samples_for_family = [str(family_id)]
+            return [
+                SampleEntry.fromDict(sample_entry_dict)
+                for sample_entry_dict in samples_for_family["samples"].values()
+            ]
 
     def getSampleById(self, sample_id):
         response = requests.get(f"{self.mcrit_server}/samples/{sample_id}")
-        if response.status_code == 404:
-            return None
-        data = response.json()
-        if data["status"] == "successful":
-            return SampleEntry.fromDict(data["data"])
-        return {}
+        data = handle_response(response)
+        if data:
+            return SampleEntry.fromDict(data)
 
     def getSamples(self, start=0, limit=0):
         query_string = ""
         if (isinstance(start, int) and start >= 0) and (isinstance(limit, int) and limit >= 0):
             query_string = f"?start={start}&limit={limit}"
-        data = requests.get(f"{self.mcrit_server}/samples{query_string}").json()["data"]
-        return {int(k): SampleEntry.fromDict(v) for k, v in data.items()}
+        response = requests.get(f"{self.mcrit_server}/samples{query_string}")
+        data = handle_response(response)
+        if data:
+            return {int(k): SampleEntry.fromDict(v) for k, v in data.items()}
 
     ###########################################
     ### Functions
@@ -155,36 +175,34 @@ class McritClient:
 
     def getFunctionsBySampleId(self, sample_id):
         response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/functions")
-        if response.status_code == 404:
-            return None
-        data = response.json()["data"]
-        return [
-            FunctionEntry.fromDict(function_entry_dict)
-            for function_entry_dict in data.values()
-        ]
+        data = handle_response(response)
+        if data:
+            return [
+                FunctionEntry.fromDict(function_entry_dict)
+                for function_entry_dict in data.values()
+            ]
 
     def getFunctions(self, start=0, limit=0):
         query_string = ""
         if (isinstance(start, int) and start >= 0) and (isinstance(limit, int) and limit >= 0):
             query_string = f"?start={start}&limit={limit}"
         response = requests.get(f"{self.mcrit_server}/functions{query_string}")
-        if response.status_code == 404:
-            return None
-        data = response.json()["data"]
-        return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
+        data = handle_response(response)
+        if data:
+            return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
 
     def isFunctionId(self, function_id):
         response = requests.get(f"{self.mcrit_server}/functions/{function_id}")
-        if response.status_code == 404:
-            return False
-        return True
+        data = handle_response(response)
+        if data is not None:
+            return True
+        return False
 
     def getFunctionById(self, function_id: int) -> Optional[FunctionEntry]:
         response = requests.get(f"{self.mcrit_server}/functions/{function_id}")
-        if response.status_code == 404:
-            return None
-        data = response.json()["data"]
-        return FunctionEntry.fromDict(data)
+        data = handle_response(response)
+        if data:
+            return FunctionEntry.fromDict(data)
 
     ###########################################
     ### Matching 
@@ -198,12 +216,9 @@ class McritClient:
         force_recalculation=False,
     ) -> str:
         smda_json = smda_report.toDict()
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation
-        )
-        return requests.post(
-            f"{self.mcrit_server}/query", json=smda_json, params=params
-        ).json()["data"]
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation)
+        response = requests.post(f"{self.mcrit_server}/query", json=smda_json, params=params)
+        return handle_response(response)
 
     def requestMatchesForMappedBinary(
         self,
@@ -224,14 +239,9 @@ class McritClient:
                 force_recalculation=force_recalculation,
             )
 
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation
-        )
-        return requests.post(
-            f"{self.mcrit_server}/query/binary/mapped/{base_address}",
-            binary,
-            params=params,
-        ).json()["data"]
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation)
+        response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, params=params)
+        return handle_response(response)
 
     def requestMatchesForUnmappedBinary(
         self,
@@ -251,12 +261,10 @@ class McritClient:
                 force_recalculation=force_recalculation,
             )
 
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation
-        )
-        return requests.post(
-            f"{self.mcrit_server}/query/binary", binary, params=params
-        ).json()["data"]
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation)
+
+        response = requests.post(f"{self.mcrit_server}/query/binary", binary, params=params)
+        return handle_response(response)
 
     def requestMatchesForSample(
         self,
@@ -268,9 +276,8 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation
         )
-        return requests.get(
-            f"{self.mcrit_server}/matches/sample/{sample_id}", params=params
-        ).json()["data"]
+        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", params=params)
+        return handle_response(response)
 
     def requestMatchesForSampleVs(
         self,
@@ -283,10 +290,8 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation
         )
-        return requests.get(
-            f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}",
-            params=params,
-        ).json()["data"]
+        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}",params=params)
+        return handle_response(response)
 
     ###########################################
     ### Status, Results 
@@ -294,7 +299,7 @@ class McritClient:
 
     def getStatus(self):
         response = requests.get(f"{self.mcrit_server}/status")
-        return response.json()["data"]
+        return handle_response(response)
 
     def getJobCount(self, filter=None):
         query_string = ""
@@ -303,8 +308,10 @@ class McritClient:
                 query_string = f"?filter={filter}"
             else:
                 query_string += f"&filter={filter}"
-        jobs = requests.get(f"{self.mcrit_server}/jobs/{query_string}").json()
-        return len(jobs)
+        response = requests.get(f"{self.mcrit_server}/jobs/{query_string}")
+        data = handle_response(response)
+        if data:
+            return len(data)
 
     def getQueueData(self, start=0, limit=0, filter=None):
         query_string = ""
@@ -323,26 +330,24 @@ class McritClient:
                 query_string = f"?filter={filter}"
             else:
                 query_string += f"&filter={filter}"
-        jobs = requests.get(f"{self.mcrit_server}/jobs/{query_string}").json()
-        return [Job(job_data, None) for job_data in jobs]
+        response = requests.get(f"{self.mcrit_server}/jobs/{query_string}")
+        data = handle_response(response)
+        if data:
+            return [Job(job_data, None) for job_data in data]
 
     def getJobData(self, job_id):
         response = requests.get(f"{self.mcrit_server}/jobs/{job_id}")
-        if response.status_code != 200:
-            return None
-        job_data = response.json()["data"]
-        return Job(job_data, None)
+        data = handle_response(response)
+        if data:
+            return Job(data, None)
 
     def getResultForJob(self, job_id):
         response = requests.get(f"{self.mcrit_server}/jobs/{job_id}/result")
-        if response.status_code != 200:
-            return None
-        result_data = response.json()["data"]
-        return result_data
+        return handle_response(response)
 
     def getResult(self, result_id):
-        result_data = requests.get(f"{self.mcrit_server}/results/{result_id}").json()
-        return result_data
+        response = requests.get(f"{self.mcrit_server}/results/{result_id}")
+        return handle_response(response)
 
     def awaitResult(self, job_id, sleep_time=2):
         if job_id is None:
@@ -366,23 +371,25 @@ class McritClient:
         if sample_ids is not None:
             if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
                 sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
-                result_data = requests.get(f"{self.mcrit_server}/export/{sample_ids_as_str}{compress_uri_param}").json()["data"]
+                response = requests.get(f"{self.mcrit_server}/export/{sample_ids_as_str}{compress_uri_param}")
+                result_data = handle_response(response)
             else:
                 raise ValueError("sample_ids must be a list of int.")
         else:
-            result_data = requests.get(f"{self.mcrit_server}/export{compress_uri_param}").json()["data"]
+            response = requests.get(f"{self.mcrit_server}/export{compress_uri_param}")
+            result_data = handle_response(response)
         return result_data
 
     def addImportData(self, import_data):
         if not isinstance(import_data, dict):
             raise ValueError("Can only forward dictionaries with export data.")
-        result_data = requests.post(f"{self.mcrit_server}/import", json=import_data).json()["data"]
-        return result_data
+        response = requests.post(f"{self.mcrit_server}/import", json=import_data)
+        return handle_response(response)
 
     ###########################################
     ### Search
     ###########################################
 
     def search(self, search_term):
-        result_data = requests.get(f"{self.mcrit_server}/search/{urllib.parse.quote(search_term)}").json()["data"]
-        return result_data
+        response = requests.get(f"{self.mcrit_server}/search/{urllib.parse.quote(search_term)}")
+        return handle_response(response)
