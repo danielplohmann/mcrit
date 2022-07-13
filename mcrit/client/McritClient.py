@@ -38,17 +38,16 @@ def isJobFinishedTerminatedOrFailed(job):
 
 def handle_response(response):
     data = None
-    if response.status_code == 500:
+    if response.status_code in [500, 501]:
         LOGGER.warn("McritClient received status code 500 from MCRIT.")
-    elif response.status_code in [400, 404]:
+    elif response.status_code in [400, 404, 410]:
         # nothing to here as of now
         pass
-    elif response.status_code == 200:
+    elif response.status_code in [200, 202]:
         json_response = response.json()
         if "status" in json_response and json_response["status"] == "successful":
             data = json_response["data"]
     return data
-
 
 
 class McritClient:

@@ -201,7 +201,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def addReport(self, smda_report, calculate_hashes=True, calculate_matches=False):
         sample_entry = self._storage.getSampleBySha256(smda_report.sha256)
         if sample_entry:
-            return {"sample_info": sample_entry.toDict()}
+            return {"existed": True, "sample_info": sample_entry.toDict()}
         sample_entry = self._storage.addSmdaReport(smda_report)
         if not sample_entry:
             return None
@@ -211,7 +211,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         job_id = None
         if calculate_hashes:
             job_id = self.updateMinHashesForSample(sample_entry.sample_id)
-        return {"sample_info": sample_entry.toDict(), "job_id": job_id}
+        return {"existed": False, "sample_info": sample_entry.toDict(), "job_id": job_id}
 
     def addReportJson(self, report_json, calculate_hashes=True, calculate_matches=False):
         report = SmdaReport.fromDict(report_json)

@@ -30,10 +30,10 @@ class SampleResource:
     def on_delete(self, req, resp, sample_id=None):
         successful = self.index.deleteSample(sample_id)
         if successful:
-            resp.data = jsonify({"status": "successful"})
+            resp.data = jsonify({"status": "successful", "data": {"message": "Sample deleted."}})
             resp.status = falcon.HTTP_202
         else:
-            resp.data = jsonify({"status": "failed"})
+            resp.data = jsonify({"status": "failed", "data": {"message": "Failed to delete sample."}})
             # TODO whats the correct code?
             resp.status = falcon.HTTP_410
 
@@ -51,8 +51,11 @@ class SampleResource:
             resp.status = falcon.HTTP_400
             return
         summary = self.index.addReportJson(req.media)
-        # TODO 2019-05-10 return full sample_entry in response
-        resp.data = jsonify({"status": "successful", "data": summary})
+        if summary is not None:
+            # TODO 2019-05-10 return full sample_entry in response
+            resp.data = jsonify({"status": "successful", "data": summary})
+        else:
+            resp.data = jsonify({"status": "failed", "data": {"message": "Could not process JSON."}})
 
     @timing
     def on_post_submit_binary(self, req, resp):
