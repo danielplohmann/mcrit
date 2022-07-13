@@ -147,7 +147,7 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/families/{family_id}")
         data = handle_response(response)
         if data is not None:
-            samples_for_family = [str(family_id)]
+            samples_for_family = data[str(family_id)]
             return [
                 SampleEntry.fromDict(sample_entry_dict)
                 for sample_entry_dict in samples_for_family["samples"].values()
