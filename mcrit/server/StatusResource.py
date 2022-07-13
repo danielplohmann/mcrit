@@ -70,7 +70,7 @@ class StatusResource:
     def on_post_respawn(self, req, resp):
         LOGGER.info("StatusResource.on_post_respawn")
         self.index.respawn()
-        resp.data = jsonify({"status": "successful"})
+        resp.data = jsonify({"status": "successful", "data": {}})
 
     @timing
     def on_get_search(self, req, resp, search_term):

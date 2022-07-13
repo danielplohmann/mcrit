@@ -77,7 +77,7 @@ class McritClient:
         smda_json = smda_report.toDict()
         response = requests.post(f"{self.mcrit_server}/samples", json=smda_json)
         data = handle_response(response)
-        if data:
+        if data is not None:
             if "job_id" in data:
                 job_id = data["job_id"]
             else:
@@ -111,7 +111,7 @@ class McritClient:
     def getFamily(self, family_id: int) -> Optional[str]:
         response = requests.get(f"{self.mcrit_server}/families/{family_id}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             family_data = data[str(family_id)]
             return {
                 "family_id": family_data["family_id"],
@@ -147,7 +147,7 @@ class McritClient:
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List[SampleEntry]]:
         response = requests.get(f"{self.mcrit_server}/families/{family_id}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             samples_for_family = [str(family_id)]
             return [
                 SampleEntry.fromDict(sample_entry_dict)
@@ -157,7 +157,7 @@ class McritClient:
     def getSampleById(self, sample_id):
         response = requests.get(f"{self.mcrit_server}/samples/{sample_id}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return SampleEntry.fromDict(data)
 
     def getSamples(self, start=0, limit=0):
@@ -166,7 +166,7 @@ class McritClient:
             query_string = f"?start={start}&limit={limit}"
         response = requests.get(f"{self.mcrit_server}/samples{query_string}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return {int(k): SampleEntry.fromDict(v) for k, v in data.items()}
 
     ###########################################
@@ -176,7 +176,7 @@ class McritClient:
     def getFunctionsBySampleId(self, sample_id):
         response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/functions")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return [
                 FunctionEntry.fromDict(function_entry_dict)
                 for function_entry_dict in data.values()
@@ -188,7 +188,7 @@ class McritClient:
             query_string = f"?start={start}&limit={limit}"
         response = requests.get(f"{self.mcrit_server}/functions{query_string}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
 
     def isFunctionId(self, function_id):
@@ -201,7 +201,7 @@ class McritClient:
     def getFunctionById(self, function_id: int) -> Optional[FunctionEntry]:
         response = requests.get(f"{self.mcrit_server}/functions/{function_id}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return FunctionEntry.fromDict(data)
 
     ###########################################
@@ -310,7 +310,7 @@ class McritClient:
                 query_string += f"&filter={filter}"
         response = requests.get(f"{self.mcrit_server}/jobs/{query_string}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return len(data)
 
     def getQueueData(self, start=0, limit=0, filter=None):
@@ -332,13 +332,13 @@ class McritClient:
                 query_string += f"&filter={filter}"
         response = requests.get(f"{self.mcrit_server}/jobs/{query_string}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return [Job(job_data, None) for job_data in data]
 
     def getJobData(self, job_id):
         response = requests.get(f"{self.mcrit_server}/jobs/{job_id}")
         data = handle_response(response)
-        if data:
+        if data is not None:
             return Job(data, None)
 
     def getResultForJob(self, job_id):
