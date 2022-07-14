@@ -231,6 +231,8 @@ class McritClient:
         if disassemble_locally:
             disassembler = Disassembler()
             smda_report = disassembler.disassembleBuffer(binary, base_address)
+            if smda_report.status == "error":
+                return None
             return self.requestMatchesForSmdaReport(
                 smda_report,
                 minhash_threshold=minhash_threshold,
@@ -253,6 +255,8 @@ class McritClient:
         if disassemble_locally:
             disassembler = Disassembler()
             smda_report = disassembler.disassembleUnmappedBuffer(binary)
+            if smda_report.status == "error":
+                return None
             return self.requestMatchesForSmdaReport(
                 smda_report,
                 minhash_threshold=minhash_threshold,
