@@ -351,7 +351,6 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                     sample_id, function_id = match
                     if len(results["functions"]) < max_num_results:
                         results["functions"][function_id] = self._storage.getFunctionById(function_id).toDict()
-            return results
         except:
             pass
         # as regular string, refer to storage implementation of searching
