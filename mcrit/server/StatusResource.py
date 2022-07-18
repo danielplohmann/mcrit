@@ -73,7 +73,25 @@ class StatusResource:
         resp.data = jsonify({"status": "successful", "data": {"message": "Successfully performed reset of MCRIT instance."}})
 
     @timing
-    def on_get_search(self, req, resp):
-        LOGGER.info("StatusResource.on_get_search")
+    def on_get_search_families(self, req, resp):
+        LOGGER.info("StatusResource.on_get_search_families")
         search_term = req.params["query"]
-        resp.data = jsonify({"status": "successful", "data": self.index.getSearchResults(search_term)})
+        resp.data = jsonify({"status": "successful", "data": self.index.getFamilySearchResults(search_term)})
+
+    @timing
+    def on_get_search_samples(self, req, resp):
+        LOGGER.info("StatusResource.on_get_search_samples")
+        search_term = req.params["query"]
+        resp.data = jsonify({"status": "successful", "data": self.index.getSampleSearchResults(search_term)})
+
+    @timing
+    def on_get_search_functions(self, req, resp):
+        LOGGER.info("StatusResource.on_get_search_functions")
+        search_term = req.params["query"]
+        resp.data = jsonify({"status": "successful", "data": self.index.getFunctionSearchResults(search_term)})
+
+    @timing
+    def on_get_search_pichashes(self, req, resp):
+        LOGGER.info("StatusResource.on_get_search_pichashes")
+        search_term = req.params["query"]
+        resp.data = jsonify({"status": "successful", "data": self.index.getPichashSearchResults(search_term)})

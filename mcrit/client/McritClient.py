@@ -385,6 +385,18 @@ class McritClient:
     ### Search
     ###########################################
 
-    def search(self, search_term):
-        response = requests.get(f"{self.mcrit_server}/search?query={urllib.parse.quote(search_term)}")
+    def _search_base(self, search_kind, search_term):
+        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?query={urllib.parse.quote(search_term)}")
         return handle_response(response)
+
+    def search_families(self, search_term):
+        return self._search_base("families", search_term)
+
+    def search_samples(self, search_term):
+        return self._search_base("samples", search_term)
+
+    def search_functions(self, search_term):
+        return self._search_base("functions", search_term)
+
+    def search_pichashes(self, search_term):
+        return self._search_base("pichashes", search_term)

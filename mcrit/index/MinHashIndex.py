@@ -303,30 +303,11 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         }
         return status
 
-    def getSearchResults(self, search_term, max_num_results=100):
-        """ Recognize characteristics of search term and conduct applicable searches across compatible fields """
-        results = {
-            "families": {},
-            "samples": {},
-            "functions": {},
-            # TODO decide whether jobs/results makes more sense here
-            "jobs": {},
-            "stats": {
-                "max_num_results": max_num_results,
-                "num_families_found": 0,
-                "num_samples_found": 0,
-                "num_functions_found": 0,
-                "num_jobs_found": 0,
-                }
-        }
-        # try to regex as sha256 hash: sample_id
-        if re.match("^[a-fA-F0-9]{64}$", search_term) is not None:
-            sample_entry = self._storage.getSampleBySha256(search_term)
-            results["samples"][sample_entry.sample_id] = sample_entry.toDict()
-            results["stats"]["num_samples_found"] = 1
-            return results
-        # try to parse as int: family_id, sample_id, function_id, function_address, pic_hash
+    #### SEARCH ####
+
+    def getFamilySearchResults(self, search_term, sort_by="family_id", is_ascending=True, start_cursor=None, limit=100):
         term_as_int = None
+        id_match = None
         try:
             if search_term.startswith("0x"):
                 term_as_int = int(search_term, 16)
@@ -334,35 +315,97 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 term_as_int = int(search_term)
             if term_as_int <= 0xFFFFFFFF:
                 if self._storage.isFamilyId(term_as_int):
-                    results["families"][term_as_int] = self._storage.getFamily(term_as_int)
-                    results["stats"]["num_families_found"] = 1
-                if self._storage.isSampleId(term_as_int):
-                    results["samples"][term_as_int] = self._storage.getSampleById(term_as_int).toDict()
-                    results["stats"]["num_samples_found"] = 1
-                if self._storage.isFunctionId(term_as_int):
-                    results["functions"][term_as_int] = self._storage.getFunctionById(term_as_int).toDict()
-                    results["stats"]["num_functions_found"] = 1
+                    id_match = {
+                        "family_id": term_as_int,
+                        "family": self._storage.getFamily(term_as_int),
+                    }
             else:
                 LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+        except Exception:
+            pass
+        search_results = self._storage.findFamilyByString(search_term, max_num_results=limit) 
+        next_cursor = None
+        return {
+            "search_results": search_results,
+            "id_match": id_match, 
+            "next_cursor": next_cursor,
+        }
+
+    def getPichashSearchResults(self, search_term, sort_by="function_id", is_ascending=True, start_cursor=None, limit=100):
+        # TODO: consider sort_by, is_ascending, start_cursor
+        term_as_int = None
+        result = {} 
+        try:
+            if search_term.startswith("0x"):
+                term_as_int = int(search_term, 16)
+            else:
+                term_as_int = int(search_term)
             if self._storage.isPicHash(term_as_int):
                 pic_matches = self._storage.getMatchesForPicHash(term_as_int)
-                results["stats"]["num_functions_found"] += len(pic_matches)
                 for match in pic_matches:
                     sample_id, function_id = match
-                    if len(results["functions"]) < max_num_results:
-                        results["functions"][function_id] = self._storage.getFunctionById(function_id).toDict()
-            return results
+                    if len(result) >= limit:
+                        break
+                    function_entry = self._storage.getFunctionById(function_id)
+                    if function_entry:
+                        result[function_id] = function_entry.toDict()
         except:
             pass
-        # as regular string, refer to storage implementation of searching
-        results["families"].update(self._storage.findFamilyByString(search_term, max_num_results=max_num_results))
-        results["samples"].update({k: v.toDict() for k, v in self._storage.findSampleByString(search_term, max_num_results=max_num_results).items()})
-        results["functions"].update({k: v.toDict() for k, v in self._storage.findFunctionByString(search_term, max_num_results=max_num_results).items()})
-        # NOTE right now, we cap the count to 100 due to Storage implementation, could also count all and just limit returned results
-        results["stats"]["num_families_found"] = len(results["families"])
-        results["stats"]["num_samples_found"] = len(results["samples"])
-        results["stats"]["num_functions_found"] = len(results["functions"])
-        return results
+        return result
+
+    def getFunctionSearchResults(self, search_term, sort_by="function_id", is_ascending=True, start_cursor=None, limit=100):
+        term_as_int = None
+        id_match = None
+        try:
+            if search_term.startswith("0x"):
+                term_as_int = int(search_term, 16)
+            else:
+                term_as_int = int(search_term)
+            if term_as_int <= 0xFFFFFFFF:
+                if self._storage.isFunctionId(term_as_int):
+                    id_match = self._storage.getFunctionById(term_as_int).toDict()
+            else:
+                LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+        except Exception:
+            pass
+        search_results = {k: v.toDict() for k, v in self._storage.findFunctionByString(search_term, max_num_results=limit).items()}
+        next_cursor = None
+        return {
+            "search_results": search_results,
+            "id_match": id_match, 
+            "next_cursor": next_cursor,
+        }
+
+    def getSampleSearchResults(self, search_term, sort_by="sample_id", is_ascending=True, start_cursor=None, limit=100):
+        term_as_int = None
+        id_match = None
+        try:
+            if search_term.startswith("0x"):
+                term_as_int = int(search_term, 16)
+            else:
+                term_as_int = int(search_term)
+            if term_as_int <= 0xFFFFFFFF:
+                if self._storage.isSampleId(term_as_int):
+                    id_match = self._storage.getSampleById(term_as_int).toDict()
+            else:
+                LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+        except Exception:
+            pass
+
+        if re.match("^[a-fA-F0-9]{64}$", search_term) is not None:
+            sample_entry = self._storage.getSampleBySha256(search_term)
+            sha_match = sample_entry.toDict()
+        else:
+            sha_match = None
+
+        search_results = {k: v.toDict() for k, v in self._storage.findSampleByString(search_term, max_num_results=limit).items()}
+        next_cursor = None
+        return {
+            "search_results": search_results,
+            "id_match": id_match, 
+            "sha_match": sha_match,
+            "next_cursor": next_cursor,
+        }
 
     ##### CONFIG CHANGES ####
     def updateMinHashThreshold(self, threshold):
