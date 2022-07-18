@@ -73,6 +73,7 @@ class StatusResource:
         resp.data = jsonify({"status": "successful", "data": {"message": "Successfully performed reset of MCRIT instance."}})
 
     @timing
-    def on_get_search(self, req, resp, search_term):
+    def on_get_search(self, req, resp):
         LOGGER.info("StatusResource.on_get_search")
+        search_term = req.params["query"]
         resp.data = jsonify({"status": "successful", "data": self.index.getSearchResults(search_term)})

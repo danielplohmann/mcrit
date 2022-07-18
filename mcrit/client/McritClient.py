@@ -386,5 +386,5 @@ class McritClient:
     ###########################################
 
     def search(self, search_term):
-        response = requests.get(f"{self.mcrit_server}/search/{urllib.parse.quote(search_term)}")
+        response = requests.get(f"{self.mcrit_server}/search?query={urllib.parse.quote(search_term)}")
         return handle_response(response)

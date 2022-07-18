@@ -57,7 +57,7 @@ def get_app():
     # drops storage and sets up new empty instance
     _app.add_route("/respawn", status_resource, suffix="respawn")  # post
     # search suitable fields based on query
-    _app.add_route("/search/{search_term}", status_resource, suffix="search")
+    _app.add_route("/search", status_resource, suffix="search")
 
     _app.add_route("/families", family_resource, suffix="collection")
     _app.add_route("/families/{family_id:int}", family_resource)
