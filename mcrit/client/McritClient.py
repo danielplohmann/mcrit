@@ -1,7 +1,7 @@
 import time
 import json
 import logging
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from multiprocessing.sharedctypes import Value
 
 import requests
@@ -107,25 +107,23 @@ class McritClient:
     ### Families 
     ###########################################
 
-    def getFamily(self, family_id: int) -> Optional[str]:
-        response = requests.get(f"{self.mcrit_server}/families/{family_id}")
+    def getFamily(self, family_id: int, with_samples=True) -> Optional[Dict]:
+        query_params = "?with_samples=true" if with_samples else "?with_samples=false"
+        response = requests.get(f"{self.mcrit_server}/families/{family_id}{query_params}")
         data = handle_response(response)
-        if data is not None:
-            family_data = data[str(family_id)]
-            return {
-                "family_id": family_data["family_id"],
-                "family": family_data["family"],
-                "num_samples": family_data["num_samples"],
-                "num_versions": family_data["num_versions"],
-                "samples": [
+        if data is not None and "samples" in data:
+            data["samples"] = [
                     SampleEntry.fromDict(sample_entry_dict)
-                    for sample_entry_dict in sorted(family_data["samples"].values(), key=lambda s: s["sample_id"])
+                for sample_entry_dict in sorted(data["samples"].values(), key=lambda s: s["sample_id"])
                 ]
-            }
+        return data 
 
     def getFamilies(self):
         response = requests.get(f"{self.mcrit_server}/families")
         return handle_response(response)
+
+    def isFamilyId(self, family_id) -> bool:
+        return self.getFamily(family_id, with_samples=False) is not None
 
     ###########################################
     ### Samples 
@@ -142,16 +140,10 @@ class McritClient:
         response = requests.delete(f"{self.mcrit_server}/samples/{sample_id}")
         return handle_response(response)
 
-
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List[SampleEntry]]:
-        response = requests.get(f"{self.mcrit_server}/families/{family_id}")
-        data = handle_response(response)
-        if data is not None:
-            samples_for_family = data[str(family_id)]
-            return [
-                SampleEntry.fromDict(sample_entry_dict)
-                for sample_entry_dict in samples_for_family["samples"].values()
-            ]
+        family_data = self.getFamily(family_id)
+        if family_data is not None:
+            return family_data["samples"]
 
     def getSampleById(self, sample_id):
         response = requests.get(f"{self.mcrit_server}/samples/{sample_id}")

@@ -13,6 +13,10 @@ class FamilyResource:
 
     @timing
     def on_get(self, req, resp, family_id=None):
+        # parse optional request parameters
+        with_samples = True 
+        if "with_samples" in req.params:
+            with_samples = req.params["with_samples"].lower().strip() == "true"
         LOGGER.info("FamilyResource.on_get")
         if self.index.getFamily(family_id) is None:
             resp.data = jsonify(
@@ -24,17 +28,17 @@ class FamilyResource:
             resp.status = falcon.HTTP_404
             return
 
-        result = {}
-        samples = self.index.getSamplesByFamilyId(family_id)
-        result[family_id] = {
+        result = {
             "family_id": family_id,
             "family": self.index.getFamily(family_id),
-            "num_samples": len(samples),
-            "num_versions": len(set([sample.version for sample in samples])),
-            "samples": {},
         }
-        for sample in samples:
-            result[family_id]["samples"][sample.sample_id] = self.index.getSampleById(sample.sample_id).toDict()
+        if with_samples:
+            samples = self.index.getSamplesByFamilyId(family_id)
+            result["samples"] = {}
+            for sample in samples:
+                result["samples"][sample.sample_id] = self.index.getSampleById(sample.sample_id).toDict()
+            result["num_samples"] = len(samples)
+            result["num_versions"] = len(set([sample.version for sample in samples])),
         resp.data = jsonify({"status": "successful", "data": result})
 
     @timing
