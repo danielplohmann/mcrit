@@ -137,13 +137,14 @@ class MatchingResult(object):
         summarized_function_match_summaries = {}
         for function_match_entry in self.function_matches:
             if function_match_entry.function_id not in summarized_function_match_summaries:
-                function_match_entry[function_match_entry.function_id] = {
+                summarized_function_match_summaries[function_match_entry.function_id] = {
                     "num_bytes": function_match_entry.num_bytes,
+                    "offset": function_match_entry.offset,
                     "fid": function_match_entry.function_id,
                     "matches": [function_match_entry.getMatchTuple()]
                 }
             else:
-                function_match_entry[function_match_entry.function_id]["matches"].append(function_match_entry.getMatchTuple())
+                summarized_function_match_summaries[function_match_entry.function_id]["matches"].append(function_match_entry.getMatchTuple())
         # build the dictionary
         matching_entry = {
             "info": {
