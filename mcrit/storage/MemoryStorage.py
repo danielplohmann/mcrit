@@ -417,7 +417,7 @@ class MemoryStorage(StorageInterface):
         for family_id, family_name in self._families.items():
             if needle in family_name:
                 result_dict[family_id] = family_name
-            if len(result_dict) > max_num_results:
+            if len(result_dict) >= max_num_results:
                 break
         return result_dict
 
@@ -432,7 +432,7 @@ class MemoryStorage(StorageInterface):
                 result_dict[sample_id] = sample_entry
             elif needle in sample_entry.version:
                 result_dict[sample_id] = sample_entry
-            if len(result_dict) > max_num_results:
+            if len(result_dict) >= max_num_results:
                 break
         return result_dict
 
@@ -441,7 +441,7 @@ class MemoryStorage(StorageInterface):
         for function_id, function_entry in self._functions.items():
             if needle in function_entry.function_name:
                 result_dict[function_id] = function_entry
-        # TODO also search through function labels once we have implemented them
-            if len(result_dict) > max_num_results:
+            if len(result_dict) >= max_num_results:
                 break
+        # TODO also search through function labels once we have implemented them
         return result_dict
