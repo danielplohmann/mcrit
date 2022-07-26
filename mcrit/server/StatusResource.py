@@ -72,26 +72,40 @@ class StatusResource:
         self.index.respawn()
         resp.data = jsonify({"status": "successful", "data": {"message": "Successfully performed reset of MCRIT instance."}})
 
+    @staticmethod
+    def _get_search_args(params):
+        result = {
+            "search_term": params["query"],
+            "cursor": params.get("cursor", None),
+            "sort_by": params.get("sort_by", None),
+            "is_ascending": params.get("is_ascending", "true").lower() != "false",
+        }
+        try: 
+            result["limit"] = int(params.get("limit"))
+        except:
+            pass
+        return result
+
     @timing
     def on_get_search_families(self, req, resp):
         LOGGER.info("StatusResource.on_get_search_families")
-        search_term = req.params["query"]
-        resp.data = jsonify({"status": "successful", "data": self.index.getFamilySearchResults(search_term)})
+        args = self._get_search_args(req.params)
+        resp.data = jsonify({"status": "successful", "data": self.index.getFamilySearchResults(**args)})
 
     @timing
     def on_get_search_samples(self, req, resp):
         LOGGER.info("StatusResource.on_get_search_samples")
-        search_term = req.params["query"]
-        resp.data = jsonify({"status": "successful", "data": self.index.getSampleSearchResults(search_term)})
+        args = self._get_search_args(req.params)
+        resp.data = jsonify({"status": "successful", "data": self.index.getSampleSearchResults(**args)})
 
     @timing
     def on_get_search_functions(self, req, resp):
         LOGGER.info("StatusResource.on_get_search_functions")
-        search_term = req.params["query"]
-        resp.data = jsonify({"status": "successful", "data": self.index.getFunctionSearchResults(search_term)})
+        args = self._get_search_args(req.params)
+        resp.data = jsonify({"status": "successful", "data": self.index.getFunctionSearchResults(**args)})
 
     @timing
     def on_get_search_pichashes(self, req, resp):
         LOGGER.info("StatusResource.on_get_search_pichashes")
-        search_term = req.params["query"]
-        resp.data = jsonify({"status": "successful", "data": self.index.getPichashSearchResults(search_term)})
+        args = self._get_search_args(req.params)
+        resp.data = jsonify({"status": "successful", "data": self.index.getPichashSearchResults(**args)})

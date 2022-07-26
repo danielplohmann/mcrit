@@ -5,6 +5,7 @@ import traceback
 from operator import itemgetter
 from typing import Any, TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
+from mcrit.storage.SearchCursor import FullSearchCursor
 
 LOGGER = logging.getLogger(__name__)
 try:
@@ -639,41 +640,116 @@ class MongoDbStorage(StorageInterface):
                 unhashed_functions.append(FunctionEntry.fromDict(function_document))
         return unhashed_functions
 
-    def findFamilyByString(self, needle: str, max_num_results: int = 100) -> Dict[int, str]:
+
+    ##### helpers for search ######
+
+    @staticmethod
+    def _get_condition_from_cursor(full_cursor: Optional[FullSearchCursor]):
+        if full_cursor is None:
+            return {}
+
+        if full_cursor.is_initial_cursor:
+            return {}
+
+        def get_operator(i):
+            direction = full_cursor.sort_directions[i] ^ (not full_cursor.is_forward_search)
+            result = "$"
+            if direction:
+                result += "g"
+            else:
+                result += "l"
+            result += "t"
+            return result
+
+        # condition has form (a > a0) or (a = a0 and b>b0) or (a=a0 and b=b0 and c>c0)...
+
+        conditions = []
+        for current_condition_length in range(1, len(full_cursor.sort_fields)+1):
+            current_condition = {}
+            for i in range(current_condition_length):
+                if i != current_condition_length-1:
+                    current_condition[full_cursor.sort_fields[i]] = full_cursor.record_values[i]
+                else:
+                    current_condition[full_cursor.sort_fields[i]] = {
+                        get_operator(i): full_cursor.record_values[i],
+                    }
+            conditions.append(current_condition)
+
+        if len(conditions) == 0:
+            return {}
+
+        if len(conditions) == 1:
+            return conditions[0]
+
+        return {"$or": conditions}
+
+
+    @staticmethod
+    def _get_sort_list_from_cursor(full_cursor: Optional[FullSearchCursor]):
+        if full_cursor is None:
+            return None
+        is_backward_search = not full_cursor.is_forward_search
+        sort_list = [(key, 1 if direction ^ is_backward_search else -1) for key, direction in full_cursor.sort_by_list]
+        return sort_list
+
+
+    ##### search ####
+
+    def findFamilyByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, str]:
         result_dict = {}
-        for family_document in self._database.families.find():
+        query = self._get_condition_from_cursor(cursor)
+        sort_list = self._get_sort_list_from_cursor(cursor)
+        for family_document in self._database.families.find(query, sort=sort_list):
             if needle in family_document["family_name"]:
-                result_dict[family_document["family_id"]] = family_document["family_name"]
-            if len(result_dict) > max_num_results:
+                result_dict[family_document["family_id"]] = family_document
+            if len(result_dict) >= max_num_results:
                 break
         return result_dict
 
-    def findSampleByString(self, needle: str, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
+    def findSampleByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        for sample_document in self._database.samples.find():
+        query = self._get_condition_from_cursor(cursor)
+        sort_list = self._get_sort_list_from_cursor(cursor)
+        for sample_document in self._database.samples.find(query, sort=sort_list):
             entry = SampleEntry.fromDict(sample_document)
             if needle in entry.filename:
                 result_dict[entry.sample_id] = entry
             elif len(needle) >= 3 and needle in entry.sha256:
                 result_dict[entry.sample_id] = entry
+            # NOTE: we could also search all families just once and then add all matched families' samples
             elif needle in entry.family:
                 result_dict[entry.sample_id] = entry
             elif needle in entry.component:
                 result_dict[entry.sample_id] = entry
             elif needle in entry.version:
                 result_dict[entry.sample_id] = entry
-            if len(result_dict) > max_num_results:
+            if len(result_dict) >= max_num_results:
                 break
         return result_dict
 
-    def findFunctionByString(self, needle: str, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
+    def findFunctionByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
         result_dict = {}
-        for function_document in self._database.functions.find():
+        query = self._get_condition_from_cursor(cursor)
+        sort_list = self._get_sort_list_from_cursor(cursor)
+        for function_document in self._database.functions.find(query, sort=sort_list):
             self._decodeFunction(function_document)
             entry = FunctionEntry.fromDict(function_document)
             if needle in entry.function_name:
                 result_dict[entry.function_id] = entry
         # TODO also search through function labels once we have implemented them
-            if len(result_dict) > max_num_results:
+            if len(result_dict) >= max_num_results:
                 break
+        return result_dict
+
+    def findFunctionByPichash(self, pichash: int, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
+        result_dict = {}
+        pichash_query = {"pichash": pichash}
+        self._encodePichash(pichash_query)
+        cursor_query = self._get_condition_from_cursor(cursor)
+        query = {"$and": [pichash_query, cursor_query]}
+        sort_list = self._get_sort_list_from_cursor(cursor)
+        for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
+            self._decodeFunction(function_document)
+            entry = FunctionEntry.fromDict(function_document)
+            result_dict[entry.function_id] = entry
         return result_dict

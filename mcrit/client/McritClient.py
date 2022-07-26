@@ -1,3 +1,4 @@
+import functools
 import time
 import json
 import logging
@@ -385,18 +386,25 @@ class McritClient:
     ### Search
     ###########################################
 
-    def _search_base(self, search_kind, search_term):
-        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?query={urllib.parse.quote(search_term)}")
+    def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
+        params = {
+            "query": search_term,
+            "is_ascending": is_ascending,
+        }
+        if cursor is not None:
+            params["cursor"] = cursor
+        if sort_by is not None:
+            params["sort_by"] = sort_by 
+        if limit is not None:
+            params["limit"] = limit 
+        encoded_params = urllib.parse.urlencode(params)
+        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}")
         return handle_response(response)
 
-    def search_families(self, search_term):
-        return self._search_base("families", search_term)
+    search_families = functools.partialmethod(_search_base, "families")
 
-    def search_samples(self, search_term):
-        return self._search_base("samples", search_term)
+    search_samples = functools.partialmethod(_search_base, "samples")
 
-    def search_functions(self, search_term):
-        return self._search_base("functions", search_term)
-
-    def search_pichashes(self, search_term):
-        return self._search_base("pichashes", search_term)
+    search_functions = functools.partialmethod(_search_base, "functions")
+    
+    search_pichashes = functools.partialmethod(_search_base, "pichashes")
