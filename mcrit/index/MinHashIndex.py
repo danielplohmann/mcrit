@@ -328,7 +328,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     # If those parameters are altered, mcrit's behavior is undefined.
 
     def _getSearchResultTemplate(self, search_function, search_term, sort_by_list, cursor_str, limit, to_dict=True):
-        # limit = min(limit, 100)
+        assert isinstance(search_term, str)
 
         sort_fields = [sort_info[0] for sort_info in sort_by_list]
 
