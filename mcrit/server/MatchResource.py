@@ -33,6 +33,7 @@ class MatchResource:
         # resp.location = "/matches/123"
         # resp.retry_after = 2
 
+    @timing
     def on_get_sample_vs(self, req, resp, sample_id=None, sample_id_2=None):
         # NOTE: We don't need to check if the kw parameters are None. The routing ensures that they are always set.
         LOGGER.info("SampleResource.on_get_matches_vs")

@@ -62,6 +62,7 @@ class JobResource:
         # resp.status = falcon.HTTP_404
         resp.data = jsonify({"status": "successful", "data": data})
 
+    @timing
     def on_get_results(self, req, resp, result_id=None):
         LOGGER.info("JobResource.on_get_results")
         # validate that we only allow hexstrings with 24 chars
@@ -74,6 +75,7 @@ class JobResource:
         # resp.status = falcon.HTTP_404
         resp.data = jsonify({"status": "successful", "data": data})
 
+    @timing
     def on_get_job_result(self, req, resp, job_id=None):
         LOGGER.info("JobResource.on_get_job_result")
         # validate that we only allow hexstrings with 24 chars

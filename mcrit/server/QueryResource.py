@@ -46,6 +46,7 @@ class QueryResource:
         summary = self.index.getMatchesForUnmappedBinary(binary, **parameters)
         resp.data = jsonify({"status": "successful", "data": summary})
 
+    @timing
     def on_post_query_binary_mapped(self, req, resp, base_address=None):
         parameters = getMatchingParams(req.params)
         LOGGER.info("QueryResource.on_post_query_binary_mapped")
