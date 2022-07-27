@@ -385,6 +385,27 @@ class McritClient:
     ###########################################
     ### Search
     ###########################################
+    
+    # When performing an initial search, the cursor should be set to None.
+    # Search results are of the following form:
+    # {
+    #     "search_results": {
+    #         id1: found_entry1,
+    #         id2: found_entry2,
+    #         ...
+    #     },
+    #     "cursor": {
+    #         "forward": forward cursor,
+    #         "backward": backward cursor,
+    #     }
+    # }
+    # To get further results, perform a search using the forward cursor.
+    # To get back to the previous search results, use the backward cursor.
+    # If no further or previous results are available, the forward or backward cursor will be None.
+    #
+    # IMPORTANT: A cursor shall only be used in combination with the same
+    # search_term, is_ascending and sort_by value that were used when the cursor was returned from mcrit.
+    # If those parameters are altered, mcrit's behavior is undefined.
 
     def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
         params = {
