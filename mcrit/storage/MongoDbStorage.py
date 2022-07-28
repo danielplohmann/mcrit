@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import re
 import traceback
 from operator import itemgetter
 from typing import Any, TYPE_CHECKING, Dict, List, Optional, Set, Tuple
@@ -643,6 +644,22 @@ class MongoDbStorage(StorageInterface):
     ##### helpers for search ######
 
     @staticmethod
+    def _or_query(*conditions):
+        if len(conditions) == 0:
+            return {}
+        if len(conditions) == 1:
+            return conditions[0]
+        return {"$or": conditions}
+
+    @staticmethod
+    def _and_query(*conditions):
+        if len(conditions) == 0:
+            return {}
+        if len(conditions) == 1:
+            return conditions[0]
+        return {"$and": conditions}
+
+    @staticmethod
     def _get_condition_from_cursor(full_cursor: Optional[FullSearchCursor]):
         if full_cursor is None:
             return {}
@@ -674,14 +691,23 @@ class MongoDbStorage(StorageInterface):
                     }
             conditions.append(current_condition)
 
-        if len(conditions) == 0:
-            return {}
+        return MongoDbStorage._or_query(*conditions)
 
-        if len(conditions) == 1:
-            return conditions[0]
+    @staticmethod
+    def _get_regex_search_query(search_term, *fields):
 
-        return {"$or": conditions}
+        def get_query_for_token(token):
+            regex = re.compile(re.escape(token), re.IGNORECASE)
+            conditions = []
+            for field in fields:
+                conditions.append({field: regex})
+            return MongoDbStorage._or_query(*conditions)
 
+        token_queries = []        
+        for token in search_term.split(' '):
+            if token != " ":
+                token_queries.append(get_query_for_token(token))
+        return MongoDbStorage._and_query(*token_queries)
 
     @staticmethod
     def _get_sort_list_from_cursor(full_cursor: Optional[FullSearchCursor]):
@@ -691,61 +717,53 @@ class MongoDbStorage(StorageInterface):
         sort_list = [(key, 1 if direction ^ is_backward_search else -1) for key, direction in full_cursor.sort_by_list]
         return sort_list
 
-
     ##### search ####
 
     def findFamilyByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, str]:
         result_dict = {}
-        query = self._get_condition_from_cursor(cursor)
+        search_query = self._get_regex_search_query(needle, "family_name")
+        cursor_query = self._get_condition_from_cursor(cursor)
+        query = {"$and": [search_query, cursor_query]}
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for family_document in self._database.families.find(query, sort=sort_list):
-            if needle in family_document["family_name"]:
-                result_dict[family_document["family_id"]] = family_document
-            if len(result_dict) >= max_num_results:
-                break
+        for family_document in self._database.families.find(query, sort=sort_list, limit=max_num_results):
+            result_dict[family_document["family_id"]] = family_document
         return result_dict
 
     def findSampleByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        query = self._get_condition_from_cursor(cursor)
+        cursor_query = self._get_condition_from_cursor(cursor)
+        regex = re.compile(re.escape(needle), re.IGNORECASE)
+        # NOTE: we could also search all families just once and then add all matched families' samples
+        search_fields = ["filename", "family", "component", "version"]
+        if len(needle) >= 3:
+            search_fields.append("sha256")
+        search_query = self._get_regex_search_query(needle, *search_fields)
+        query = {"$and": [search_query, cursor_query]}
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for sample_document in self._database.samples.find(query, sort=sort_list):
+        for sample_document in self._database.samples.find(query, sort=sort_list, limit=max_num_results):
             entry = SampleEntry.fromDict(sample_document)
-            if needle in entry.filename:
-                result_dict[entry.sample_id] = entry
-            elif len(needle) >= 3 and needle in entry.sha256:
-                result_dict[entry.sample_id] = entry
-            # NOTE: we could also search all families just once and then add all matched families' samples
-            elif needle in entry.family:
-                result_dict[entry.sample_id] = entry
-            elif needle in entry.component:
-                result_dict[entry.sample_id] = entry
-            elif needle in entry.version:
-                result_dict[entry.sample_id] = entry
-            if len(result_dict) >= max_num_results:
-                break
+            result_dict[entry.sample_id] = entry
         return result_dict
 
     def findFunctionByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
         result_dict = {}
-        query = self._get_condition_from_cursor(cursor)
+        # TODO also search through function labels once we have implemented them
+        search_query = self._get_regex_search_query(needle, "function_name")
+        cursor_query = self._get_condition_from_cursor(cursor)
+        query = {"$and": [search_query, cursor_query]}
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for function_document in self._database.functions.find(query, sort=sort_list):
+        for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
             entry = FunctionEntry.fromDict(function_document)
-            if needle in entry.function_name:
-                result_dict[entry.function_id] = entry
-        # TODO also search through function labels once we have implemented them
-            if len(result_dict) >= max_num_results:
-                break
+            result_dict[entry.function_id] = entry
         return result_dict
 
     def findFunctionByPichash(self, pichash: int, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
         result_dict = {}
-        pichash_query = {"pichash": pichash}
-        self._encodePichash(pichash_query)
+        search_query = {"pichash": pichash}
+        self._encodePichash(search_query)
         cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [pichash_query, cursor_query]}
+        query = {"$and": [search_query, cursor_query]}
         sort_list = self._get_sort_list_from_cursor(cursor)
         for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
