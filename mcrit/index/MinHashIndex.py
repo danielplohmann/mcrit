@@ -15,6 +15,7 @@ from mcrit.queue.QueueFactory import QueueFactory
 from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller, NoProgressReporter
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
+from mcrit.storage.SearchCursor import MinimalSearchCursor, FullSearchCursor
 from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.minhash.MinHash import MinHash
 from mcrit.Worker import Worker
@@ -303,30 +304,106 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         }
         return status
 
-    def getSearchResults(self, search_term, max_num_results=100):
-        """ Recognize characteristics of search term and conduct applicable searches across compatible fields """
-        results = {
-            "families": {},
-            "samples": {},
-            "functions": {},
-            # TODO decide whether jobs/results makes more sense here
-            "jobs": {},
-            "stats": {
-                "max_num_results": max_num_results,
-                "num_families_found": 0,
-                "num_samples_found": 0,
-                "num_functions_found": 0,
-                "num_jobs_found": 0,
-                }
+    #### SEARCH ####
+
+    # When performing an initial search, the cursor should be set to None.
+    # Search results are of the following form:
+    # {
+    #     "search_results": {
+    #         id1: found_entry1,
+    #         id2: found_entry2,
+    #         ...
+    #     },
+    #     "cursor": {
+    #         "forward": forward cursor,
+    #         "backward": backward cursor,
+    #     } 
+    # }
+    # To get further results, perform a search using the forward cursor.
+    # To get back to the previous search results, use the backward cursor.
+    # If no further or previous results are available, the forward or backward cursor will be None.
+    #
+    # IMPORTANT: A cursor shall only be used in combination with the same
+    # search_term and sort_by_list that were used when the cursor was returned from mcrit.
+    # If those parameters are altered, mcrit's behavior is undefined.
+
+    def _getSearchResultTemplate(self, search_function, search_term, sort_by_list, cursor_str, limit, to_dict=True):
+        assert isinstance(search_term, str)
+
+        sort_fields = [sort_info[0] for sort_info in sort_by_list]
+
+        is_backward_search = False
+        cursor = MinimalSearchCursor.fromStr(cursor_str)
+
+        full_cursor = FullSearchCursor(cursor, sort_by_list)
+        is_backward_search = not full_cursor.is_forward_search
+
+        search_results_objects = search_function(search_term, cursor=full_cursor, max_num_results=limit+1)
+
+        # Find last last_element_key, which is used for the forward cursor
+        search_results_keys = list(search_results_objects.keys())
+        if len(search_results_objects) >= limit + 1:
+            search_results_objects.pop(search_results_keys[-1])
+            search_results_keys.pop()
+            last_element_key = search_results_keys[-1]
+        else:
+            last_element_key = None
+        
+        forward_cursor_str = None
+        if last_element_key:
+            last_result = search_results_objects[last_element_key]
+            forward_cursor = MinimalSearchCursor()
+            forward_cursor.is_forward_search = True ^ is_backward_search # switch for backward search, because of swap
+            if to_dict:
+                forward_cursor.record_values = [getattr(last_result, field) for field in sort_fields]
+            else:
+                forward_cursor.record_values = [last_result[field] for field in sort_fields]
+            forward_cursor_str = forward_cursor.toStr()
+
+        backward_cursor_str = None
+        if len(search_results_objects) > 0 and cursor is not None:
+            first_result = search_results_objects[search_results_keys[0]]
+            backward_cursor = MinimalSearchCursor()
+            backward_cursor.is_forward_search = False ^ is_backward_search # switch for backward search, because of swap
+            if to_dict:
+                backward_cursor.record_values = [getattr(first_result, field) for field in sort_fields]
+            else:
+                backward_cursor.record_values = [first_result[field] for field in sort_fields]
+            backward_cursor_str = backward_cursor.toStr()
+
+        if to_dict:
+            transformation = lambda x: x.toDict()
+        else:
+            transformation = lambda x: x
+
+        if is_backward_search:
+            # reverse order
+            backward_cursor_str, forward_cursor_str = forward_cursor_str, backward_cursor_str
+            search_results = {k: transformation(v) for k, v in reversed(search_results_objects.items())}
+        else:
+            search_results = {k: transformation(v) for k, v in search_results_objects.items()}
+
+        return {
+            "search_results": search_results,
+            "cursor": {
+                "forward": forward_cursor_str,
+                "backward": backward_cursor_str,
+            }
         }
-        # try to regex as sha256 hash: sample_id
-        if re.match("^[a-fA-F0-9]{64}$", search_term) is not None:
-            sample_entry = self._storage.getSampleBySha256(search_term)
-            results["samples"][sample_entry.sample_id] = sample_entry.toDict()
-            results["stats"]["num_samples_found"] = 1
-            return results
-        # try to parse as int: family_id, sample_id, function_id, function_address, pic_hash
+
+    def _get_sort_data(self, standard_sort, sort_by, is_ascending):
+        if sort_by == standard_sort or sort_by is None:
+            sort_by_list = [(standard_sort, is_ascending),]
+        else:
+            sort_by_list = [
+                (sort_by, is_ascending),
+                (standard_sort, True),
+            ]
+        return sort_by_list 
+
+    def getFamilySearchResults(self, search_term, sort_by="family_id", is_ascending=True, cursor=None, limit=100):
         term_as_int = None
+        id_match = None
         try:
             if search_term.startswith("0x"):
                 term_as_int = int(search_term, 16)
@@ -334,35 +411,166 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 term_as_int = int(search_term)
             if term_as_int <= 0xFFFFFFFF:
                 if self._storage.isFamilyId(term_as_int):
-                    results["families"][term_as_int] = self._storage.getFamily(term_as_int)
-                    results["stats"]["num_families_found"] = 1
-                if self._storage.isSampleId(term_as_int):
-                    results["samples"][term_as_int] = self._storage.getSampleById(term_as_int).toDict()
-                    results["stats"]["num_samples_found"] = 1
-                if self._storage.isFunctionId(term_as_int):
-                    results["functions"][term_as_int] = self._storage.getFunctionById(term_as_int).toDict()
-                    results["stats"]["num_functions_found"] = 1
+                    id_match = {
+                        "family_id": term_as_int,
+                        "family": self._storage.getFamily(term_as_int),
+                    }
             else:
                 LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
-            if self._storage.isPicHash(term_as_int):
-                pic_matches = self._storage.getMatchesForPicHash(term_as_int)
-                results["stats"]["num_functions_found"] += len(pic_matches)
-                for match in pic_matches:
-                    sample_id, function_id = match
-                    if len(results["functions"]) < max_num_results:
-                        results["functions"][function_id] = self._storage.getFunctionById(function_id).toDict()
-            return results
+        except Exception:
+            pass
+
+        assert sort_by in (
+            None,
+            "family_id",
+            "family_name",
+        )
+
+        sort_data = self._get_sort_data("family_id", sort_by, is_ascending)
+        result = self._getSearchResultTemplate(
+            self._storage.findFamilyByString,
+            search_term,
+            sort_data,
+            cursor,
+            limit,
+            to_dict=False,
+        )
+        result["id_match"] = id_match
+        return result
+
+    def getPichashSearchResults(self, search_term, sort_by="function_id", is_ascending=True, cursor=None, limit=100):
+        # TODO: consider sort_by, is_ascending, start_cursor
+        term_as_int = None
+        try:
+            if search_term.startswith("0x"):
+                term_as_int = int(search_term, 16)
+            else:
+                term_as_int = int(search_term)
         except:
             pass
-        # as regular string, refer to storage implementation of searching
-        results["families"].update(self._storage.findFamilyByString(search_term, max_num_results=max_num_results))
-        results["samples"].update({k: v.toDict() for k, v in self._storage.findSampleByString(search_term, max_num_results=max_num_results).items()})
-        results["functions"].update({k: v.toDict() for k, v in self._storage.findFunctionByString(search_term, max_num_results=max_num_results).items()})
-        # NOTE right now, we cap the count to 100 due to Storage implementation, could also count all and just limit returned results
-        results["stats"]["num_families_found"] = len(results["families"])
-        results["stats"]["num_samples_found"] = len(results["samples"])
-        results["stats"]["num_functions_found"] = len(results["functions"])
-        return results
+        
+        if term_as_int is None or not self._storage.isPicHash(term_as_int):
+            return {
+                "search_results": {},
+                "cursor": {
+                    "forward": None,
+                    "backward": None,
+                }
+            }
+
+        assert sort_by in (
+            None,
+            "function_id",
+            "sample_id",
+            "family_id",
+            "pichash",
+            "function_name",
+            "offset",
+            "num_instructions",
+            "num_blocks",
+        )
+        
+        sort_data = self._get_sort_data("function_id", sort_by, is_ascending)
+        result = self._getSearchResultTemplate(
+            self._storage.findFunctionByPichash,
+            term_as_int,
+            sort_data,
+            cursor,
+            limit,
+        )
+        return result
+
+    def getFunctionSearchResults(self, search_term, sort_by="function_id", is_ascending=True, cursor=None, limit=100):
+        term_as_int = None
+        id_match = None
+        try:
+            if search_term.startswith("0x"):
+                term_as_int = int(search_term, 16)
+            else:
+                term_as_int = int(search_term)
+            if term_as_int <= 0xFFFFFFFF:
+                if self._storage.isFunctionId(term_as_int):
+                    id_match = self._storage.getFunctionById(term_as_int).toDict()
+            else:
+                LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+        except Exception:
+            pass
+
+        assert sort_by in (
+            None,
+            "function_id",
+            "sample_id",
+            "family_id",
+            "pichash",
+            "function_name",
+            "offset",
+            "num_instructions",
+            "num_blocks",
+        )
+        
+        sort_data = self._get_sort_data("function_id", sort_by, is_ascending)
+        result = self._getSearchResultTemplate(
+            self._storage.findFunctionByString,
+            search_term,
+            sort_data,
+            cursor,
+            limit,
+        )
+        result["id_match"] = id_match
+        return result
+
+    def getSampleSearchResults(self, search_term, sort_by="sample_id", is_ascending=True, cursor=None, limit=100):
+        term_as_int = None
+        id_match = None
+        try:
+            if search_term.startswith("0x"):
+                term_as_int = int(search_term, 16)
+            else:
+                term_as_int = int(search_term)
+            if term_as_int <= 0xFFFFFFFF:
+                if self._storage.isSampleId(term_as_int):
+                    id_match = self._storage.getSampleById(term_as_int).toDict()
+            else:
+                LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+        except Exception:
+            pass
+
+        if re.match("^[a-fA-F0-9]{64}$", search_term) is not None:
+            sample_entry = self._storage.getSampleBySha256(search_term)
+            sha_match = sample_entry.toDict()
+        else:
+            sha_match = None
+
+        assert sort_by in (
+            None,
+            "filename",
+            "function_id",
+            "sample_id",
+            "family_id",
+            "family",
+            "architecture",
+            "base_addr",
+            "binary_size",
+            "binweight",
+            "bitness",
+            "component",
+            "is_library",
+            "sha256",
+            "timestamp",
+        )
+        
+        sort_data = self._get_sort_data("sample_id", sort_by, is_ascending)
+        result = self._getSearchResultTemplate(
+            self._storage.findSampleByString,
+            search_term,
+            sort_data,
+            cursor,
+            limit,
+        )
+        result["id_match"] = id_match
+        result["sha_match"] = sha_match
+        return result
+
 
     ##### CONFIG CHANGES ####
     def updateMinHashThreshold(self, threshold):

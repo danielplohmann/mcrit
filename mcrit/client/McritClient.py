@@ -1,3 +1,4 @@
+import functools
 import time
 import json
 import logging
@@ -384,7 +385,47 @@ class McritClient:
     ###########################################
     ### Search
     ###########################################
+    
+    # When performing an initial search, the cursor should be set to None.
+    # Search results are of the following form:
+    # {
+    #     "search_results": {
+    #         id1: found_entry1,
+    #         id2: found_entry2,
+    #         ...
+    #     },
+    #     "cursor": {
+    #         "forward": forward cursor,
+    #         "backward": backward cursor,
+    #     }
+    # }
+    # To get further results, perform a search using the forward cursor.
+    # To get back to the previous search results, use the backward cursor.
+    # If no further or previous results are available, the forward or backward cursor will be None.
+    #
+    # IMPORTANT: A cursor shall only be used in combination with the same
+    # search_term, is_ascending and sort_by value that were used when the cursor was returned from mcrit.
+    # If those parameters are altered, mcrit's behavior is undefined.
 
-    def search(self, search_term):
-        response = requests.get(f"{self.mcrit_server}/search/{urllib.parse.quote(search_term)}")
+    def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
+        params = {
+            "query": search_term,
+            "is_ascending": is_ascending,
+        }
+        if cursor is not None:
+            params["cursor"] = cursor
+        if sort_by is not None:
+            params["sort_by"] = sort_by 
+        if limit is not None:
+            params["limit"] = limit 
+        encoded_params = urllib.parse.urlencode(params)
+        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}")
         return handle_response(response)
+
+    search_families = functools.partialmethod(_search_base, "families")
+
+    search_samples = functools.partialmethod(_search_base, "samples")
+
+    search_functions = functools.partialmethod(_search_base, "functions")
+    
+    search_pichashes = functools.partialmethod(_search_base, "pichashes")
