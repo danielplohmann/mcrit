@@ -42,6 +42,31 @@ class FamilyResource:
         resp.data = jsonify({"status": "successful", "data": result})
 
     @timing
+    def on_delete(self, req, resp, family_id=None):
+        if family_id is None or self.index.getFamily(family_id) is None:
+            resp.data = jsonify(
+                {
+                    "status": "failed",
+                    "data": {"message": "We don't have a family with that id."},
+                }
+            )
+            resp.status = falcon.HTTP_404
+            return
+        # parse optional request parameters
+        keep_samples = False 
+        if "keep_samples" in req.params:
+            keep_samples = req.params["keep_samples"].lower().strip() == "true"
+        LOGGER.info("FamilyResource.on_delete")
+        successful = self.index.deleteFamily(family_id, keep_samples=keep_samples)
+        if successful:
+            resp.data = jsonify({"status": "successful", "data": {"message": "Family deleted."}})
+            resp.status = falcon.HTTP_202
+        else:
+            resp.data = jsonify({"status": "failed", "data": {"message": "Failed to delete family."}})
+            # TODO whats the correct code?
+            resp.status = falcon.HTTP_410
+
+    @timing
     def on_get_collection(self, req, resp):
         LOGGER.info("FamilyResource.on_get_collection")
         # parse optional request parameters

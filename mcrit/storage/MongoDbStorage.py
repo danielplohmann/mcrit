@@ -1,10 +1,12 @@
-import datetime
+import re
+import uuid
 import json
 import logging
-import re
+import datetime
 import traceback
 from operator import itemgetter
 from typing import Any, TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from django.db import IntegrityError
 
 LOGGER = logging.getLogger(__name__)
 try:
@@ -51,6 +53,8 @@ class MongoDbStorage(StorageInterface):
         self._ensureIndexAndUnknownFamily()
 
     def _ensureIndexAndUnknownFamily(self) -> None:
+        if "settings" not in self._database.list_collection_names():
+            self._database["settings"].insert_one({"mcrit_db_id": str(uuid.uuid4()), "db_state": 0})
         self._database["samples"].create_index("sample_id")
         self._database["families"].create_index("family_id")
         self._database["functions"].create_index("function_id")
@@ -164,6 +168,20 @@ class MongoDbStorage(StorageInterface):
             return 0
         return result["value"]
 
+    def _updateDbState(self):
+        result = self._database.settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
+        if result is None:
+            raise IntegrityError("Database does not have a db_state field")
+        else:
+            return result["db_state"]
+
+    def _getDbState(self):
+        result = self._database.settings.find_one({})
+        if result is None:
+            raise IntegrityError("Database does not have a db_state field")
+        else:
+            return result["db_state"]
+
     ###############################################################################
     # Conversion
     ###############################################################################
@@ -246,6 +264,7 @@ class MongoDbStorage(StorageInterface):
         return function_document["sample_id"]
 
     def deleteSample(self, sample_id: int) -> bool:
+        # TODO the way of removing function_ids from band hashes here is super inefficient and slow
         function_entries = self.getFunctionsBySampleId(sample_id)
         if function_entries is None:
             # in this case sample_id is does not exist
@@ -272,6 +291,23 @@ class MongoDbStorage(StorageInterface):
         self._database.functions.delete_many({"sample_id": sample_id})
         # remove sample
         self._database.samples.delete_one({"sample_id": sample_id})
+        self._updateDbState()
+        return True
+
+    def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
+        family_document = self._database.families.find_one({"family_id": family_id})
+        family_name = family_document["family_name"]
+        if family_document is None:
+            return False
+        sample_entries = self.getSamplesByFamilyId(family_id)
+        self._database.families.delete_one({"family_id": family_id})
+        if keep_samples:
+            self._database.samples.update_many({"family_id": family_id}, {"$set": {"family_id": 0, "family": ""}})
+            self._database.functions.update_many({"family_id": family_id}, {"$set": {"family_id": 0}})
+        else:
+            for sample_entry in sample_entries:
+                self.deleteSample(sample_entry.sample_id)
+        self._updateDbState()
         return True
 
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List["SampleEntry"]]:
@@ -311,6 +347,7 @@ class MongoDbStorage(StorageInterface):
             self._dbInsert("samples", sample_entry.toDict())
             for smda_function in smda_report.getFunctions():
                 self._addFunction(sample_entry, smda_function)
+            self._updateDbState()
         else:
             LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
         return sample_entry
@@ -320,6 +357,7 @@ class MongoDbStorage(StorageInterface):
             sample_id = self._useCounter("samples")
             sample_entry.sample_id = sample_id
             self._dbInsert("samples", sample_entry.toDict())
+            self._updateDbState()
         else:
             LOGGER.warn("Sample %s already existed, skipping.", sample_entry.sha256)
         return sample_entry
@@ -588,6 +626,7 @@ class MongoDbStorage(StorageInterface):
             return family_document["family_id"]
         family_id = self._useCounter("families")
         self._dbInsert("families", {"family_name": family_name, "family_id": family_id})
+        self._updateDbState()
         return family_id
 
     def getFamily(self, family_id: int) -> Optional[str]:
@@ -620,6 +659,7 @@ class MongoDbStorage(StorageInterface):
         for result in self._database["functions"].aggregate([{"$group": {"_id": "$_pichash"}}, {"$count": "Total" }]):
             num_unique_pichashes = result["Total"]
         stats = {
+            "db_state": self._getDbState(),
             "num_families": self._database.families.count_documents(filter={}),
             "num_samples": self._database.samples.count_documents(filter={}),
             "num_functions": self._database.functions.count_documents(filter={}),

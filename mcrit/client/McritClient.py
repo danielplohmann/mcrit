@@ -126,6 +126,11 @@ class McritClient:
     def isFamilyId(self, family_id) -> bool:
         return self.getFamily(family_id, with_samples=False) is not None
 
+    def deleteFamily(self, family_id, keep_samples=False):
+        query_params = "?keep_samples=true" if keep_samples else "?keep_samples=false"
+        response = requests.delete(f"{self.mcrit_server}/families/{family_id}{query_params}")
+        return handle_response(response)
+
     ###########################################
     ### Samples 
     ###########################################

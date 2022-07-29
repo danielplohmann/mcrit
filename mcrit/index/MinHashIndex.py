@@ -240,6 +240,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def deleteSample(self, sample_id):
         return self._storage.deleteSample(sample_id)
 
+    def deleteFamily(self, family_id, keep_samples=False):
+        return self._storage.deleteFamily(family_id, keep_samples=keep_samples)
+
     def getFunctionById(self, function_id):
         return self._storage.getFunctionById(function_id)
 
@@ -294,6 +297,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         storage_stats = self._storage.getStats()
         status = {
             "status": {
+                "db_state": storage_stats["db_state"],
                 "storage_type": self._storage_config.STORAGE_METHOD,
                 "storage_bands": len(storage_stats["bands"]),
                 "num_samples": storage_stats["num_samples"],

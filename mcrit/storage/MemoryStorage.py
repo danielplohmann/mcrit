@@ -1,6 +1,7 @@
+import uuid
 import logging
-from collections import defaultdict
 from copy import deepcopy
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 from picblocks.blockhasher import BlockHasher
@@ -39,6 +40,8 @@ class MemoryStorage(StorageInterface):
         self._setupEmptyStorage()
 
     def _setupEmptyStorage(self) -> None:
+        self._mcrit_db_id = str(uuid.uuid4())
+        self._db_state = 0
         self._families = {}
         self._samples = {}
         self._functions = {}
@@ -50,6 +53,9 @@ class MemoryStorage(StorageInterface):
         self._sample_id_to_function_ids = defaultdict(list)
         unknown_family_id = self.addFamily("")
         assert unknown_family_id == 0
+
+    def _updateDbState(self):
+        self._db_state += 1
 
     def _useCounter(self, name: str) -> int:
         result = self._counters[name]
@@ -87,6 +93,28 @@ class MemoryStorage(StorageInterface):
         self._sample_by_sha256.pop(self._samples[sample_id].sha256, None)
         # remove sample
         del self._samples[sample_id]
+        return True
+
+
+    def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
+        if family_id not in self.families:
+            return False
+        sample_entries = self.getSamplesByFamilyId(family_id)
+        self._families.pop(family_id)
+        if keep_samples:
+            for sample_entry in sample_entries:
+                self._samples[sample_entry.sample_id]["family_id"] = 0
+                self._samples[sample_entry.sample_id]["family"] = ""
+            function_ids_to_modify = set()
+            for function_id, function_entry in self._functions.items():
+                if function_entry.family_id == family_id:
+                    function_ids_to_modify.add(function_id)
+            for function_id in function_ids_to_modify:
+                    self._functions[function_id]["family_id"] = 0
+        else:
+            for sample_entry in sample_entries:
+                self.deleteSample(sample_entry.sample_id)
+        self._updateDbState()
         return True
 
     def addSmdaReport(self, smda_report: "SmdaReport") -> Optional["SampleEntry"]:
@@ -396,6 +424,7 @@ class MemoryStorage(StorageInterface):
 
     def getStats(self) -> Dict[str, Union[int, Dict[int, int]]]:
         stats = {
+            "db_state": self._db_state,
             "num_families": len(self._families),
             "num_samples": len(self._samples),
             "num_functions": len(self._functions),

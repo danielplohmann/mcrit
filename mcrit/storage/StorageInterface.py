@@ -400,6 +400,18 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
+        """Delete family if known and return boolean success state
+
+        Args:
+            family_id: The family_id of the family to delete
+            keep_samples: instead of deleting all samples and functions, reassign their family to "Unnamed (0)"
+
+        Returns:
+            True if successful
+        """
+        raise NotImplementedError
+
     def getFamilyIds(self) -> List[int]:
         """Returns a List of all family ids
 
