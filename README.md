@@ -81,6 +81,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-07-29 v0.10.2: Added ability to delete families - now also keeping XCFG info for all functions by default.
  * 2022-07-12 v0.10.1: Improved performance.
  * 2022-07-12 v0.10.0: (BREAKING) Job handling simplified.
  * 2022-05-13  v0.9.4: Bug fix for receiving submitted files.
@@ -101,7 +102,7 @@ Pull requests welcome! :)
 ## License
 ```
     MinHash-based Code Recognition & Investigation Toolkit (MCRIT)
-    Copyright (C) 2021  Daniel Plohmann
+    Copyright (C) 2022  Daniel Plohmann, Manuel Blatt
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

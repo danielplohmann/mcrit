@@ -17,7 +17,7 @@ class StorageConfig(ConfigInterface):
     STORAGE_MONGODB_DBNAME: str = "mcrit"
     STORAGE_PORT: ... = None
     # Once MinHashes have been calculated, discard disassembly from function entries
-    STORAGE_DROP_DISASSEMBLY: bool = True
+    STORAGE_DROP_DISASSEMBLY: bool = False
     # random seed to be used when deriving sequences used as bands
     STORAGE_BAND_SEED: int = 0xDEADBEEF
     # Banding supports:
