@@ -455,8 +455,8 @@ class MemoryStorage(StorageInterface):
         for sample_id, sample_entry in self._samples.items():
             if needle in sample_entry.filename:
                 result_dict[sample_id] = sample_entry
-            elif len(needle) >= 3 and needle in entry.sha256:
-                result_dict[entry.sample_id] = entry
+            elif len(needle) >= 3 and needle in sample_entry.sha256:
+                result_dict[sample_entry.sample_id] = sample_entry
             elif needle in sample_entry.component:
                 result_dict[sample_id] = sample_entry
             elif needle in sample_entry.version:
