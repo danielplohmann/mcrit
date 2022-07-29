@@ -24,6 +24,31 @@ logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 
+#### Helper methods for nested sort_by in search
+
+def _get_field_once(object, field):
+    try:
+        return getattr(object, field)
+    except Exception:
+        pass
+    try:
+        return object[field]
+    except Exception:
+        pass
+
+def _get_field(object, field):
+    dot_index = field.find(".")
+    if dot_index >= 0:
+        first_field = field[:dot_index]
+        remaining_fields = field[dot_index+1:]
+        return _get_field(
+            _get_field_once(object, first_field),
+            remaining_fields
+        )
+    else:
+        return _get_field_once(object, field)
+
+
 class MinHashIndex(QueueRemoteCaller(Worker)):
     def __init__(self, config=None, base_url=None):
         if config is None:
@@ -358,10 +383,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             last_result = search_results_objects[last_element_key]
             forward_cursor = MinimalSearchCursor()
             forward_cursor.is_forward_search = True ^ is_backward_search # switch for backward search, because of swap
-            if to_dict:
-                forward_cursor.record_values = [getattr(last_result, field) for field in sort_fields]
-            else:
-                forward_cursor.record_values = [last_result[field] for field in sort_fields]
+            forward_cursor.record_values = [_get_field(last_result, field) for field in sort_fields]
             forward_cursor_str = forward_cursor.toStr()
 
         backward_cursor_str = None
@@ -369,10 +391,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             first_result = search_results_objects[search_results_keys[0]]
             backward_cursor = MinimalSearchCursor()
             backward_cursor.is_forward_search = False ^ is_backward_search # switch for backward search, because of swap
-            if to_dict:
-                backward_cursor.record_values = [getattr(first_result, field) for field in sort_fields]
-            else:
-                backward_cursor.record_values = [first_result[field] for field in sort_fields]
+            backward_cursor.record_values = [_get_field(first_result, field) for field in sort_fields]
             backward_cursor_str = backward_cursor.toStr()
 
         if to_dict:
@@ -561,6 +580,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "sha256",
             "timestamp",
             "version",
+            "statistics.num_functions"
         )
         
         sort_data = self._get_sort_data("sample_id", sort_by, is_ascending)
