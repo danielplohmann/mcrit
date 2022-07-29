@@ -560,6 +560,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "is_library",
             "sha256",
             "timestamp",
+            "version",
         )
         
         sort_data = self._get_sort_data("sample_id", sort_by, is_ascending)
