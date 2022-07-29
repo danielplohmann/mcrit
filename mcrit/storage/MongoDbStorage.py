@@ -6,7 +6,6 @@ import datetime
 import traceback
 from operator import itemgetter
 from typing import Any, TYPE_CHECKING, Dict, List, Optional, Set, Tuple
-from django.db import IntegrityError
 
 LOGGER = logging.getLogger(__name__)
 try:
@@ -171,14 +170,14 @@ class MongoDbStorage(StorageInterface):
     def _updateDbState(self):
         result = self._database.settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
         if result is None:
-            raise IntegrityError("Database does not have a db_state field")
+            raise Exception("Database does not have a db_state field")
         else:
             return result["db_state"]
 
     def _getDbState(self):
         result = self._database.settings.find_one({})
         if result is None:
-            raise IntegrityError("Database does not have a db_state field")
+            raise Exception("Database does not have a db_state field")
         else:
             return result["db_state"]
 
