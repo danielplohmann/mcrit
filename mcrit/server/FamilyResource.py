@@ -28,17 +28,13 @@ class FamilyResource:
             resp.status = falcon.HTTP_404
             return
 
-        result = {
-            "family_id": family_id,
-            "family": self.index.getFamily(family_id),
-        }
+        family = self.index.getFamily(family_id)
         if with_samples:
             samples = self.index.getSamplesByFamilyId(family_id)
-            result["samples"] = {}
+            family.samples = {}
             for sample in samples:
-                result["samples"][sample.sample_id] = self.index.getSampleById(sample.sample_id).toDict()
-            result["num_samples"] = len(samples)
-            result["num_versions"] = len(set([sample.version for sample in samples])),
+                family.samples[sample.sample_id] = self.index.getSampleById(sample.sample_id)
+        result = family.toDict()
         resp.data = jsonify({"status": "successful", "data": result})
 
     @timing

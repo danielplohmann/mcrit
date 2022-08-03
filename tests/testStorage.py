@@ -55,12 +55,12 @@ class MemoryStorageTest(TestCase):
 
         # family 0 is default: ""
         self.assertEqual(0, self.storage.getFamilyId(""))
-        self.assertEqual("", self.storage.getFamily(0))
+        self.assertEqual("", self.storage.getFamily(0).family_name)
         self.assertEqual(4, len(self.storage.getFamilyIds()))
-        self.assertEqual("family_1", self.storage.getFamily(1))
+        self.assertEqual("family_1", self.storage.getFamily(1).family_name)
         self.assertEqual(3, self.storage.getFamilyId("family_3"))
         self.assertIsNone(self.storage.getFamily(1000))
-        self.assertIsNone(self.storage.getFamilyId("nonexistant"))
+        self.assertIsNone(self.storage.getFamilyId("nonexistent"))
 
     def testSampleHandling(self):
         self.storage.clearStorage()
