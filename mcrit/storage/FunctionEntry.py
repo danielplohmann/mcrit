@@ -1,5 +1,8 @@
 from typing import TYPE_CHECKING, Dict, Optional
 
+from smda.common.BinaryInfo import BinaryInfo
+from smda.common.SmdaFunction import SmdaFunction
+
 from mcrit.minhash.MinHash import MinHash
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -62,6 +65,11 @@ class FunctionEntry(object):
     def getMinHash(self, minhash_bits=32):
         return MinHash(function_id=self.function_id, minhash_bytes=self.minhash, minhash_bits=minhash_bits)
 
+    def toSmdaFunction(self):
+        binary_info = BinaryInfo(b"")
+        binary_info.architecture = self.architecture
+        return SmdaFunction.fromDict(self.xcfg, binary_info=binary_info)
+
     def toDict(self):
         empty_minhash = MinHash()
         minhash = self.minhash if self.minhash else empty_minhash.getMinHash()
@@ -104,7 +112,7 @@ class FunctionEntry(object):
         function_entry.num_instructions = entry_dict["num_instructions"]
         function_entry.binweight = entry_dict["binweight"]
         function_entry.offset = entry_dict["offset"]
-        function_entry.xcfg = entry_dict["xcfg"]
+        function_entry.xcfg = entry_dict["xcfg"] if "xcfg" in entry_dict else None
         return function_entry
 
     @classmethod

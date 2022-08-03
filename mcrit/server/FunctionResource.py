@@ -15,7 +15,10 @@ class FunctionResource:
 
     @timing
     def on_get(self, req, resp, function_id=None):
-        LOGGER.info("SampleResource.on_get_function")
+        LOGGER.info("FunctionResource.on_get_function")
+        query_with_xcfg = False 
+        if "with_xcfg" in req.params:
+            query_with_xcfg = req.params["with_xcfg"].lower().strip() == "true"
         if not self.index.isFunctionId(function_id):
             resp.data = jsonify(
                 {
@@ -25,7 +28,7 @@ class FunctionResource:
             )
             resp.status = falcon.HTTP_404
             return
-        data = self.index.getFunctionById(function_id).toDict()
+        data = self.index.getFunctionById(function_id, with_xcfg=query_with_xcfg).toDict()
         resp.data = jsonify(
             {
                 "status": "successful",

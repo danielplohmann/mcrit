@@ -152,7 +152,8 @@ class Worker(QueueRemoteCallee):
         else:
             LOGGER.info("Sample %d did not have any functions, proceeding.", sample_id)
             return 0
-        self._storage.deleteXcfgForSampleId(sample_id)
+        if self.config.STORAGE_CONFIG.STORAGE_DROP_DISASSEMBLY:
+            self._storage.deleteXcfgForSampleId(sample_id)
         return update_result
 
     # Reports PROGRESS

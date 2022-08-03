@@ -194,8 +194,9 @@ class McritClient:
             return True
         return False
 
-    def getFunctionById(self, function_id: int) -> Optional[FunctionEntry]:
-        response = requests.get(f"{self.mcrit_server}/functions/{function_id}")
+    def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional[FunctionEntry]:
+        query_with_xcfg = "?with_xcfg=True" if with_xcfg else ""
+        response = requests.get(f"{self.mcrit_server}/functions/{function_id}{query_with_xcfg}")
         data = handle_response(response)
         if data is not None:
             return FunctionEntry.fromDict(data)

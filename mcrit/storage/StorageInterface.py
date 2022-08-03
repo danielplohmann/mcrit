@@ -258,11 +258,12 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getFunctionById(self, function_id: int) -> Optional["FunctionEntry"]:
+    def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
         """Given a function_id, return the respective FunctionEntry or None, if function_id is not contained otherwise.
 
         Args:
             function_id: a function id
+            with_xcfg: include xcfg info (default: False)
 
         Returns:
             the respective FunctionEntry or None, if function_id is not contained otherwise

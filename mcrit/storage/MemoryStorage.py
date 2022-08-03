@@ -266,8 +266,11 @@ class MemoryStorage(StorageInterface):
             self._families[family_id] = family_name
         return family_id
 
-    def getFunctionById(self, function_id: int) -> Optional["FunctionEntry"]:
+    def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
         if function_id in self._functions:
+            function_entry = deepcopy(self._functions[function_id])
+            if with_xcfg is False:
+                function_entry.xcfg = None
             return deepcopy(self._functions[function_id])
         return None
 

@@ -243,8 +243,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def deleteFamily(self, family_id, keep_samples=False):
         return self._storage.deleteFamily(family_id, keep_samples=keep_samples)
 
-    def getFunctionById(self, function_id):
-        return self._storage.getFunctionById(function_id)
+    def getFunctionById(self, function_id, with_xcfg=False):
+        return self._storage.getFunctionById(function_id, with_xcfg=with_xcfg)
 
     def getFunctions(self, start_index, limit):
         return self._storage.getFunctions(start_index, limit)

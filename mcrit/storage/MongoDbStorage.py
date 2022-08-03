@@ -634,11 +634,13 @@ class MongoDbStorage(StorageInterface):
             return None
         return family_document["family_name"]
 
-    def getFunctionById(self, function_id: int) -> Optional["FunctionEntry"]:
+    def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
         function_document = self._database.functions.find_one({"function_id": function_id}, {"_id": 0})
         if not function_document:
             return None
         self._decodeFunction(function_document)
+        if with_xcfg == False:
+            function_document.pop("xcfg")
         return FunctionEntry.fromDict(function_document)
 
     def getSampleById(self, sample_id: int) -> Optional["SampleEntry"]:
