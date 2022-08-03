@@ -357,7 +357,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     # search_term and sort_by_list that were used when the cursor was returned from mcrit.
     # If those parameters are altered, mcrit's behavior is undefined.
 
-    def _getSearchResultTemplate(self, search_function, search_term, sort_by_list, cursor_str, limit, to_dict=True):
+    def _getSearchResultTemplate(self, search_function, search_term, sort_by_list, cursor_str, limit):
         assert isinstance(search_term, str) or isinstance(search_term, int)
 
         sort_fields = [sort_info[0] for sort_info in sort_by_list]
@@ -396,17 +396,12 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             backward_cursor.record_values = [_get_field(first_result, field) for field in sort_fields]
             backward_cursor_str = backward_cursor.toStr()
 
-        if to_dict:
-            transformation = lambda x: x.toDict()
-        else:
-            transformation = lambda x: x
-
         if is_backward_search:
             # reverse order
             backward_cursor_str, forward_cursor_str = forward_cursor_str, backward_cursor_str
-            search_results = {k: transformation(v) for k, v in reversed(search_results_objects.items())}
+            search_results = {k: v.toDict() for k, v in reversed(search_results_objects.items())}
         else:
-            search_results = {k: transformation(v) for k, v in search_results_objects.items()}
+            search_results = {k: v.toDict() for k, v in search_results_objects.items()}
 
         return {
             "search_results": search_results,
