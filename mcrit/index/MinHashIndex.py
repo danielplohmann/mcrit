@@ -10,6 +10,7 @@ from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import compress_encode, decompress_decode
 from mcrit.queue.QueueFactory import QueueFactory
 from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller, NoProgressReporter
@@ -367,7 +368,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         full_cursor = FullSearchCursor(cursor, sort_by_list)
         is_backward_search = not full_cursor.is_forward_search
 
-        search_results_objects = search_function(search_term, cursor=full_cursor, max_num_results=limit+1)
+        parsed_search = SearchQueryParser().parse(search_term)
+        search_results_objects = search_function(parsed_search, cursor=full_cursor, max_num_results=limit+1)
 
         # Find last last_element_key, which is used for the forward cursor
         search_results_keys = list(search_results_objects.keys())
