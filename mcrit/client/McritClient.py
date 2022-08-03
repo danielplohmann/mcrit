@@ -3,7 +3,6 @@ import time
 import json
 import logging
 from typing import Dict, List, Optional, Tuple
-from multiprocessing.sharedctypes import Value
 
 import requests
 import urllib.parse
@@ -390,7 +389,7 @@ class McritClient:
     ###########################################
     ### Search
     ###########################################
-    
+
     # When performing an initial search, the cursor should be set to None.
     # Search results are of the following form:
     # {
@@ -411,7 +410,7 @@ class McritClient:
     # IMPORTANT: A cursor shall only be used in combination with the same
     # search_term, is_ascending and sort_by value that were used when the cursor was returned from mcrit.
     # If those parameters are altered, mcrit's behavior is undefined.
-
+    
     def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
         params = {
             "query": search_term,
