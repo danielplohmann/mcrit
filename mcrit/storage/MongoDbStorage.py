@@ -17,7 +17,7 @@ except:
 from picblocks.blockhasher import BlockHasher
 
 from mcrit.index.SearchCursor import FullSearchCursor
-from mcrit.index.SearchQueryParser import SearchConditionNode, SearchTermNode
+from mcrit.index.SearchQueryTree import SearchConditionNode, SearchTermNode
 from mcrit.libs.utility import generate_unique_groups
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry

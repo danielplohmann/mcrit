@@ -1,5 +1,4 @@
 from string import whitespace
-from typing import Literal as typingLiteral
 from pyparsing import (
     Word,
     CharsNotIn,
@@ -12,21 +11,7 @@ from pyparsing import (
     identbodychars
 )
 
-class SearchTermNode:
-    value: str
-
-    def __init__(self, value):
-        self.value = value
-
-class SearchConditionNode:
-    field: str
-    operator: typingLiteral["", "=", "<", "<=", ">", ">="]
-    value: str
-
-    def __init__(self, field, operator, value):
-        self.field = field 
-        self.operator = operator 
-        self.value = value
+from mcrit.index.SearchQueryTree import SearchConditionNode, SearchTermNode
 
 class SearchQueryParser:
     def __init__(self):
