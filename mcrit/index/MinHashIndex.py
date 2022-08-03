@@ -10,13 +10,13 @@ from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.index.SearchCursor import MinimalSearchCursor, FullSearchCursor
 from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import compress_encode, decompress_decode
 from mcrit.queue.QueueFactory import QueueFactory
 from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller, NoProgressReporter
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.SearchCursor import MinimalSearchCursor, FullSearchCursor
 from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.minhash.MinHash import MinHash
 from mcrit.Worker import Worker
