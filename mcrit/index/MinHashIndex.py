@@ -462,48 +462,6 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         result["id_match"] = id_match
         return result
 
-    def getPichashSearchResults(self, search_term, sort_by="function_id", is_ascending=True, cursor=None, limit=100):
-        # TODO: consider sort_by, is_ascending, start_cursor
-        term_as_int = None
-        try:
-            if search_term.startswith("0x"):
-                term_as_int = int(search_term, 16)
-            else:
-                term_as_int = int(search_term)
-        except:
-            pass
-        
-        if term_as_int is None or not self._storage.isPicHash(term_as_int):
-            return {
-                "search_results": {},
-                "cursor": {
-                    "forward": None,
-                    "backward": None,
-                }
-            }
-
-        assert sort_by in (
-            None,
-            "function_id",
-            "sample_id",
-            "family_id",
-            "pichash",
-            "function_name",
-            "offset",
-            "num_instructions",
-            "num_blocks",
-        )
-        
-        sort_data = self._get_sort_data("function_id", sort_by, is_ascending)
-        result = self._getSearchResultTemplate(
-            self._storage.findFunctionByPichash,
-            term_as_int,
-            sort_data,
-            cursor,
-            limit,
-        )
-        return result
-
     def getFunctionSearchResults(self, search_term, sort_by="function_id", is_ascending=True, cursor=None, limit=100):
         term_as_int = None
         id_match = None

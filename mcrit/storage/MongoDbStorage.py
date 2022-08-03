@@ -857,16 +857,3 @@ class MongoDbStorage(StorageInterface):
             entry = FunctionEntry.fromDict(function_document)
             result_dict[entry.function_id] = entry
         return result_dict
-
-    def findFunctionByPichash(self, pichash: int, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
-        result_dict = {}
-        search_query = {"pichash": pichash}
-        self._encodePichash(search_query)
-        cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [search_query, cursor_query]}
-        sort_list = self._get_sort_list_from_cursor(cursor)
-        for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
-            self._decodeFunction(function_document)
-            entry = FunctionEntry.fromDict(function_document)
-            result_dict[entry.function_id] = entry
-        return result_dict
