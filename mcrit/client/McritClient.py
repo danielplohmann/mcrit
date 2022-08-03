@@ -113,13 +113,7 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/families/{family_id}{query_params}")
         data = handle_response(response)
         if data is not None:
-            family_entry =  FamilyEntry.fromDict(data)
-            # if "samples" in data:
-            #     family_entry.samples = [
-            #             SampleEntry.fromDict(sample_entry_dict)
-            #         for sample_entry_dict in sorted(data["samples"].values(), key=lambda s: s["sample_id"])
-            #         ]
-            return family_entry
+            return FamilyEntry.fromDict(data)
         return None
 
     def getFamilies(self):
@@ -152,7 +146,7 @@ class McritClient:
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List[SampleEntry]]:
         family_data = self.getFamily(family_id)
         if family_data is not None:
-            return family_data["samples"]
+            return family_data.samples
 
     def getSampleById(self, sample_id):
         response = requests.get(f"{self.mcrit_server}/samples/{sample_id}")
