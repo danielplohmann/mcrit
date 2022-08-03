@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 import urllib.parse
+from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.queue.LocalQueue import Job
@@ -107,16 +108,19 @@ class McritClient:
     ### Families 
     ###########################################
 
-    def getFamily(self, family_id: int, with_samples=True) -> Optional[Dict]:
+    def getFamily(self, family_id: int, with_samples=True) -> Optional[FamilyEntry]:
         query_params = "?with_samples=true" if with_samples else "?with_samples=false"
         response = requests.get(f"{self.mcrit_server}/families/{family_id}{query_params}")
         data = handle_response(response)
-        if data is not None and "samples" in data:
-            data["samples"] = [
-                    SampleEntry.fromDict(sample_entry_dict)
-                for sample_entry_dict in sorted(data["samples"].values(), key=lambda s: s["sample_id"])
-                ]
-        return data 
+        if data is not None:
+            family_entry =  FamilyEntry.fromDict(data)
+            # if "samples" in data:
+            #     family_entry.samples = [
+            #             SampleEntry.fromDict(sample_entry_dict)
+            #         for sample_entry_dict in sorted(data["samples"].values(), key=lambda s: s["sample_id"])
+            #         ]
+            return family_entry
+        return None
 
     def getFamilies(self):
         response = requests.get(f"{self.mcrit_server}/families")

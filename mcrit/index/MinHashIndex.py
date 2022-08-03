@@ -428,6 +428,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             None,
             "family_id",
             "family_name",
+            "num_samples",
+            "num_library_samples",
+            "num_functions",
         )
 
         sort_data = self._get_sort_data("family_id", sort_by, is_ascending)
@@ -437,7 +440,6 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             sort_data,
             cursor,
             limit,
-            to_dict=False,
         )
         result["id_match"] = id_match
         return result

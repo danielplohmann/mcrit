@@ -17,6 +17,7 @@ except:
 from picblocks.blockhasher import BlockHasher
 
 from mcrit.libs.utility import generate_unique_groups
+from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
@@ -68,7 +69,7 @@ class MongoDbStorage(StorageInterface):
         # Add Family "" if it is not already in storage
         if self.getFamily(0) is None:
             self.addFamily("")
-        assert self.getFamily(0) == ""
+        assert self.getFamily(0).family_name == ""
 
     ###############################################################################
     # Generic database functionality and logging
@@ -286,12 +287,27 @@ class MongoDbStorage(StorageInterface):
                 if band_document is not None and len(band_document["function_ids"]) == 0:
                     self._database["band_%d" % band_number].delete_one({"band_hash": band_hash})
 
+        # update family stats
+        sample_entry = self.getSampleById(sample_id)
+        self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove functions
         self._database.functions.delete_many({"sample_id": sample_id})
         # remove sample
         self._database.samples.delete_one({"sample_id": sample_id})
         self._updateDbState()
         return True
+
+    def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
+        self._database.families.update_one(
+            {"family_id": family_id},
+            {
+                "$inc": {
+                    "num_samples": num_samples_inc,
+                    "num_functions": num_functions_inc,
+                    "num_library_samples": num_library_samples_inc,
+                },
+            }
+        )
 
     def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
         family_document = self._database.families.find_one({"family_id": family_id})
@@ -340,12 +356,14 @@ class MongoDbStorage(StorageInterface):
     def addSmdaReport(self, smda_report: "SmdaReport") -> Optional["SampleEntry"]:
         sample_entry = None
         if not self.getSampleBySha256(smda_report.sha256):
+            family_id = self.addFamily(smda_report.family)
             sample_entry = SampleEntry(
-                smda_report, sample_id=self._useCounter("samples"), family_id=self.addFamily(smda_report.family)
+                smda_report, sample_id=self._useCounter("samples"), family_id=family_id
             )
             self._dbInsert("samples", sample_entry.toDict())
             for smda_function in smda_report.getFunctions():
                 self._addFunction(sample_entry, smda_function)
+            self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             self._updateDbState()
         else:
             LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
@@ -356,6 +374,7 @@ class MongoDbStorage(StorageInterface):
             sample_id = self._useCounter("samples")
             sample_entry.sample_id = sample_id
             self._dbInsert("samples", sample_entry.toDict())
+            self._updateFamilyStats(sample_entry.family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             self._updateDbState()
         else:
             LOGGER.warn("Sample %s already existed, skipping.", sample_entry.sha256)
@@ -624,15 +643,16 @@ class MongoDbStorage(StorageInterface):
         if family_document is not None:
             return family_document["family_id"]
         family_id = self._useCounter("families")
-        self._dbInsert("families", {"family_name": family_name, "family_id": family_id})
+        family_entry = FamilyEntry(family_name=family_name, family_id=family_id)
+        self._dbInsert("families", family_entry.toDict())
         self._updateDbState()
         return family_id
 
-    def getFamily(self, family_id: int) -> Optional[str]:
+    def getFamily(self, family_id: int) -> Optional[FamilyEntry]:
         family_document = self._database.families.find_one({"family_id": family_id})
         if family_document is None:
             return None
-        return family_document["family_name"]
+        return FamilyEntry.fromDict(family_document)
 
     def getFunctionById(self, function_id: int) -> Optional["FunctionEntry"]:
         function_document = self._database.functions.find_one({"function_id": function_id}, {"_id": 0})
@@ -758,14 +778,15 @@ class MongoDbStorage(StorageInterface):
 
     ##### search ####
 
-    def findFamilyByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, str]:
+    def findFamilyByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
         result_dict = {}
         search_query = self._get_regex_search_query(needle, "family_name")
         cursor_query = self._get_condition_from_cursor(cursor)
         query = {"$and": [search_query, cursor_query]}
         sort_list = self._get_sort_list_from_cursor(cursor)
         for family_document in self._database.families.find(query, sort=sort_list, limit=max_num_results):
-            result_dict[family_document["family_id"]] = family_document
+            entry = FamilyEntry.fromDict(family_document)
+            result_dict[family_document["family_id"]] = entry
         return result_dict
 
     def findSampleByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
