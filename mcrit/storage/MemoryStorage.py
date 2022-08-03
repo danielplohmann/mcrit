@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 from picblocks.blockhasher import BlockHasher
 
+from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
@@ -21,7 +22,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class MemoryStorage(StorageInterface):
-    _families: Dict[int, str]
+    _families: Dict[int, FamilyEntry]
     _samples: Dict[int, "SampleEntry"]
     _functions: Dict[int, "FunctionEntry"]
     _pichashes: Dict[int, Set[Tuple[int, int]]]
@@ -62,6 +63,14 @@ class MemoryStorage(StorageInterface):
         self._counters[name] += 1
         return result
 
+
+    def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
+        family_entry = self.getFamily(family_id)
+        assert family_entry is not None
+        family_entry.num_samples += num_samples_inc
+        family_entry.num_functions += num_functions_inc
+        family_entry.num_library_samples += num_library_samples_inc
+
     # TODO check if this works
     def deleteSample(self, sample_id: int) -> bool:
         if not self.isSampleId(sample_id):
@@ -91,6 +100,9 @@ class MemoryStorage(StorageInterface):
         del self._sample_id_to_function_ids[sample_id]
         # in case to samples with same sha256 are added and then removed, it could crash, so remove entry safely
         self._sample_by_sha256.pop(self._samples[sample_id].sha256, None)
+
+        sample_entry = self.getSampleById(sample_id)
+        self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
         return True
@@ -120,8 +132,9 @@ class MemoryStorage(StorageInterface):
     def addSmdaReport(self, smda_report: "SmdaReport") -> Optional["SampleEntry"]:
         sample_entry = None
         if not self.getSampleBySha256(smda_report.sha256):
+            family_id = self.addFamily(smda_report.family)
             sample_entry = SampleEntry(
-                smda_report, sample_id=self._useCounter("samples"), family_id=self.addFamily(smda_report.family)
+                smda_report, sample_id=self._useCounter("samples"), family_id=family_id
             )
             self._samples[sample_entry.sample_id] = sample_entry
             self._sample_by_sha256[sample_entry.sha256] = sample_entry.sample_id
@@ -130,6 +143,7 @@ class MemoryStorage(StorageInterface):
                 function_entry = self._addFunction(sample_entry, smda_function)
                 function_ids.append(function_entry.function_id)
             self._sample_id_to_function_ids[sample_entry.sample_id] = function_ids
+            self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
         else:
             LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
         return sample_entry
@@ -140,6 +154,7 @@ class MemoryStorage(StorageInterface):
             sample_entry.sample_id = sample_id
             self._samples[sample_id] = sample_entry
             self._sample_by_sha256[sample_entry.sha256] = sample_id
+            self._updateFamilyStats(sample_entry.family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
         else:
             LOGGER.warn("Sample %s already existed, skipping.", sample_entry.sha256)
         return sample_entry
@@ -248,14 +263,14 @@ class MemoryStorage(StorageInterface):
             return set()
         return deepcopy(self._pichashes[pichash])
 
-    def getFamily(self, family_id: int) -> Optional[str]:
+    def getFamily(self, family_id: int) -> Optional[FamilyEntry]:
         if family_id in self._families:
-            return deepcopy(self._families[family_id])
+            return self._families[family_id]
         return None
 
     def getFamilyId(self, family_name: str) -> Optional[int]:
-        for fam_id, fam_name in self._families.items():
-            if fam_name == family_name:
+        for fam_id, fam_entry in self._families.items():
+            if fam_entry.family_name == family_name:
                 return fam_id
         return None
 
@@ -263,7 +278,7 @@ class MemoryStorage(StorageInterface):
         family_id = self.getFamilyId(family_name)
         if family_id is None:
             family_id = self._useCounter("families")
-            self._families[family_id] = family_name
+            self._families[family_id] = FamilyEntry(family_name = family_name, family_id=family_id)
         return family_id
 
     def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
@@ -400,7 +415,7 @@ class MemoryStorage(StorageInterface):
     # TODO dict of what?
     def getContent(self) -> Dict[str, Any]:
         content = {
-            "families": self._families,
+            "families": {family_id: family.toDict() for family_id, family in self._families.items()},
             "samples": {sample_id: sample.toDict() for sample_id, sample in self._samples.items()},
             "functions": {function_id: function.toDict() for function_id, function in self._functions.items()},
             "bands": self._bands,
@@ -409,7 +424,7 @@ class MemoryStorage(StorageInterface):
 
     # TODO dict of what?
     def setContent(self, content: Dict[str, Any]) -> None:
-        self._families = {int(k): v for k, v in content["families"].items()}
+        self._families = {int(k): FamilyEntry.fromDict(v) for k, v in content["families"].items()}
         self._samples = {int(k): SampleEntry.fromDict(v) for k, v in content["samples"].items()}
         self._bands = {int(k): {int(ik): iv for ik, iv in v.items()} for k, v in content["bands"].items()}
         self._sample_by_sha256 = {sample.sha256: sample_id for sample_id, sample in self._samples.items()}
