@@ -29,7 +29,7 @@ class FunctionEntry(object):
     function_name: str
     matches: Dict
     pichash: int
-    picblockhashes: Dict
+    picblockhashes: list
     num_blocks: int
     num_instructions: int
     binweight: float
@@ -56,7 +56,7 @@ class FunctionEntry(object):
             self.xcfg = smda_function.toDict()
             self.function_name = smda_function.function_name
             self.pichash = smda_function.pic_hash
-            self.picblockhashes = {}
+            self.picblockhashes = []
         self.matches = {}
         empty_minhash = MinHash()
         self.minhash = minhash.getMinHash() if minhash else empty_minhash.getMinHash()

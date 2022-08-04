@@ -1,3 +1,4 @@
+from collections import defaultdict
 import re
 import uuid
 import json
@@ -61,6 +62,7 @@ class MongoDbStorage(StorageInterface):
         self._database["functions"].create_index("sample_id")
         self._database["functions"].create_index("_pichash")
         self._database["functions"].create_index("_picblockhashes.hash")
+        self._database["functions"].create_index("_picblockhashes.offset")
         self._database["matches"].create_index("match_id")
         self._database["candidates"].create_index("function_id")
         self._database["counters"].create_index("name")
@@ -204,12 +206,10 @@ class MongoDbStorage(StorageInterface):
                 del function_dict["pichash"]
         if "picblockhashes" in function_dict:
             converted_entries = []
-            for blockhash_dict in function_dict["picblockhashes"]:
-                converted_entries.append({
-                    "hash": hex(blockhash_dict["hash"]),
-                    "size": blockhash_dict["size"],
-                    "count": blockhash_dict["count"],
-                })
+            for entry in function_dict["picblockhashes"]:
+                converted_entry = dict(**entry)
+                converted_entry["hash"] = hex(converted_entry["hash"])
+                converted_entries.append(converted_entry)
             function_dict["_picblockhashes"] = converted_entries
             if delete_old:
                 del function_dict["picblockhashes"]
@@ -221,12 +221,10 @@ class MongoDbStorage(StorageInterface):
                 del function_dict["_pichash"]
         if "_picblockhashes" in function_dict:
             converted_entries = []
-            for blockhash_dict in function_dict["_picblockhashes"]:
-                converted_entries.append({
-                    "hash": int(blockhash_dict["hash"], 16),
-                    "size": blockhash_dict["size"],
-                    "count": blockhash_dict["count"],
-                })
+            for entry in function_dict["_picblockhashes"]:
+                converted_entry = dict(**entry)
+                converted_entry["hash"] = int(converted_entry["hash"], 16)
+                converted_entries.append(converted_entry)
             function_dict["picblockhashes"] = converted_entries
             if delete_old:
                 del function_dict["_picblockhashes"]
@@ -610,7 +608,12 @@ class MongoDbStorage(StorageInterface):
         # calculate block hashes and add separately
         image_lower = sample_entry.base_addr
         image_upper = image_lower + sample_entry.binary_size
-        function_entry.picblockhashes = self.blockhasher.getBlockhashesForFunction(smda_function, image_lower, image_upper, hash_size=8)
+        picblockhashes = []
+        for hash_entry in self.blockhasher.getBlockhashesForFunction(smda_function, image_lower, image_upper, hash_size=8):
+            for block_entry in hash_entry["offset_tuples"]:
+                block_entry["hash"] = hash_entry["hash"]
+                picblockhashes.append(block_entry)
+        function_entry.picblockhashes = picblockhashes
         # convert for persistance
         function_dict = function_entry.toDict()
         self._encodeFunction(function_dict)

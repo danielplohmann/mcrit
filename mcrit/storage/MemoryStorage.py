@@ -200,7 +200,12 @@ class MemoryStorage(StorageInterface):
         function_entry = FunctionEntry(sample_entry, smda_function, self._useCounter("functions"), minhash=minhash)
         image_lower = sample_entry.base_addr
         image_upper = image_lower + sample_entry.binary_size
-        function_entry.picblockhashes = self.blockhasher.getBlockhashesForFunction(smda_function, image_lower, image_upper, hash_size=8)
+        picblockhashes = []
+        for hash_entry in self.blockhasher.getBlockhashesForFunction(smda_function, image_lower, image_upper, hash_size=8):
+            for block_entry in hash_entry["offset_tuples"]:
+                block_entry["hash"] = hash_entry["hash"]
+                picblockhashes.append(block_entry)
+        function_entry.picblockhashes = picblockhashes
         self._functions[function_entry.function_id] = function_entry
         if minhash and minhash.hasMinHash():
             minhash.function_id = function_entry.function_id
