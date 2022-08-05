@@ -816,14 +816,18 @@ class MongoDbStorage(StorageInterface):
                 conditions.append(MongoDbStorage._get_condition_from_condition_node(node))
         return MongoDbStorage._and_query(*conditions)
 
+    def _get_search_query(self, search_fields:List[str], search_nodes, cursor: Optional[FullSearchCursor]):
+        search_query = self._get_condition_from_search_nodes(search_nodes, *search_fields)
+        cursor_query = self._get_condition_from_cursor(cursor)
+        query = {"$and": [search_query, cursor_query]}
+        return query
 
     ##### search ####
 
     def findFamilyByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
         result_dict = {}
-        search_query = self._get_condition_from_search_nodes(needle, "family_name")
-        cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [search_query, cursor_query]}
+        search_fields = ["family_name"]
+        query = self._get_search_query(search_fields, needle, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
         for family_document in self._database.families.find(query, sort=sort_list, limit=max_num_results):
             entry = FamilyEntry.fromDict(family_document)
@@ -832,13 +836,9 @@ class MongoDbStorage(StorageInterface):
 
     def findSampleByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        cursor_query = self._get_condition_from_cursor(cursor)
-        # NOTE: we could also search all families just once and then add all matched families' samples
-        search_fields = ["filename", "family", "component", "version"]
-        if len(needle) >= 3:
-            search_fields.append("sha256")
-        search_query = self._get_condition_from_search_nodes(needle, *search_fields)
-        query = {"$and": [search_query, cursor_query]}
+        #TODO: only search in sha256 if the search term is >3
+        search_fields = ["filename", "family", "component", "version", "sha256"]
+        query = self._get_search_query(search_fields, needle, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
         for sample_document in self._database.samples.find(query, sort=sort_list, limit=max_num_results):
             entry = SampleEntry.fromDict(sample_document)
@@ -848,9 +848,8 @@ class MongoDbStorage(StorageInterface):
     def findFunctionByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
         result_dict = {}
         # TODO also search through function labels once we have implemented them
-        search_query = self._get_condition_from_search_nodes(needle, "function_name")
-        cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [search_query, cursor_query]}
+        search_fields = ["function_name"]
+        query = self._get_search_query(search_fields, needle, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
         for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
