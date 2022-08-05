@@ -81,42 +81,23 @@ class BaseVisitor:
         if isinstance(node, NotNode):
             return self.visitNotNode(node)
 
-    # Or
-    def _visitOrChild(self, node:NodeType):
-        return self.visit(node)
-    
-    def _visitOrDone(self, children):
-        return OrNode(children)
-
     def visitOrNode(self, node:OrNode):
-        return self._visitOrDone([self._visitOrChild(child) for child in node.children])
-
-    # And
-    def _visitAndChild(self, node:NodeType):
-        return self.visit(node)
-    
-    def _visitAndDone(self, children):
-        return AndNode(children)
+        visited_children = [self.visit(child) for child in node.children]
+        return OrNode(visited_children)
 
     def visitAndNode(self, node:AndNode):
-        return self._visitAndDone([self._visitAndChild(child) for child in node.children])
-
-    # Not
-    def _visitNotChild(self, node:NodeType):
-        return self.visit(node)
-    
-    def _visitNotDone(self, child):
-        return NotNode(child)
+        visited_children = [self.visit(child) for child in node.children]
+        return AndNode(visited_children)
 
     def visitNotNode(self, node:NotNode):
-        return self._visitNotDone(self._visitNotChild(node.child))
+        return NotNode(self.visit(node.child))
 
-    # Leaf Nodes
     def visitSearchTermNode(self, node:SearchTermNode):
         return node
 
     def visitSearchConditionNode(self, node:SearchConditionNode):
         return node
+
 
 class SearchFieldResolver(BaseVisitor):
     def __init__(self, *search_fields) -> None:
@@ -131,13 +112,16 @@ class SearchFieldResolver(BaseVisitor):
             )
         return OrNode(children)
 
+
 class FilterSingleElementLists(BaseVisitor):
-    def _visitAndDone(self, children):
+    def visitAndNode(self, node):
+        children = [self.visit(child) for child in node.children]
         if len(children) == 1:
             return children[0]
         return AndNode(children)
 
-    def _visitOrDone(self, children):
+    def visitOrNode(self, node):
+        children = [self.visit(child) for child in node.children]
         if len(children) == 1:
             return children[0]
         return OrNode(children)
@@ -160,11 +144,13 @@ class Negate(BaseVisitor):
         }
         return SearchConditionNode(node.field, reverse_op_dict[node.operator], node.value)
 
-    def _visitAndDone(self, children):
-        return OrNode(children)
+    def visitOrNode(self, node:OrNode):
+        visited_children = [self.visit(child) for child in node.children]
+        return AndNode(visited_children)
 
-    def _visitOrDone(self, children):
-        return AndNode(children)
+    def visitAndNode(self, node:AndNode):
+        visited_children = [self.visit(child) for child in node.children]
+        return OrNode(visited_children)
 
     def visitNotNode(self, node:NotNode):
         return PropagateNot().visit(node.child)

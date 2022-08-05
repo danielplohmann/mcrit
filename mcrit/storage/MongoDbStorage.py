@@ -52,11 +52,13 @@ class MongoSearchTranspiler(BaseVisitor):
             return conditions[0]
         return {"$and": conditions}
 
-    def _visitAndDone(self, children):
-        return self._and_query(*children)
+    def visitAndNode(self, node: AndNode):
+        visited_children = [self.visit(child) for child in node.children]
+        return self._and_query(*visited_children)
 
-    def _visitOrDone(self, children):
-        return self._or_query(*children)
+    def visitOrNode(self, node: OrNode):
+        visited_children = [self.visit(child) for child in node.children]
+        return self._or_query(*visited_children)
 
     def visitSearchConditionNode(self, node:SearchConditionNode):
         operator_to_mongo = {
