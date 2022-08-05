@@ -1,3 +1,4 @@
+from functools import lru_cache
 from string import whitespace
 from pyparsing import (
     Word,
@@ -29,7 +30,7 @@ class SearchQueryParser:
         parser = ZeroOrMore(Group(one_filter))
         return parser
     
-    def parse(self, string):
+    @lru_cache(maxsize=100)
         raw_result = self._parser.parse_string(string)
         interpreted_result = []
         for part in raw_result:
