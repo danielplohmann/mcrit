@@ -61,8 +61,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         self._storage = StorageFactory.getStorage(config.STORAGE_CONFIG)
         # config.QUEUE_CONFIG.QUEUE_METHOD = QueueFactory.QUEUE_METHOD_FAKE
         queue = QueueFactory().getQueue(config, storage=self._storage, consumer_id="index")
+        self.search_query_parser = SearchQueryParser()
         super().__init__(queue)
-
+    
     #### STORAGE IO ####
     def getStorage(self):
         """Get an interface to the storage"""
@@ -368,7 +369,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         full_cursor = FullSearchCursor(cursor, sort_by_list)
         is_backward_search = not full_cursor.is_forward_search
 
-        parsed_search = SearchQueryParser().parse(search_term)
+        parsed_search = self.search_query_parser.parse(search_term)
         search_results_objects = search_function(parsed_search, cursor=full_cursor, max_num_results=limit+1)
 
         # Find last last_element_key, which is used for the forward cursor
