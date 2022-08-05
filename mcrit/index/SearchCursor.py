@@ -2,6 +2,8 @@ import base64
 import json
 from typing import Any, List, Optional
 
+from mcrit.index.SearchQueryTree import AndNode, OrNode, SearchConditionNode
+
 
 class MinimalSearchCursor:
     """
@@ -82,6 +84,26 @@ class FullSearchCursor:
     def sort_by_list(self):
         return zip(self.sort_fields, self.sort_directions)
     
+    def toTree(self):
+        def get_operator(i):
+            direction = self.sort_directions[i] ^ (not self.is_forward_search)
+            return ">" if direction else "<"
 
+        if self.is_initial_cursor:
+            return AndNode([])
+
+        # condition has form (a > a0) or (a = a0 and b>b0) or (a=a0 and b=b0 and c>c0)...
+        conditions = []
+        for inner_condition_length in range(1, len(self.sort_fields)+1):
+            inner_condition = []
+            for i in range(inner_condition_length):
+                if i != inner_condition_length-1:
+                    operator = "="
+                else:
+                    operator = get_operator(i)
+                inner_condition.append(SearchConditionNode(self.sort_fields[i], operator, self.record_values[i]))
+            conditions.append(AndNode(inner_condition))
+
+        return OrNode(conditions)
 
 

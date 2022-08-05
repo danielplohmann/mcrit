@@ -761,57 +761,6 @@ class MongoDbStorage(StorageInterface):
     ##### helpers for search ######
 
     @staticmethod
-    def _or_query(*conditions):
-        if len(conditions) == 0:
-            return {}
-        if len(conditions) == 1:
-            return conditions[0]
-        return {"$or": conditions}
-
-    @staticmethod
-    def _and_query(*conditions):
-        if len(conditions) == 0:
-            return {}
-        if len(conditions) == 1:
-            return conditions[0]
-        return {"$and": conditions}
-
-    @staticmethod
-    def _get_condition_from_cursor(full_cursor: Optional[FullSearchCursor]):
-        if full_cursor is None:
-            return {}
-
-        if full_cursor.is_initial_cursor:
-            return {}
-
-        def get_operator(i):
-            direction = full_cursor.sort_directions[i] ^ (not full_cursor.is_forward_search)
-            result = "$"
-            if direction:
-                result += "g"
-            else:
-                result += "l"
-            result += "t"
-            return result
-
-        # condition has form (a > a0) or (a = a0 and b>b0) or (a=a0 and b=b0 and c>c0)...
-
-        conditions = []
-        for current_condition_length in range(1, len(full_cursor.sort_fields)+1):
-            current_condition = {}
-            for i in range(current_condition_length):
-                if i != current_condition_length-1:
-                    current_condition[full_cursor.sort_fields[i]] = full_cursor.record_values[i]
-                else:
-                    current_condition[full_cursor.sort_fields[i]] = {
-                        get_operator(i): full_cursor.record_values[i],
-                    }
-            conditions.append(current_condition)
-
-        return MongoDbStorage._or_query(*conditions)
-
-
-    @staticmethod
     def _get_sort_list_from_cursor(full_cursor: Optional[FullSearchCursor]):
         if full_cursor is None:
             return None
@@ -821,12 +770,14 @@ class MongoDbStorage(StorageInterface):
 
 
     def _get_search_query(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor]):
-        search_tree = SearchFieldResolver(*search_fields).visit(search_tree)
-        search_tree = FilterSingleElementLists().visit(search_tree)
-        search_tree = PropagateNot().visit(search_tree)
-        search_query =  MongoSearchTranspiler().visit(search_tree)
-        cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [search_query, cursor_query]}
+        if cursor is not None:
+            full_tree = AndNode([search_tree, cursor.toTree()])
+        else:
+            full_tree = search_tree
+        full_tree = SearchFieldResolver(*search_fields).visit(full_tree)
+        full_tree = FilterSingleElementLists().visit(full_tree)
+        full_tree = PropagateNot().visit(full_tree)
+        query = MongoSearchTranspiler().visit(full_tree)
         return query
 
     ##### search ####
