@@ -1,11 +1,16 @@
+import functools
+import operator
+import re
 import uuid
 import logging
 from copy import deepcopy
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from picblocks.blockhasher import BlockHasher
+from mcrit.index.SearchCursor import FullSearchCursor
 
+from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
@@ -20,6 +25,83 @@ if TYPE_CHECKING: # pragma: no cover
 
 LOGGER = logging.getLogger(__name__)
 
+
+# Helper Methods for search
+def _get_field_once(object, field):
+    try:
+        return getattr(object, field)
+    except Exception:
+        pass
+    try:
+        return object[field]
+    except Exception:
+        pass
+
+def _get_field(object, field):
+    dot_index = field.find(".")
+    if dot_index >= 0:
+        first_field = field[:dot_index]
+        remaining_fields = field[dot_index+1:]
+        return _get_field(
+            _get_field_once(object, first_field),
+            remaining_fields
+        )
+    else:
+        return _get_field_once(object, field)
+
+
+class MemorySearchTranspiler(BaseVisitor):
+    def visitAndNode(self, node:AndNode) -> Callable:
+        visited_children: List[Callable] = [self.visit(child) for child in node.children]
+        def and_function(entry):
+            for function in visited_children:
+                if not function(entry):
+                    return False
+            return True
+        return and_function
+
+    def visitOrNode(self, node:OrNode) -> Callable:
+        visited_children: List[Callable] = [self.visit(child) for child in node.children]
+        def or_function(entry):
+            for function in visited_children:
+                if function(entry):
+                    return True
+            return False
+        return or_function
+
+    def visitSearchConditionNode(self, node:SearchConditionNode) -> Callable:
+        string_to_operator = {
+            "<": operator.lt,
+            "<=": operator.le,
+            ">": operator.gt,
+            ">=": operator.ge,
+            "=": operator.eq,
+            "": operator.eq,
+            "!=": operator.ne,
+            "?": None,
+            "!?": None,
+        }
+        value = node.value
+        if node.operator.endswith("?"):
+            regex = re.compile(re.escape(node.value), re.IGNORECASE)
+            inverse = node.operator == "!?"
+            def check_regex(entry):
+                value = _get_field(entry, node.field)
+                if not isinstance(value, str):
+                    return False
+                return (regex.search(value) is not None) ^ inverse
+            return check_regex
+
+        if node.field in ("pichash", "offset") or node.field.endswith("_id") or "num_" in node.field:
+            try:
+                value = int(value, 0)
+            except Exception:
+                pass
+
+        chosen_operator = string_to_operator[node.operator]
+        def compare(entry):
+            return chosen_operator(_get_field(entry, node.field), value)
+        return compare
 
 class MemoryStorage(StorageInterface):
     _families: Dict[int, FamilyEntry]
@@ -462,38 +544,81 @@ class MemoryStorage(StorageInterface):
             if band_hash not in self._bands[band_number]:
                 self._bands[band_number][band_hash] = []
             self._bands[band_number][band_hash].append(minhash.function_id)
+            
+    ##### helpers for search ######
 
-    def findFamilyByString(self, needle: str, max_num_results: int = 100) -> Dict[int, str]:
+    @staticmethod
+    def _get_sort_key_from_cursor(full_cursor: Optional[FullSearchCursor]):
+        assert full_cursor is not None
+        is_backward_search = not full_cursor.is_forward_search
+        sort_directions = [1 if direction ^ is_backward_search else -1 for direction in full_cursor.sort_directions]
+        def compare(entry1, entry2):
+            for i in range(len(full_cursor.sort_fields)):
+                val1 = _get_field(entry1, full_cursor.sort_fields[i])
+                val2 = _get_field(entry2, full_cursor.sort_fields[i])
+                direction = sort_directions[i]
+                if val1 == val2:
+                    pass
+                if val1 is None:
+                    return -direction
+                if val2 is None:
+                    return +direction
+                if val1 < val2:
+                    return -direction
+                if val1 > val2:
+                    return direction
+            return 0
+        return functools.cmp_to_key(compare)
+
+
+    def _get_search_filter(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor]) -> Callable:
+        if cursor is not None:
+            full_tree = AndNode([search_tree, cursor.toTree()])
+        else:
+            full_tree = search_tree
+        full_tree = SearchFieldResolver(*search_fields).visit(full_tree)
+        full_tree = FilterSingleElementLists().visit(full_tree)
+        full_tree = PropagateNot().visit(full_tree)
+        filter = MemorySearchTranspiler().visit(full_tree)
+        return filter
+
+
+    ##### search ######
+
+    def findFamilyByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
         result_dict = {}
-        self._families
-        for family_id, family_name in self._families.items():
-            if needle in family_name:
-                result_dict[family_id] = family_name
+        search_fields = ["family_name"]
+        filter = self._get_search_filter(search_fields, search_tree, cursor)
+        sort_key = self._get_sort_key_from_cursor(cursor)
+        for entry in sorted(self._families.values(), key=sort_key):
+            if filter(entry):
+                result_dict[entry.family_id] = entry
             if len(result_dict) >= max_num_results:
                 break
         return result_dict
 
-    def findSampleByString(self, needle: str, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
+    def findSampleByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        for sample_id, sample_entry in self._samples.items():
-            if needle in sample_entry.filename:
-                result_dict[sample_id] = sample_entry
-            elif len(needle) >= 3 and needle in sample_entry.sha256:
-                result_dict[sample_entry.sample_id] = sample_entry
-            elif needle in sample_entry.component:
-                result_dict[sample_id] = sample_entry
-            elif needle in sample_entry.version:
-                result_dict[sample_id] = sample_entry
-            if len(result_dict) >= max_num_results:
-                break
-        return result_dict
-
-    def findFunctionByString(self, needle: str, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
-        result_dict = {}
-        for function_id, function_entry in self._functions.items():
-            if needle in function_entry.function_name:
-                result_dict[function_id] = function_entry
-            if len(result_dict) >= max_num_results:
-                break
         # TODO also search through function labels once we have implemented them
+        search_fields = ["family_name"]
+        filter = self._get_search_filter(search_fields, search_tree, cursor)
+        sort_key = self._get_sort_key_from_cursor(cursor)
+        for entry in sorted(self._samples.values(), key=sort_key):
+            if filter(entry):
+                result_dict[entry.sample_id] = entry
+            if len(result_dict) >= max_num_results:
+                break
+        return result_dict
+
+    def findFunctionByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
+        result_dict = {}
+        # TODO also search through function labels once we have implemented them
+        search_fields = ["function_name"]
+        filter = self._get_search_filter(search_fields, search_tree, cursor)
+        sort_key = self._get_sort_key_from_cursor(cursor)
+        for entry in sorted(self._functions.values(), key=sort_key):
+            if filter(entry):
+                result_dict[entry.function_id] = entry
+            if len(result_dict) >= max_num_results:
+                break
         return result_dict
