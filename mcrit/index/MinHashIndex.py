@@ -415,10 +415,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 term_as_int = int(search_term)
             if term_as_int <= 0xFFFFFFFF:
                 if self._storage.isFamilyId(term_as_int):
-                    id_match = {
-                        "family_id": term_as_int,
-                        "family": self._storage.getFamily(term_as_int),
-                    }
+                    id_match = self._storage.getFamily(term_as_int).toDict()
             else:
                 LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
         except Exception:
