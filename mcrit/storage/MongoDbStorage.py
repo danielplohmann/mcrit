@@ -17,7 +17,7 @@ except:
 from picblocks.blockhasher import BlockHasher
 
 from mcrit.index.SearchCursor import FullSearchCursor
-from mcrit.index.SearchQueryTree import SearchConditionNode, SearchTermNode
+from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, NotNode, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver, SearchTermNode
 from mcrit.libs.utility import generate_unique_groups
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
@@ -34,6 +34,59 @@ if TYPE_CHECKING: # pragma: no cover
     from smda.common.SmdaReport import SmdaReport
 
 # TODO when is checking self._database.samples.count_documents() necessary?
+
+class MongoSearchTranspiler(BaseVisitor):
+    @staticmethod
+    def _or_query(*conditions):
+        if len(conditions) == 0:
+            return {}
+        if len(conditions) == 1:
+            return conditions[0]
+        return {"$or": conditions}
+
+    @staticmethod
+    def _and_query(*conditions):
+        if len(conditions) == 0:
+            return {}
+        if len(conditions) == 1:
+            return conditions[0]
+        return {"$and": conditions}
+
+    def _visitAndDone(self, children):
+        return self._and_query(*children)
+
+    def _visitOrDone(self, children):
+        return self._or_query(*children)
+
+    def visitSearchConditionNode(self, node:SearchConditionNode):
+        operator_to_mongo = {
+            "<": "$lt",
+            "<=": "$lte",
+            ">": "$gt",
+            ">=": "$gte",
+            "=": None,
+            "": None,
+            "!=": "$ne",
+            "?": None,
+            "!?": "$not",
+        }
+        value = node.value
+        if node.operator.endswith("?"):
+            value = re.compile(re.escape(node.value), re.IGNORECASE)
+        elif node.field in ("pichash", "offset") or node.field.endswith("_id") or "num_" in node.field:
+            try:
+                value = int(value, 0)
+            except Exception:
+                pass
+        mongo_operator = operator_to_mongo[node.operator]
+        if mongo_operator is None:
+            condition = {node.field: value}
+        else:
+            condition = {node.field: {mongo_operator: value}}
+        # TODO: fix
+        MongoDbStorage._encodePichash(None, condition)
+        return condition
+
 
 
 class MongoDbStorage(StorageInterface):
@@ -757,21 +810,6 @@ class MongoDbStorage(StorageInterface):
 
         return MongoDbStorage._or_query(*conditions)
 
-    @staticmethod
-    def _get_regex_search_query(search_term, *fields):
-
-        def get_query_for_token(token):
-            regex = re.compile(re.escape(token), re.IGNORECASE)
-            conditions = []
-            for field in fields:
-                conditions.append({field: regex})
-            return MongoDbStorage._or_query(*conditions)
-
-        token_queries = []        
-        for token in search_term.split(' '):
-            if token != " ":
-                token_queries.append(get_query_for_token(token))
-        return MongoDbStorage._and_query(*token_queries)
 
     @staticmethod
     def _get_sort_list_from_cursor(full_cursor: Optional[FullSearchCursor]):
@@ -781,75 +819,44 @@ class MongoDbStorage(StorageInterface):
         sort_list = [(key, 1 if direction ^ is_backward_search else -1) for key, direction in full_cursor.sort_by_list]
         return sort_list
 
-    @staticmethod
-    def _get_condition_from_condition_node(node: SearchConditionNode):
-        operator_to_mongo = {
-            "<": "$lt",
-            "<=": "$lte",
-            ">": "$gt",
-            ">=": "$gte",
-            "=": "$eq",
-            "": "$eq",
-        }
-        value = node.value
-        if node.field in ("pichash", "offset") or node.field.endswith("_id") or "num_" in node.field:
-            try:
-                value = int(value, 0)
-            except Exception:
-                pass
-        mongo_operator = operator_to_mongo[node.operator]
-        if mongo_operator == "$eq":
-            condition = {node.field: value}
-        else:
-            condition = {node.field: {mongo_operator: value}}
-        # TODO: fix
-        MongoDbStorage._encodePichash(None, condition)
-        return condition
 
-    @staticmethod
-    def _get_condition_from_search_nodes(nodes: List[Union[SearchTermNode, SearchConditionNode]], *search_fields):
-        conditions = []
-        for node in nodes:
-            if isinstance(node, SearchTermNode):
-                conditions.append(MongoDbStorage._get_regex_search_query(node.value, *search_fields))
-            if isinstance(node, SearchConditionNode):
-                conditions.append(MongoDbStorage._get_condition_from_condition_node(node))
-        return MongoDbStorage._and_query(*conditions)
-
-    def _get_search_query(self, search_fields:List[str], search_nodes, cursor: Optional[FullSearchCursor]):
-        search_query = self._get_condition_from_search_nodes(search_nodes, *search_fields)
+    def _get_search_query(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor]):
+        search_tree = SearchFieldResolver(*search_fields).visit(search_tree)
+        search_tree = FilterSingleElementLists().visit(search_tree)
+        search_tree = PropagateNot().visit(search_tree)
+        search_query =  MongoSearchTranspiler().visit(search_tree)
         cursor_query = self._get_condition_from_cursor(cursor)
         query = {"$and": [search_query, cursor_query]}
         return query
 
     ##### search ####
 
-    def findFamilyByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
+    def findFamilyByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
         result_dict = {}
         search_fields = ["family_name"]
-        query = self._get_search_query(search_fields, needle, cursor)
+        query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
         for family_document in self._database.families.find(query, sort=sort_list, limit=max_num_results):
             entry = FamilyEntry.fromDict(family_document)
             result_dict[family_document["family_id"]] = entry
         return result_dict
 
-    def findSampleByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
+    def findSampleByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
         #TODO: only search in sha256 if the search term is >3
         search_fields = ["filename", "family", "component", "version", "sha256"]
-        query = self._get_search_query(search_fields, needle, cursor)
+        query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
         for sample_document in self._database.samples.find(query, sort=sort_list, limit=max_num_results):
             entry = SampleEntry.fromDict(sample_document)
             result_dict[entry.sample_id] = entry
         return result_dict
 
-    def findFunctionByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
+    def findFunctionByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
         result_dict = {}
         # TODO also search through function labels once we have implemented them
         search_fields = ["function_name"]
-        query = self._get_search_query(search_fields, needle, cursor)
+        query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
         for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
