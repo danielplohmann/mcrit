@@ -793,7 +793,7 @@ class MongoDbStorage(StorageInterface):
         search_fields = ["family_name"]
         query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for family_document in self._database.families.find(query, sort=sort_list, limit=max_num_results):
+        for family_document in self._database.families.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
             entry = FamilyEntry.fromDict(family_document)
             result_dict[family_document["family_id"]] = entry
         return result_dict
@@ -804,7 +804,7 @@ class MongoDbStorage(StorageInterface):
         conditional_field = ("sha256", lambda search_term: len(search_term)>=3)
         query = self._get_search_query(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for sample_document in self._database.samples.find(query, sort=sort_list, limit=max_num_results):
+        for sample_document in self._database.samples.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
             entry = SampleEntry.fromDict(sample_document)
             result_dict[entry.sample_id] = entry
         return result_dict
@@ -815,7 +815,7 @@ class MongoDbStorage(StorageInterface):
         search_fields = ["function_name"]
         query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
+        for function_document in self._database.functions.find(query, {"_id":0, "_xcfg":0}, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
             entry = FunctionEntry.fromDict(function_document)
             result_dict[entry.function_id] = entry
