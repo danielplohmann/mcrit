@@ -81,6 +81,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-08-08 v0.12.0: Integrated Advanced Search syntax.
  * 2022-08-03 v0.11.0: (BREAKING) Families are now represented with a FamilyEntry.
  * 2022-08-03 v0.10.3: Now leaving function xcfg data by default in DB, exposed access to it via REST API and McritClient.
  * 2022-07-29 v0.10.2: Added ability to delete families - now also keeping XCFG info for all functions by default.
