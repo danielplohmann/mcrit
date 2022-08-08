@@ -113,9 +113,17 @@ class SearchFieldResolver(BaseVisitor):
     SearchFieldResolver replaces "complex" SearchTermNodes with more simple SearchConditionNodes.
     This adds context information (i.e. in which fields do we want to search?).
     """
-    def __init__(self, *search_fields) -> None:
+    def __init__(self, search_fields, conditional_search_fields = None) -> None:
+        """
+        search_fields: list of fields to search in
+        conditional_search_fields: tuple (search_field, condition).
+                                   Only search for node.value in search_field if condition(node.value) == True
+        """
         super().__init__()
         self.search_fields = search_fields
+        if conditional_search_fields is None:
+            conditional_search_fields = []
+        self.conditional_search_fields = conditional_search_fields
 
     def visitSearchTermNode(self, node: SearchTermNode):
         children = []
@@ -123,6 +131,11 @@ class SearchFieldResolver(BaseVisitor):
             children.append(
                 SearchConditionNode(field, "?", node.value)
             )
+        for field, condition in self.conditional_search_fields:
+            if condition(node.value):
+                children.append(
+                    SearchConditionNode(field, "?", node.value)
+                )
         return OrNode(children)
 
 

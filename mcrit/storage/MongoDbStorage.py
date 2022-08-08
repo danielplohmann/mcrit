@@ -775,12 +775,12 @@ class MongoDbStorage(StorageInterface):
         return sort_list
 
 
-    def _get_search_query(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor]):
+    def _get_search_query(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None):
         if cursor is not None:
             full_tree = AndNode([search_tree, cursor.toTree()])
         else:
             full_tree = search_tree
-        full_tree = SearchFieldResolver(*search_fields).visit(full_tree)
+        full_tree = SearchFieldResolver(search_fields, conditional_search_fields=conditional_search_fields).visit(full_tree)
         full_tree = FilterSingleElementLists().visit(full_tree)
         full_tree = PropagateNot().visit(full_tree)
         query = MongoSearchTranspiler().visit(full_tree)
@@ -800,9 +800,9 @@ class MongoDbStorage(StorageInterface):
 
     def findSampleByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        #TODO: only search in sha256 if the search term is >3
-        search_fields = ["filename", "family", "component", "version", "sha256"]
-        query = self._get_search_query(search_fields, search_tree, cursor)
+        search_fields = ["filename", "family", "component", "version",]
+        conditional_field = ("sha256", lambda search_term: len(search_term)>=3)
+        query = self._get_search_query(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
         sort_list = self._get_sort_list_from_cursor(cursor)
         for sample_document in self._database.samples.find(query, sort=sort_list, limit=max_num_results):
             entry = SampleEntry.fromDict(sample_document)

@@ -582,12 +582,12 @@ class MemoryStorage(StorageInterface):
         return lambda entry: functools.cmp_to_key(compare_tuple)(get_tuple_from_entry(entry))
 
 
-    def _get_search_filter(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor]) -> Callable:
+    def _get_search_filter(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None) -> Callable:
         if cursor is not None:
             full_tree = AndNode([search_tree, cursor.toTree()])
         else:
             full_tree = search_tree
-        full_tree = SearchFieldResolver(*search_fields).visit(full_tree)
+        full_tree = SearchFieldResolver(search_fields, conditional_search_fields=conditional_search_fields).visit(full_tree)
         full_tree = FilterSingleElementLists().visit(full_tree)
         full_tree = PropagateNot().visit(full_tree)
         filter = MemorySearchTranspiler().visit(full_tree)
@@ -614,9 +614,9 @@ class MemoryStorage(StorageInterface):
 
     def findSampleByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        # TODO also search through function labels once we have implemented them
-        search_fields = ["family_name"]
-        filter = self._get_search_filter(search_fields, search_tree, cursor)
+        search_fields = ["filename", "family", "component", "version",]
+        conditional_field = ("sha256", lambda search_term: len(search_term)>=3)
+        query = self._get_search_filter(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
         sort_key = self._get_sort_key_from_cursor(cursor)
         for entry in sorted(self._samples.values(), key=sort_key):
             if filter(entry):
