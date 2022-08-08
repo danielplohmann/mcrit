@@ -10,18 +10,44 @@ from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.index.SearchCursor import MinimalSearchCursor, FullSearchCursor
+from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import compress_encode, decompress_decode
 from mcrit.queue.QueueFactory import QueueFactory
 from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller, NoProgressReporter
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.SearchCursor import MinimalSearchCursor, FullSearchCursor
 from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.minhash.MinHash import MinHash
 from mcrit.Worker import Worker
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
+
+
+#### Helper methods for nested sort_by in search
+
+def _get_field_once(object, field):
+    try:
+        return getattr(object, field)
+    except Exception:
+        pass
+    try:
+        return object[field]
+    except Exception:
+        pass
+
+def _get_field(object, field):
+    dot_index = field.find(".")
+    if dot_index >= 0:
+        first_field = field[:dot_index]
+        remaining_fields = field[dot_index+1:]
+        return _get_field(
+            _get_field_once(object, first_field),
+            remaining_fields
+        )
+    else:
+        return _get_field_once(object, field)
 
 
 class MinHashIndex(QueueRemoteCaller(Worker)):
@@ -35,8 +61,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         self._storage = StorageFactory.getStorage(config.STORAGE_CONFIG)
         # config.QUEUE_CONFIG.QUEUE_METHOD = QueueFactory.QUEUE_METHOD_FAKE
         queue = QueueFactory().getQueue(config, storage=self._storage, consumer_id="index")
+        self.search_query_parser = SearchQueryParser()
         super().__init__(queue)
-
+    
     #### STORAGE IO ####
     def getStorage(self):
         """Get an interface to the storage"""
@@ -331,8 +358,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     # search_term and sort_by_list that were used when the cursor was returned from mcrit.
     # If those parameters are altered, mcrit's behavior is undefined.
 
-    def _getSearchResultTemplate(self, search_function, search_term, sort_by_list, cursor_str, limit, to_dict=True):
-        assert isinstance(search_term, str) or isinstance(search_term, int)
+    def _getSearchResultTemplate(self, search_function, search_term, sort_by_list, cursor_str, limit):
+        assert isinstance(search_term, str)
 
         sort_fields = [sort_info[0] for sort_info in sort_by_list]
 
@@ -342,7 +369,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         full_cursor = FullSearchCursor(cursor, sort_by_list)
         is_backward_search = not full_cursor.is_forward_search
 
-        search_results_objects = search_function(search_term, cursor=full_cursor, max_num_results=limit+1)
+        parsed_search = self.search_query_parser.parse(search_term)
+        search_results_objects = search_function(parsed_search, cursor=full_cursor, max_num_results=limit+1)
 
         # Find last last_element_key, which is used for the forward cursor
         search_results_keys = list(search_results_objects.keys())
@@ -358,10 +386,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             last_result = search_results_objects[last_element_key]
             forward_cursor = MinimalSearchCursor()
             forward_cursor.is_forward_search = True ^ is_backward_search # switch for backward search, because of swap
-            if to_dict:
-                forward_cursor.record_values = [getattr(last_result, field) for field in sort_fields]
-            else:
-                forward_cursor.record_values = [last_result[field] for field in sort_fields]
+            forward_cursor.record_values = [_get_field(last_result, field) for field in sort_fields]
             forward_cursor_str = forward_cursor.toStr()
 
         backward_cursor_str = None
@@ -369,23 +394,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             first_result = search_results_objects[search_results_keys[0]]
             backward_cursor = MinimalSearchCursor()
             backward_cursor.is_forward_search = False ^ is_backward_search # switch for backward search, because of swap
-            if to_dict:
-                backward_cursor.record_values = [getattr(first_result, field) for field in sort_fields]
-            else:
-                backward_cursor.record_values = [first_result[field] for field in sort_fields]
+            backward_cursor.record_values = [_get_field(first_result, field) for field in sort_fields]
             backward_cursor_str = backward_cursor.toStr()
-
-        if to_dict:
-            transformation = lambda x: x.toDict()
-        else:
-            transformation = lambda x: x
 
         if is_backward_search:
             # reverse order
             backward_cursor_str, forward_cursor_str = forward_cursor_str, backward_cursor_str
-            search_results = {k: transformation(v) for k, v in reversed(search_results_objects.items())}
+            search_results = {k: v.toDict() for k, v in reversed(search_results_objects.items())}
         else:
-            search_results = {k: transformation(v) for k, v in search_results_objects.items()}
+            search_results = {k: v.toDict() for k, v in search_results_objects.items()}
 
         return {
             "search_results": search_results,
@@ -439,48 +456,6 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             limit,
         )
         result["id_match"] = id_match
-        return result
-
-    def getPichashSearchResults(self, search_term, sort_by="function_id", is_ascending=True, cursor=None, limit=100):
-        # TODO: consider sort_by, is_ascending, start_cursor
-        term_as_int = None
-        try:
-            if search_term.startswith("0x"):
-                term_as_int = int(search_term, 16)
-            else:
-                term_as_int = int(search_term)
-        except:
-            pass
-        
-        if term_as_int is None or not self._storage.isPicHash(term_as_int):
-            return {
-                "search_results": {},
-                "cursor": {
-                    "forward": None,
-                    "backward": None,
-                }
-            }
-
-        assert sort_by in (
-            None,
-            "function_id",
-            "sample_id",
-            "family_id",
-            "pichash",
-            "function_name",
-            "offset",
-            "num_instructions",
-            "num_blocks",
-        )
-        
-        sort_data = self._get_sort_data("function_id", sort_by, is_ascending)
-        result = self._getSearchResultTemplate(
-            self._storage.findFunctionByPichash,
-            term_as_int,
-            sort_data,
-            cursor,
-            limit,
-        )
         return result
 
     def getFunctionSearchResults(self, search_term, sort_by="function_id", is_ascending=True, cursor=None, limit=100):
@@ -560,6 +535,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "is_library",
             "sha256",
             "timestamp",
+            "version",
+            "statistics.num_functions"
         )
         
         sort_data = self._get_sort_data("sample_id", sort_by, is_ascending)

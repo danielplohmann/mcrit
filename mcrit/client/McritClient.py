@@ -430,5 +430,3 @@ class McritClient:
     search_samples = functools.partialmethod(_search_base, "samples")
 
     search_functions = functools.partialmethod(_search_base, "functions")
-    
-    search_pichashes = functools.partialmethod(_search_base, "pichashes")

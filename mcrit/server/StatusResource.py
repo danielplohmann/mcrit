@@ -103,9 +103,3 @@ class StatusResource:
         LOGGER.info("StatusResource.on_get_search_functions")
         args = self._get_search_args(req.params)
         resp.data = jsonify({"status": "successful", "data": self.index.getFunctionSearchResults(**args)})
-
-    @timing
-    def on_get_search_pichashes(self, req, resp):
-        LOGGER.info("StatusResource.on_get_search_pichashes")
-        args = self._get_search_args(req.params)
-        resp.data = jsonify({"status": "successful", "data": self.index.getPichashSearchResults(**args)})

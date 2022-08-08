@@ -61,7 +61,6 @@ def get_app():
     _app.add_route("/search/families", status_resource, suffix="search_families")
     _app.add_route("/search/samples", status_resource, suffix="search_samples")
     _app.add_route("/search/functions", status_resource, suffix="search_functions")
-    _app.add_route("/search/pichashes", status_resource, suffix="search_pichashes")
 
     _app.add_route("/families", family_resource, suffix="collection")
     _app.add_route("/families/{family_id:int}", family_resource)

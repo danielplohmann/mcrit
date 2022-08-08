@@ -5,7 +5,7 @@ import logging
 import datetime
 import traceback
 from operator import itemgetter
-from typing import Any, TYPE_CHECKING, Dict, List, Optional, Set, Tuple
+from typing import Any, TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
 
 LOGGER = logging.getLogger(__name__)
 try:
@@ -16,12 +16,13 @@ except:
 
 from picblocks.blockhasher import BlockHasher
 
+from mcrit.index.SearchCursor import FullSearchCursor
+from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, NotNode, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver, SearchTermNode
 from mcrit.libs.utility import generate_unique_groups
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.SearchCursor import FullSearchCursor
 from mcrit.storage.StorageInterface import StorageInterface
 
 if TYPE_CHECKING: # pragma: no cover
@@ -33,6 +34,65 @@ if TYPE_CHECKING: # pragma: no cover
     from smda.common.SmdaReport import SmdaReport
 
 # TODO when is checking self._database.samples.count_documents() necessary?
+
+class MongoSearchTranspiler(BaseVisitor):
+    """
+    Converts a tree to a MongoDB query.
+    The input tree MUST NOT contain Not or SearchTerm nodes.
+    """
+    @staticmethod
+    def _or_query(*conditions):
+        if len(conditions) == 0:
+            return {}
+        if len(conditions) == 1:
+            return conditions[0]
+        return {"$or": conditions}
+
+    @staticmethod
+    def _and_query(*conditions):
+        if len(conditions) == 0:
+            return {}
+        if len(conditions) == 1:
+            return conditions[0]
+        return {"$and": conditions}
+
+    def visitAndNode(self, node: AndNode):
+        visited_children = [self.visit(child) for child in node.children]
+        return self._and_query(*visited_children)
+
+    def visitOrNode(self, node: OrNode):
+        visited_children = [self.visit(child) for child in node.children]
+        return self._or_query(*visited_children)
+
+    def visitSearchConditionNode(self, node:SearchConditionNode):
+        operator_to_mongo = {
+            "<": "$lt",
+            "<=": "$lte",
+            ">": "$gt",
+            ">=": "$gte",
+            "=": None,
+            "": None,
+            "!=": "$ne",
+            "?": None,
+            "!?": "$not",
+        }
+        value = node.value
+        if node.operator.endswith("?"):
+            value = re.compile(re.escape(node.value), re.IGNORECASE)
+        elif node.field in ("pichash", "offset") or node.field.endswith("_id") or "num_" in node.field:
+            try:
+                value = int(value, 0)
+            except Exception:
+                pass
+        mongo_operator = operator_to_mongo[node.operator]
+        if mongo_operator is None:
+            condition = {node.field: value}
+        else:
+            condition = {node.field: {mongo_operator: value}}
+        # TODO: fix
+        MongoDbStorage._encodePichash(None, condition)
+        return condition
+
 
 
 class MongoDbStorage(StorageInterface):
@@ -707,72 +767,6 @@ class MongoDbStorage(StorageInterface):
     ##### helpers for search ######
 
     @staticmethod
-    def _or_query(*conditions):
-        if len(conditions) == 0:
-            return {}
-        if len(conditions) == 1:
-            return conditions[0]
-        return {"$or": conditions}
-
-    @staticmethod
-    def _and_query(*conditions):
-        if len(conditions) == 0:
-            return {}
-        if len(conditions) == 1:
-            return conditions[0]
-        return {"$and": conditions}
-
-    @staticmethod
-    def _get_condition_from_cursor(full_cursor: Optional[FullSearchCursor]):
-        if full_cursor is None:
-            return {}
-
-        if full_cursor.is_initial_cursor:
-            return {}
-
-        def get_operator(i):
-            direction = full_cursor.sort_directions[i] ^ (not full_cursor.is_forward_search)
-            result = "$"
-            if direction:
-                result += "g"
-            else:
-                result += "l"
-            result += "t"
-            return result
-
-        # condition has form (a > a0) or (a = a0 and b>b0) or (a=a0 and b=b0 and c>c0)...
-
-        conditions = []
-        for current_condition_length in range(1, len(full_cursor.sort_fields)+1):
-            current_condition = {}
-            for i in range(current_condition_length):
-                if i != current_condition_length-1:
-                    current_condition[full_cursor.sort_fields[i]] = full_cursor.record_values[i]
-                else:
-                    current_condition[full_cursor.sort_fields[i]] = {
-                        get_operator(i): full_cursor.record_values[i],
-                    }
-            conditions.append(current_condition)
-
-        return MongoDbStorage._or_query(*conditions)
-
-    @staticmethod
-    def _get_regex_search_query(search_term, *fields):
-
-        def get_query_for_token(token):
-            regex = re.compile(re.escape(token), re.IGNORECASE)
-            conditions = []
-            for field in fields:
-                conditions.append({field: regex})
-            return MongoDbStorage._or_query(*conditions)
-
-        token_queries = []        
-        for token in search_term.split(' '):
-            if token != " ":
-                token_queries.append(get_query_for_token(token))
-        return MongoDbStorage._and_query(*token_queries)
-
-    @staticmethod
     def _get_sort_list_from_cursor(full_cursor: Optional[FullSearchCursor]):
         if full_cursor is None:
             return None
@@ -780,56 +774,48 @@ class MongoDbStorage(StorageInterface):
         sort_list = [(key, 1 if direction ^ is_backward_search else -1) for key, direction in full_cursor.sort_by_list]
         return sort_list
 
+
+    def _get_search_query(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None):
+        if cursor is not None:
+            full_tree = AndNode([search_tree, cursor.toTree()])
+        else:
+            full_tree = search_tree
+        full_tree = SearchFieldResolver(search_fields, conditional_search_fields=conditional_search_fields).visit(full_tree)
+        full_tree = FilterSingleElementLists().visit(full_tree)
+        full_tree = PropagateNot().visit(full_tree)
+        query = MongoSearchTranspiler().visit(full_tree)
+        return query
+
     ##### search ####
 
-    def findFamilyByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
+    def findFamilyByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
         result_dict = {}
-        search_query = self._get_regex_search_query(needle, "family_name")
-        cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [search_query, cursor_query]}
+        search_fields = ["family_name"]
+        query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for family_document in self._database.families.find(query, sort=sort_list, limit=max_num_results):
+        for family_document in self._database.families.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
             entry = FamilyEntry.fromDict(family_document)
             result_dict[family_document["family_id"]] = entry
         return result_dict
 
-    def findSampleByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
+    def findSampleByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        cursor_query = self._get_condition_from_cursor(cursor)
-        regex = re.compile(re.escape(needle), re.IGNORECASE)
-        # NOTE: we could also search all families just once and then add all matched families' samples
-        search_fields = ["filename", "family", "component", "version"]
-        if len(needle) >= 3:
-            search_fields.append("sha256")
-        search_query = self._get_regex_search_query(needle, *search_fields)
-        query = {"$and": [search_query, cursor_query]}
+        search_fields = ["filename", "family", "component", "version",]
+        conditional_field = ("sha256", lambda search_term: len(search_term)>=3)
+        query = self._get_search_query(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for sample_document in self._database.samples.find(query, sort=sort_list, limit=max_num_results):
+        for sample_document in self._database.samples.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
             entry = SampleEntry.fromDict(sample_document)
             result_dict[entry.sample_id] = entry
         return result_dict
 
-    def findFunctionByString(self, needle: str, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
+    def findFunctionByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
         result_dict = {}
         # TODO also search through function labels once we have implemented them
-        search_query = self._get_regex_search_query(needle, "function_name")
-        cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [search_query, cursor_query]}
+        search_fields = ["function_name"]
+        query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
-            self._decodeFunction(function_document)
-            entry = FunctionEntry.fromDict(function_document)
-            result_dict[entry.function_id] = entry
-        return result_dict
-
-    def findFunctionByPichash(self, pichash: int, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
-        result_dict = {}
-        search_query = {"pichash": pichash}
-        self._encodePichash(search_query)
-        cursor_query = self._get_condition_from_cursor(cursor)
-        query = {"$and": [search_query, cursor_query]}
-        sort_list = self._get_sort_list_from_cursor(cursor)
-        for function_document in self._database.functions.find(query, sort=sort_list, limit=max_num_results):
+        for function_document in self._database.functions.find(query, {"_id":0, "_xcfg":0}, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
             entry = FunctionEntry.fromDict(function_document)
             result_dict[entry.function_id] = entry
