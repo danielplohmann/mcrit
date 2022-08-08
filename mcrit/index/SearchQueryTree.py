@@ -1,5 +1,7 @@
 from typing import List, Literal, Union
 
+
+##### Defining all Node types #####
 class Node:
     pass
 
@@ -68,7 +70,14 @@ class SearchConditionNode(Node):
             operator_str = ":"
         return f"Condition('{self.field}' {operator_str} '{self.value}')"
 
+
+#### Code operating on trees #####
+
 class BaseVisitor:
+    """
+    BaseVisitor.visit traverses a given tree and returns a newly build identical tree.
+    BaseVisitor is used as base class for more advanced tree transformations.
+    """
     def visit(self, node:NodeType):
         if isinstance(node, SearchTermNode):
             return self.visitSearchTermNode(node)
@@ -100,6 +109,10 @@ class BaseVisitor:
 
 
 class SearchFieldResolver(BaseVisitor):
+    """
+    SearchFieldResolver replaces "complex" SearchTermNodes with more simple SearchConditionNodes.
+    This adds context information (i.e. in which fields do we want to search?).
+    """
     def __init__(self, *search_fields) -> None:
         super().__init__()
         self.search_fields = search_fields
@@ -114,6 +127,9 @@ class SearchFieldResolver(BaseVisitor):
 
 
 class FilterSingleElementLists(BaseVisitor):
+    """
+    FilterSingleElementLists replaces And(node) as well as Or(node) by node.
+    """
     def visitAndNode(self, node):
         children = [self.visit(child) for child in node.children]
         if len(children) == 1:
@@ -127,6 +143,11 @@ class FilterSingleElementLists(BaseVisitor):
         return OrNode(children)
 
 class Negate(BaseVisitor):
+    """
+    Negate negates a tree and uses De Morgans Law to move Not Nodes down the tree.
+    Requires the tree to be free from SearchTermNodes (see SearchFieldResolver).
+    The ouput is free from Not nodes.
+    """
     def visitSearchTermNode(self, node: SearchTermNode):
         raise NotImplementedError
     
@@ -157,5 +178,10 @@ class Negate(BaseVisitor):
         
 
 class PropagateNot(BaseVisitor):
+    """
+    PropagateNot uses De Morgans Law to move Not Nodes down the tree.
+    Requires the tree to be free from SearchTermNodes (see SearchFieldResolver).
+    The ouput is free from Not nodes.
+    """
     def visitNotNode(self, node:NotNode):
         return Negate().visit(node.child)

@@ -51,6 +51,10 @@ def _get_field(object, field):
 
 
 class MemorySearchTranspiler(BaseVisitor):
+    """
+    Converts a tree to a filter function that can be applied to an entry, returning True or False.
+    The input tree MUST NOT contain Not or SearchTerm nodes.
+    """
     def visitAndNode(self, node:AndNode) -> Callable:
         visited_children: List[Callable] = [self.visit(child) for child in node.children]
         def and_function(entry):

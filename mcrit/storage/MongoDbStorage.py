@@ -36,6 +36,10 @@ if TYPE_CHECKING: # pragma: no cover
 # TODO when is checking self._database.samples.count_documents() necessary?
 
 class MongoSearchTranspiler(BaseVisitor):
+    """
+    Converts a tree to a MongoDB query.
+    The input tree MUST NOT contain Not or SearchTerm nodes.
+    """
     @staticmethod
     def _or_query(*conditions):
         if len(conditions) == 0:
