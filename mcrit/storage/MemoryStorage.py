@@ -377,7 +377,7 @@ class MemoryStorage(StorageInterface):
             function_entry = deepcopy(self._functions[function_id])
             if with_xcfg is False:
                 function_entry.xcfg = None
-            return deepcopy(self._functions[function_id])
+            return deepcopy(function_entry)
         return None
 
     # TODO does this need to be more efficient?
