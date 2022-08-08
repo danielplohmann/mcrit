@@ -19,9 +19,13 @@ Requirements:
 * Pyparsing
 
 
+This work is based on 
+https://github.com/pyparsing/pyparsing/blob/master/examples/searchparser.py
+and modified by Manuel Blatt, 2022
+The original license can be found below.
+
 -------------------------------------------------------------------------------
 Copyright (c) 2006, Estrate, the Netherlands
-Copyright (c) 2022, Manuel Blatt 
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
@@ -51,7 +55,7 @@ CONTRIBUTORS:
 - Steven Mooij
 - Rudolph Froger
 - Paul McGuire
-- Manuel Blatt
+-------------------------------------------------------------------------------
 
 """
 
