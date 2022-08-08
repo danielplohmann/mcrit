@@ -550,13 +550,19 @@ class MemoryStorage(StorageInterface):
     @staticmethod
     def _get_sort_key_from_cursor(full_cursor: Optional[FullSearchCursor]):
         assert full_cursor is not None
+
+        # Mapping entry -> tuple to sort by
+        def get_tuple_from_entry(entry):
+            return tuple(_get_field(entry, field) for field in full_cursor.sort_fields)
+
+        # custom tuple compare function considering sort direction per dimension 
         is_backward_search = not full_cursor.is_forward_search
         sort_directions = [1 if direction ^ is_backward_search else -1 for direction in full_cursor.sort_directions]
-        def compare(entry1, entry2):
+        def compare_tuple(tuple1, tuple2):
             for i in range(len(full_cursor.sort_fields)):
-                val1 = _get_field(entry1, full_cursor.sort_fields[i])
-                val2 = _get_field(entry2, full_cursor.sort_fields[i])
                 direction = sort_directions[i]
+                val1 = tuple1[i]
+                val2 = tuple2[i]
                 if val1 == val2:
                     pass
                 if val1 is None:
@@ -568,7 +574,8 @@ class MemoryStorage(StorageInterface):
                 if val1 > val2:
                     return direction
             return 0
-        return functools.cmp_to_key(compare)
+
+        return lambda entry: functools.cmp_to_key(compare_tuple)(get_tuple_from_entry(entry))
 
 
     def _get_search_filter(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor]) -> Callable:
@@ -584,6 +591,10 @@ class MemoryStorage(StorageInterface):
 
 
     ##### search ######
+
+    # NOTE: Slowest part of search (by far) is the sorting. Maybe this can be precomputed or cached?
+    # NOTE: Once sorting is fast, the search cursor could be handled separately from the search tree.
+    #       Instead of putting it in the filter function, we could apply binary search on the sorted data.
 
     def findFamilyByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
         result_dict = {}
