@@ -15,12 +15,13 @@ requirements = [
     "dataclasses",
     "pymongo",
     "picblocks>=1.1.2",
-    "requests"
+    "requests",
+    "pyparsing>=3"
 ]
 
 setup(
     name='mcrit',
-    version="0.12.1",
+    version="0.12.2",
     description='MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity.',
     long_description_content_type="text/markdown",
     long_description=README,
