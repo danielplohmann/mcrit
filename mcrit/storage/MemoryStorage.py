@@ -616,7 +616,7 @@ class MemoryStorage(StorageInterface):
         result_dict = {}
         search_fields = ["filename", "family", "component", "version",]
         conditional_field = ("sha256", lambda search_term: len(search_term)>=3)
-        query = self._get_search_filter(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
+        filter = self._get_search_filter(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
         sort_key = self._get_sort_key_from_cursor(cursor)
         for entry in sorted(self._samples.values(), key=sort_key):
             if filter(entry):
