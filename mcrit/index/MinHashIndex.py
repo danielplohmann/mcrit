@@ -3,6 +3,7 @@ import re
 import json
 import time
 import logging
+from typing import Dict
 
 from smda.common.SmdaReport import SmdaReport
 
@@ -15,6 +16,7 @@ from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import compress_encode, decompress_decode
 from mcrit.queue.QueueFactory import QueueFactory
 from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller, NoProgressReporter
+from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageFactory import StorageFactory
@@ -285,26 +287,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getSamples(self, start_index, limit):
         return self._storage.getSamples(start_index, limit)
 
-    def getFamilies(self):
+    def getFamilies(self) -> Dict[int, FamilyEntry]:
         family_overview = {}
         for family_id in self._storage.getFamilyIds():
-            family_is_library = False
-            overview_entry = {
-                "family_id": family_id,
-                "family": self._storage.getFamily(family_id),
-                "num_samples": 0,
-                "num_functions": 0,
-                "is_library": family_is_library
-            }
-            sample_entries = self._storage.getSamplesByFamilyId(family_id)
-            if sample_entries:
-                family_is_library = True
-            for sample_entry in sample_entries:
-                overview_entry["num_samples"] += 1
-                overview_entry["num_functions"] += sample_entry.statistics["num_functions"]
-                family_is_library &= sample_entry.is_library
-            overview_entry["is_library"] = family_is_library
-            family_overview[family_id] = overview_entry
+            family_overview[family_id] = self._storage.getFamily(family_id)
         return family_overview
 
     def getFunctionGraph(self, function_id):

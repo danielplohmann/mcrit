@@ -116,9 +116,12 @@ class McritClient:
             return FamilyEntry.fromDict(data)
         return None
 
-    def getFamilies(self):
+    def getFamilies(self) -> Optional[Dict[int, FamilyEntry]]:
         response = requests.get(f"{self.mcrit_server}/families")
-        return handle_response(response)
+        data = handle_response(response)
+        if data is not None:
+            return {i: FamilyEntry.fromDict(entry) for i, entry in data.items()}
+        return None
 
     def isFamilyId(self, family_id) -> bool:
         return self.getFamily(family_id, with_samples=False) is not None

@@ -83,7 +83,7 @@ class FamilyResource:
         for family_id, family_entry in self.index.getFamilies().items():
             if index >= start_index:
                 if (limit_family_count == 0) or (len(family_overview) < limit_family_count):
-                    family_overview[family_id] = family_entry
+                    family_overview[family_id] = family_entry.toDict()
                 else:
                     break
             index += 1
