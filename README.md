@@ -81,6 +81,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-08-09 v0.13.0: Can now do efficient direct queries for PicHash and PicBlockHash matches.
  * 2022-08-09 v0.12.3: Bugfix for FamilyEntry
  * 2022-08-08 v0.12.2: Bugfix for delivery of XCFG data, added missing dependency.
  * 2022-08-08 v0.12.0: Integrated Advanced Search syntax.

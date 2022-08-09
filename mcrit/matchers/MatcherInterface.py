@@ -203,7 +203,7 @@ class MatcherInterface(object):
             current_foreign_function_ids: List[int] = []
             function_size = 0
             for pichash_tuple in pichash_tuples:
-                bh_sample_id, bh_function_id = pichash_tuple
+                bh_family_id, bh_sample_id, bh_function_id = pichash_tuple
                 cached_function_id_to_sample_id[bh_function_id] = bh_sample_id
                 if bh_function_id in sample_function_id_to_size:
                     current_own_function_ids.append(bh_function_id)

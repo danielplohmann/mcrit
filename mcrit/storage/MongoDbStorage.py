@@ -490,7 +490,7 @@ class MongoDbStorage(StorageInterface):
         )  # ["function_id"]
         return self.getPicHashMatchesByFunctionIds(function_ids)
 
-    def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
+    def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
         query_result = self._database.functions.find_one({"function_id": function_id})
         if query_result is None or not "_pichash" in query_result:
             return None
@@ -502,14 +502,14 @@ class MongoDbStorage(StorageInterface):
 
         sample_and_function_ids = set(
             map(
-                lambda x: (x["sample_id"], x["function_id"]),
+                lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
                 list(self._database.functions.find({"_pichash": encoded_pichash})),
             )
         )
 
         return {decoded_pichash: sample_and_function_ids}
 
-    def getPicHashMatchesByFunctionIds(self, function_ids: List[int]) -> Dict[int, Set[Tuple[int, int]]]:
+    def getPicHashMatchesByFunctionIds(self, function_ids: List[int]) -> Dict[int, Set[Tuple[int, int, int]]]:
         # internal format!
         pichash_raw = self._database.functions.find({"function_id": {"$in": function_ids}}, {"_pichash": 1, "_id": 0})
         pichashes_list = list(pichash_raw)  # broken? TODO
@@ -523,7 +523,7 @@ class MongoDbStorage(StorageInterface):
                 continue
             pichashes[decoded_pichash] = set(
                 map(
-                    lambda x: (x["sample_id"], x["function_id"]),
+                    lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
                     list(self._database.functions.find({"_pichash": encoded_pichash})),
                 )
             )
@@ -647,13 +647,27 @@ class MongoDbStorage(StorageInterface):
         self._encodePichash(query)
         return self._database.functions.find_one(query) is not None
 
-    def getMatchesForPicHash(self, pichash: int) -> Set[Tuple[int, int]]:
+    def getMatchesForPicHash(self, pichash: int) -> Set[Tuple[int, int, int]]:
         query = {"pichash": pichash}
         self._encodePichash(query)
         return set(
             map(
-                lambda x: (x["sample_id"], x["function_id"]),
-                list(self._database.functions.find(query, {"function_id": 1, "sample_id": 1, "_id": 0})),
+                lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
+                list(self._database.functions.find(query, {"family_id": 1, "function_id": 1, "sample_id": 1, "_id": 0})),
+            )
+        )
+
+    def getMatchesForPicBlockHash(self, picblockhash: int) -> Set[Tuple[int, int, int, int]]:
+        query = {"_picblockhashes.hash": hex(picblockhash)}
+        result = self._database.functions.aggregate([
+            {"$match": query}, 
+            {"$unwind": "$_picblockhashes"}, 
+            {"$match": query}, 
+            {"$project": {"_id": 0, "function_id": 1, "family_id": 1, "sample_id": 1, "offset": "$_picblockhashes.offset"}}])
+        return set(
+            map(
+                lambda x: (x["family_id"], x["sample_id"], x["function_id"], x["offset"]),
+                result,
             )
         )
 

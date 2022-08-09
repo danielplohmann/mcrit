@@ -496,14 +496,26 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getMatchesForPicHash(self, pichash: int) -> Set[Tuple[int, int]]:
-        """Get the set of all (sample_id, function_id) tuples for a given PicHash. If no function has the given pichash, the empty set is returned
+    def getMatchesForPicHash(self, pichash: int) -> Set[Tuple[int, int, int]]:
+        """Get the set of all (family_id, sample_id, function_id) tuples for a given PicHash. If no function has the given pichash, the empty set is returned
 
         Args:
             pichash: the pichash to look up
 
         Returns:
-            a set of (sample_id, function_id) tuples with the given pichash
+            a set of (family_id, sample_id, function_id) tuples with the given pichash
+        """
+        raise NotImplementedError
+
+
+    def getMatchesForPicBlockHash(self, picblockhash: int) -> Set[Tuple[int, int, int, int]]:
+        """Get the set of all (family_id, sample_id, function_id, offset) tuples for a given PicBlockHash. If no function has the given picblockhash, the empty set is returned
+
+        Args:
+            picblockhash: the picblockhash to look up
+
+        Returns:
+            a set of (family_id, sample_id, function_id, offset) tuples with the given picblockhash
         """
         raise NotImplementedError
 

@@ -93,6 +93,10 @@ def get_app():
         query_resource,
         suffix="query_binary_mapped",
     )
+    _app.add_route("/query/pichash/{pichash}", query_resource, suffix="query_pichash")
+    _app.add_route("/query/pichash/{pichash}/summary", query_resource, suffix="query_pichash_summary")
+    _app.add_route("/query/picblockhash/{picblockhash}", query_resource, suffix="query_picblockhash")
+    _app.add_route("/query/picblockhash/{picblockhash}/summary", query_resource, suffix="query_picblockhash_summary")
 
     _app.add_route("/jobs", job_resource, suffix="collection")
     _app.add_route("/jobs/{job_id}", job_resource)

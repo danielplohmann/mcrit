@@ -295,6 +295,16 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}",params=params)
         return handle_response(response)
 
+    def getMatchesForPicHash(self, pichash, summary=False):
+        summary_string = "/summary" if summary else ""
+        response = requests.get(f"{self.mcrit_server}/query/pichash/{pichash:016x}{summary_string}")
+        return handle_response(response)
+
+    def getMatchesForPicBlockHash(self, picblockhash, summary=False):
+        summary_string = "/summary" if summary else ""
+        response = requests.get(f"{self.mcrit_server}/query/picblockhash/{picblockhash:016x}{summary_string}")
+        return handle_response(response)
+
     ###########################################
     ### Status, Results 
     ###########################################

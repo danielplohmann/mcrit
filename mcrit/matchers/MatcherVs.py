@@ -24,16 +24,16 @@ class MatcherVs(MatcherInterface):
         matching_report["other_sample_info"] = other_sample_info
         return matching_report
 
-    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int]]]:
+    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int, int]]]:
         by_pichash = {}
         for function_entry in self._function_entries:
             pic_entry = by_pichash.get(function_entry.pichash, [])
-            pic_entry.append((function_entry.sample_id, function_entry.function_id))
+            pic_entry.append((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
             by_pichash[function_entry.pichash] = pic_entry
         for function_entry in self._function_entries_b:
             if function_entry.pichash in by_pichash:
                 pic_entry = by_pichash.get(function_entry.pichash, None)
-                pic_entry.append((function_entry.sample_id, function_entry.function_id))
+                pic_entry.append((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
                 by_pichash[function_entry.pichash] = pic_entry
         return by_pichash
 

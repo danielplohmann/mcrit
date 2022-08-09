@@ -33,12 +33,12 @@ class MatcherQuery(MatcherInterface):
 
         return self._getMatchesRoutine()
 
-    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int]]]:
+    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int, int]]]:
         pichash_matches = {}
         for function_entry in self._function_entries:
             if function_entry.pichash and self._storage.isPicHash(function_entry.pichash):
                 pichash_matches[function_entry.pichash] = self._storage.getMatchesForPicHash(function_entry.pichash)
-                pichash_matches[function_entry.pichash].add((function_entry.sample_id, function_entry.function_id))
+                pichash_matches[function_entry.pichash].add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
         return pichash_matches
 
     def _createMatchingCache(self, function_ids):

@@ -111,7 +111,7 @@ class MemoryStorage(StorageInterface):
     _families: Dict[int, FamilyEntry]
     _samples: Dict[int, "SampleEntry"]
     _functions: Dict[int, "FunctionEntry"]
-    _pichashes: Dict[int, Set[Tuple[int, int]]]
+    _pichashes: Dict[int, Set[Tuple[int, int, int]]]
     # Dict[band_number, Dict[?, List[function_id]]]
     _bands: Dict[int, Dict[int, List[int]]]
     _counters: Dict[str, int]
@@ -168,7 +168,7 @@ class MemoryStorage(StorageInterface):
             del self._functions[function_id]
             # remove pichash entries
             if function_entry.pichash:
-                self._pichashes[function_entry.pichash].remove((sample_id, function_id))
+                self._pichashes[function_entry.pichash].remove((function_entry.family_id, sample_id, function_id))
             minhash = function_entry.getMinHash()
             # remove minhash entries, if necessary
             if not minhash:
@@ -255,7 +255,7 @@ class MemoryStorage(StorageInterface):
         if function_entry.pichash:
             if function_entry.pichash not in self._pichashes:
                 self._pichashes[function_entry.pichash] = set()
-            self._pichashes[function_entry.pichash].add((function_entry.sample_id, function_entry.function_id))
+            self._pichashes[function_entry.pichash].add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
         return function_entry
 
 
@@ -270,7 +270,7 @@ class MemoryStorage(StorageInterface):
             if function_entry.pichash:
                 if function_entry.pichash not in self._pichashes:
                     self._pichashes[function_entry.pichash] = set()
-                self._pichashes[function_entry.pichash].add((function_entry.sample_id, function_entry.function_id))
+                self._pichashes[function_entry.pichash].add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
         return function_entries
 
     # TODO return type?
@@ -299,7 +299,7 @@ class MemoryStorage(StorageInterface):
         if function_entry.pichash:
             if function_entry.pichash not in self._pichashes:
                 self._pichashes[function_entry.pichash] = set()
-            self._pichashes[function_entry.pichash].add((sample_entry.sample_id, function_entry.function_id))
+            self._pichashes[function_entry.pichash].add((function_entry.family_id, sample_entry.sample_id, function_entry.function_id))
         return function_entry
 
     def addMinHash(self, minhash: "MinHash") -> bool:
@@ -349,10 +349,19 @@ class MemoryStorage(StorageInterface):
     def isPicHash(self, pichash: int) -> bool:
         return pichash in self._pichashes
 
-    def getMatchesForPicHash(self, pichash: int) -> Optional[Set[Tuple[int, int]]]:
+    def getMatchesForPicHash(self, pichash: int) -> Optional[Set[Tuple[int, int, int]]]:
         if pichash not in self._pichashes:
             return set()
         return deepcopy(self._pichashes[pichash])
+
+
+    def getMatchesForPicHash(self, picblockhash: int) -> Optional[Set[Tuple[int, int, int, int]]]:
+        result = set()
+        for function_id, function_entry in self._functions.items():
+            for pbh in function_entry.picblockhashes:
+                if picblockhash == pbh["hash"]:
+                    result.add([function_entry.family_id, function_entry.sample_id, function_id, pbh["offset"]])
+        return result
 
     def getFamily(self, family_id: int) -> Optional[FamilyEntry]:
         if family_id in self._families:

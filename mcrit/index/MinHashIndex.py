@@ -321,6 +321,13 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         }
         return status
 
+    def getMatchesForPicHash(self, pichash):
+        return self._storage.getMatchesForPicHash(pichash)
+        
+    def getMatchesForPicBlockHash(self, picblockhash):
+        return self._storage.getMatchesForPicBlockHash(picblockhash)
+
+
     #### SEARCH ####
 
     # When performing an initial search, the cursor should be set to None.

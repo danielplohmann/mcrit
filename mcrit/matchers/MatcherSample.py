@@ -16,5 +16,5 @@ class MatcherSample(MatcherInterface):
 
         return self._getMatchesRoutine()
 
-    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int]]]:
+    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int, int]]]:
         return self._storage.getPicHashMatchesBySampleId(self._sample_id)
