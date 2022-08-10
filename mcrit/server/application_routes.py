@@ -71,6 +71,7 @@ def get_app():
     _app.add_route("/samples/binary", sample_resource, suffix="submit_binary")
     # supports GET and DELETE(for one sample)
     _app.add_route("/samples/{sample_id:int}", sample_resource)
+    _app.add_route("/samples/sha256/{sample_sha256}", sample_resource, suffix="by_sha256")
     _app.add_route("/samples/{sample_id:int}/functions", sample_resource, suffix="functions")
     _app.add_route(
         "/samples/{sample_id:int}/functions/{function_id:int}",

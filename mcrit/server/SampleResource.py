@@ -1,6 +1,7 @@
 import logging
 
 import falcon
+import re
 
 from mcrit.server.utils import timing, jsonify
 from mcrit.index.MinHashIndex import MinHashIndex
@@ -25,6 +26,33 @@ class SampleResource:
             resp.status = falcon.HTTP_404
             return
         resp.data = jsonify({"status": "successful", "data": self.index.getSampleById(sample_id).toDict()})
+
+    @timing
+    def on_get_by_sha256(self, req, resp, sample_sha256):
+        LOGGER.info("SampleResource.on_get_by_sha256")
+        sha256_pattern = "[a-fA-F0-9]{64}"
+        match = re.match(sha256_pattern, sample_sha256)
+        if not match:
+            resp.data = jsonify(
+                {
+                    "status": "failed",
+                    "data": {"message": "No valid SHA256 provided."},
+                }
+            )
+            resp.status = falcon.HTTP_400
+            return
+        sample_entry = self.index.getSampleBySha256(sample_sha256)
+        if sample_entry is None:
+            resp.data = jsonify(
+                {
+                    "status": "failed",
+                    "data": {"message": "We don't have a sample with that SHA256."},
+                }
+            )
+            resp.status = falcon.HTTP_404
+            return
+
+        resp.data = jsonify({"status": "successful", "data": sample_entry.toDict()})
 
     @timing
     def on_delete(self, req, resp, sample_id=None):
