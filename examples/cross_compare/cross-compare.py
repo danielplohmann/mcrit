@@ -490,6 +490,8 @@ def main(argv):
             custom_sequence = sample_ids
         # aggregate and produce output
         for matching_method in MATCHING_METHODS:
+            # TODO from here on, this should be updated to reflect new MatchingResult objects.
+            raise NotImplemented("Not updated to new result objects")
             produce_cross_crompare(
                 match_path, 
                 report_path, 

@@ -31,7 +31,7 @@ def isJobTerminated(job):
     return job.is_terminated
 
 def isJobFailed(job):
-    return (job is not None) and (not job["attempts_left"])
+    return (job is not None) and (not job.is_failed)
 
 def isJobFinishedTerminatedOrFailed(job):
     return isJobTerminated(job) or (job.result is not None) or isJobFailed(job)
