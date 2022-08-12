@@ -327,6 +327,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getMatchesForPicBlockHash(self, picblockhash):
         return self._storage.getMatchesForPicBlockHash(picblockhash)
 
+    def getSampleBySha256(self, sample_sha256): 
+        return self._storage.getSampleBySha256(sample_sha256)
 
     #### SEARCH ####
 

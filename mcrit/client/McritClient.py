@@ -305,6 +305,13 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/query/picblockhash/{picblockhash:016x}{summary_string}")
         return handle_response(response)
 
+    def getSampleBySha256(self, sample_sha256: str):
+        response = requests.get(f"{self.mcrit_server}/samples/sha256/{sample_sha256}")
+        data = handle_response(response)
+        if data is None:
+            return None
+        return SampleEntry.fromDict(data)
+
     ###########################################
     ### Status, Results 
     ###########################################
