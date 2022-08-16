@@ -101,7 +101,7 @@ class MongoQueueTest(TestCase):
             pass
 
         job = self.queue.next()
-        self.assertEqual(job.attempts, 1)
+        self.assertEqual(job.attempts_left, self.queue.max_attempts-1)
 
     def test_context_manager_complete(self):
         self.queue.put({"foobar": 1})
