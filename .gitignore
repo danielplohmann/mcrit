@@ -71,3 +71,5 @@ coverage_html_report
 examples/cross_compare/reports/
 examples/cross_compare/*.csv
 data/*
+
+profiler
