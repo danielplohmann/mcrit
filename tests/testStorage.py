@@ -188,9 +188,9 @@ class MemoryStorageTest(TestCase):
         initial_pichash = function_entry.pichash
         pichashes = self.storage.getPicHashMatchesByFunctionId(1)
         self.assertTrue(initial_pichash in pichashes)
-        sample_and_function_ids = self.storage.getMatchesForPicHash(initial_pichash)
+        family_sample_and_function_ids = self.storage.getMatchesForPicHash(initial_pichash)
         self.assertTrue(self.storage.isPicHash(initial_pichash))
-        self.assertEqual(set([(0,1), (1, 11)]), sample_and_function_ids)
+        self.assertEqual(set([(1, 0, 1), (1, 1, 11)]), family_sample_and_function_ids)
 
         not_a_pichash = 0
         self.assertEqual(set(), self.storage.getMatchesForPicHash(not_a_pichash))
