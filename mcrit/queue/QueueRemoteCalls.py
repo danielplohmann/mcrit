@@ -1,5 +1,8 @@
+from datetime import datetime
 import hashlib
 import json
+import os
+from sqlite3 import Timestamp
 import time
 from functools import wraps
 import logging
@@ -29,11 +32,28 @@ def Remote(progress=False, file_locations=[], kwfile_locations=[], json_location
 
 # Class to be extended
 class QueueRemoteCallee(object):
-    def __init__(self, queue):
+    def __init__(self, queue, profiling_path=None):
         self.queue = queue
         self.queue.clean()
         self._alive = True
         self.t_last_cleanup = time.time()
+        if profiling_path is not None:
+            self._executeJob = self.profiling_wrapper(self._executeJob, profiling_path)
+    
+    def profiling_wrapper(self, function, profiling_path):
+        import cProfile
+        @wraps(function)
+        def wrapped_function(job, *args, **kwargs):
+            start = datetime.utcnow()
+            with cProfile.Profile() as pr:
+                result = function(job, *args, **kwargs)
+            end = datetime.utcnow()
+            method = job.payload["method"]
+            duration = int((end - start).total_seconds()*1000)
+            filename = f"WORKER-{method}-{int(start.timestamp())}-{duration}ms.prof"
+            pr.dump_stats(os.path.join(profiling_path, filename))
+            return result
+        return wrapped_function
 
     def _receive_files(self, d):
         for key, val in d.items():

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import uuid
 import json
 import logging
@@ -37,13 +38,19 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Worker(QueueRemoteCallee):
-    def __init__(self, queue=None, config=None, storage: Optional["StorageInterface"] = None):
+    def __init__(self, queue=None, config=None, storage: Optional["StorageInterface"] = None, profiling=False):
         if config is None:
             config = McritConfig()
 
         if not queue:
             queue = QueueFactory().getQueue(config, consumer_id="Worker-" + str(uuid.uuid4()))
-        super().__init__(queue)
+
+        if profiling:
+            profiling_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__ )), "..", "profiler"))
+            os.makedirs(profiling_path, exist_ok=True)
+        else:
+            profiling_path = None
+        super().__init__(queue, profiling_path)
 
         self.config = config
         self._storage_config = config.STORAGE_CONFIG
