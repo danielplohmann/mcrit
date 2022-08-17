@@ -9,8 +9,8 @@ from mcrit.client.McritClient import McritClient
 from mcrit.Worker import Worker
 
 
-def runWorker():
-    worker = Worker()
+def runWorker(profiling=False):
+    worker = Worker(profiling=profiling)
     worker.run()
 
 
@@ -71,6 +71,7 @@ subparsers = parser.add_subparsers(dest="command")
 parser_server = subparsers.add_parser("server")
 parser_server.add_argument("--profile", help="Profile server. Requires werkzeug package.", action="store_true")
 parser_worker = subparsers.add_parser("worker")
+parser_worker.add_argument("--profile", help="Profile worker. Requires cProfile.", action="store_true")
 # create a set of subparsers for all client commands
 parser_client = subparsers.add_parser("client")
 subparser_client = parser_client.add_subparsers(dest="client_command")
@@ -90,7 +91,7 @@ ARGS = parser.parse_args()
 if ARGS.command == "server":
     runServer(profiling = ARGS.profile)
 elif ARGS.command == "worker":
-    runWorker()
+    runWorker(profiling = ARGS.profile)
 elif ARGS.command == "client":
     runClient(ARGS)
 else:
