@@ -67,6 +67,7 @@ class MatcherTestSuite(unittest.TestCase):
                 (2, 3, 22, 84.375, IS_MINHASH_FLAG),
             ],
             "num_bytes": 354.0,
+            "offset": 0,
         },
         {
             "fid": 11,
@@ -76,6 +77,7 @@ class MatcherTestSuite(unittest.TestCase):
                 (0, 2, 20, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
             ],
             "num_bytes": 638.0,
+            "offset": 364,
         },
         {
             "fid": 12,
@@ -85,26 +87,31 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 5, 100.0, IS_PICHASH_FLAG),
             ],
             "num_bytes": 166.0,
+            "offset": 1004,
         },
         {
             "fid": 13,
             "matches": [(1, 0, 3, 67.1875, IS_MINHASH_FLAG)],
             "num_bytes": 1047.0,
+            "offset": 1172,
         },
         {
             "fid": 16,
             "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
             "num_bytes": 915.0,
+            "offset": 2780,
         },
         {
             "fid": 17,
             "matches": [(1, 0, 6, 98.4375, IS_MINHASH_FLAG)],
             "num_bytes": 727.0,
+            "offset": 3696,
         },
         {
             "fid": 18,
             "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
             "num_bytes": 1850.0,
+            "offset": 4424,
         },
     ]
 
@@ -115,6 +122,7 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 0, 84.375, IS_MINHASH_FLAG),
             ],
             "num_bytes": 354.0,
+            "offset": 0,
         },
         {
             "fid": 11,
@@ -123,6 +131,7 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 5, 51.5625, IS_MINHASH_FLAG),
             ],
             "num_bytes": 638.0,
+            "offset": 364,
         },
         {
             "fid": 12,
@@ -131,26 +140,31 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 5, 100.0, IS_PICHASH_FLAG),
             ],
             "num_bytes": 166.0,
+            "offset": 1004,
         },
         {
             "fid": 13,
             "matches": [(1, 0, 3, 67.1875, IS_MINHASH_FLAG)],
             "num_bytes": 1047.0,
+            "offset": 1172,
         },
         {
             "fid": 16,
             "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
             "num_bytes": 915.0,
+            "offset": 2780,
         },
         {
             "fid": 17,
             "matches": [(1, 0, 6, 98.4375, IS_MINHASH_FLAG)],
             "num_bytes": 727.0,
+            "offset": 3696,
         },
         {
             "fid": 18,
             "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
             "num_bytes": 1850.0,
+            "offset": 4424,
         },
     ]
 
@@ -198,6 +212,7 @@ class MatcherTestSuite(unittest.TestCase):
     sample_summary_entry_2_expected = {
         "sample_id": 0,
         "family": "test_family",
+        "family_id": 1,
         "version": "",
         "bitness": 32,
         "sha256": "39401c7f9518f9710bfd6d64e13a5bf4efdec42e54c9de363b4871e8f374b579",
@@ -233,6 +248,7 @@ class MatcherTestSuite(unittest.TestCase):
     sample_summary_entry_3_expected = {
         "sample_id": 3,
         "family": "test_family_b",
+        "family_id": 2,
         "version": "",
         "bitness": 32,
         "sha256": "39401c7f9518f9710bfd6d64e13a5bf4efdec42e54c9de363b4871e8f374b57f",
@@ -268,6 +284,7 @@ class MatcherTestSuite(unittest.TestCase):
     sample_summary_entry_expected_vs = {
         "sample_id": 0,
         "family": "test_family",
+        "family_id": 1,
         "version": "",
         "bitness": 32,
         "sha256": "39401c7f9518f9710bfd6d64e13a5bf4efdec42e54c9de363b4871e8f374b579",
@@ -303,6 +320,7 @@ class MatcherTestSuite(unittest.TestCase):
     sample_summary_lib_entry_expected = {
         "sample_id": 2,
         "family": "",
+        "family_id": 0,
         "version": "",
         "bitness": 32,
         "sha256": "ae38ff0778fb8dfa1deb17301a15165934312648d232d167cd0c0034c24689e2",

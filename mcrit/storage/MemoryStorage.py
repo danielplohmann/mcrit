@@ -355,7 +355,7 @@ class MemoryStorage(StorageInterface):
         return deepcopy(self._pichashes[pichash])
 
 
-    def getMatchesForPicHash(self, picblockhash: int) -> Optional[Set[Tuple[int, int, int, int]]]:
+    def getMatchesForPicBlockHash(self, picblockhash: int) -> Optional[Set[Tuple[int, int, int, int]]]:
         result = set()
         for function_id, function_entry in self._functions.items():
             for pbh in function_entry.picblockhashes:

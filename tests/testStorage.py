@@ -144,16 +144,18 @@ class MemoryStorageTest(TestCase):
         self.assertIsNotNone(functions)
         self.assertEqual(list(range(10,20)), [entry.function_id for entry in functions])
 
-        function = self.storage.getFunctionById(1)
+        function = self.storage.getFunctionById(1, with_xcfg=False)
+        self.assertIsNone(function.xcfg)
+        function = self.storage.getFunctionById(1, with_xcfg=True)
         self.assertEqual(1, function.function_id)
         self.assertNotEqual({}, function.xcfg)
         self.storage.deleteXcfgForSampleId(function.sample_id)
-        function = self.storage.getFunctionById(1)
+        function = self.storage.getFunctionById(1, with_xcfg=True)
         self.assertEqual({}, function.xcfg)
-        function2 = self.storage.getFunctionById(15)
+        function2 = self.storage.getFunctionById(15, with_xcfg=True)
         self.assertNotEqual({}, function2.xcfg)
         self.storage.deleteXcfgData()
-        function2 = self.storage.getFunctionById(15)
+        function2 = self.storage.getFunctionById(15, with_xcfg=True)
         self.assertEqual({}, function2.xcfg)
 
         self.assertIsNone(self.storage.getFunctionById(1000))
@@ -186,9 +188,9 @@ class MemoryStorageTest(TestCase):
         initial_pichash = function_entry.pichash
         pichashes = self.storage.getPicHashMatchesByFunctionId(1)
         self.assertTrue(initial_pichash in pichashes)
-        sample_and_function_ids = self.storage.getMatchesForPicHash(initial_pichash)
+        family_sample_and_function_ids = self.storage.getMatchesForPicHash(initial_pichash)
         self.assertTrue(self.storage.isPicHash(initial_pichash))
-        self.assertEqual(set([(0,1), (1, 11)]), sample_and_function_ids)
+        self.assertEqual(set([(1, 0, 1), (1, 1, 11)]), family_sample_and_function_ids)
 
         not_a_pichash = 0
         self.assertEqual(set(), self.storage.getMatchesForPicHash(not_a_pichash))
