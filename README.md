@@ -1,5 +1,5 @@
 # MinHash-based Code Recognition & Investigation Toolkit (MCRIT)
-[![Test](https://github.com/blattm/mcrit/actions/workflows/test.yml/badge.svg)](https://github.com/blattm/mcrit/actions/workflows/test.yml)
+[![Test](https://github.com/danielplohmann/mcrit/actions/workflows/test.yml/badge.svg)](https://github.com/danielplohmann/mcrit/actions/workflows/test.yml)
 
 MCRIT is a framework created to simplify the application of the MinHash algorithm in the context of code similarity.
 It can be used to rapidly implement "shinglers", i.e. methods which encode properties of disassembled functions, to then be used for similarity estimation via the MinHash algorithm.
