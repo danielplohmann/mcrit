@@ -225,12 +225,14 @@ class BaseRemoteCallerClass:
     def awaitResult(self, job_id):
         job = self.queue.get_job(job_id)
         terminated = job._is_terminated(use_cached=True)
+        failed = job.is_failed
         result_id = job.result
-        while (result_id is None) and (not terminated):
+        while (result_id is None) and (not terminated) and (not failed):
             time.sleep(0.05)
             # TODO what if job is already killed by clear?
             job = self.queue.get_job(job_id)
             terminated = job._is_terminated(use_cached=True)
+            failed = job.is_failed
             result_id = job.result
         return result_id
 
