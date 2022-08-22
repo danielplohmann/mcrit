@@ -110,11 +110,11 @@ def QueueRemoteCaller(clsCallee):
 
 # Wrapper that creates a remote call proxy for a given method
 def RemotifyFunctionWrapper(function):
-    def submitPayloadQueue(self, payload):
-        return str(self.queue.put(payload))
+    def submitPayloadQueue(self, payload, await_jobs):
+        return str(self.queue.put(payload, await_jobs=await_jobs))
 
     # remote call proxy
-    def remote_call_function(self, *params, force_recalculation=False, **kwparams):
+    def remote_call_function(self, *params, await_jobs=None, force_recalculation=False, **kwparams):
         name = function.__name__
 
         # join file locations:
@@ -139,7 +139,9 @@ def RemotifyFunctionWrapper(function):
 
         # Submit
         payload = _createJobPayload(name, params, grid_params, descriptor)
-        job_id = submitPayloadQueue(self, payload)
+        if await_jobs is None:
+            await_jobs = []
+        job_id = submitPayloadQueue(self, payload, await_jobs)
 
         # Add job ids to parameters
         add_job_id_to_files(self, job_id, grid_params)

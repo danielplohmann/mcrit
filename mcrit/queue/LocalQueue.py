@@ -279,18 +279,22 @@ class LocalQueue(object):
         del self._files[grid]
         del self._files_meta[grid]
 
-    def put(self, payload):
+    def put(self, payload, await_jobs=[]):
         id = str(uuid.uuid4())
         job_data = defaultdict(lambda: None)
         job_data["_id"] = id
         job_data["number"] = self._job_counter
         self._job_counter += 1
         job_data["payload"] = payload
+        job_data["unfinished_dependencies"] = await_jobs
+        job_data["all_dependencies"] = await_jobs
         job_data["attempts_left"] = self.max_attempts
         job_data["created_at"] = datetime.now()
         self._jobs[id] = job_data
         self._descriptor_to_job[payload["descriptor"]] = id
         job_data["started_at"] = datetime.now()
+        # NOTE: we can just ignore await jobs, because all jobs are
+        #       executed in submission order
         self._worker._executeJob(Job(job_data, self))
         return id
 
