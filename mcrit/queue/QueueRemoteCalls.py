@@ -14,160 +14,6 @@ if len(logging._handlerList) == 0:
 LOGGER = logging.getLogger(__name__)
 
 
-################# Callee ##################
-
-# Marks Functions within a QueueRemoteCallee
-def Remote(progress=False, file_locations=[], kwfile_locations=[], json_locations=[], kwjson_locations=[]):
-    def change_function(function):
-        function.remote = True
-        function.progressor = progress
-        function.file_locations = file_locations
-        function.kwfile_locations = kwfile_locations
-        function.json_locations = json_locations
-        function.kwjson_locations = kwjson_locations
-        return function
-
-    return change_function
-
-
-# Class to be extended
-class QueueRemoteCallee(object):
-    def __init__(self, queue, profiling_path=None):
-        self.queue = queue
-        self.queue.clean()
-        self._alive = True
-        self.t_last_cleanup = time.time()
-        if profiling_path is not None:
-            self._executeJob = self.profiling_wrapper(self._executeJob, profiling_path)
-    
-    def profiling_wrapper(self, function, profiling_path):
-        import cProfile
-        @wraps(function)
-        def wrapped_function(job, *args, **kwargs):
-            start = datetime.utcnow()
-            with cProfile.Profile() as pr:
-                result = function(job, *args, **kwargs)
-            end = datetime.utcnow()
-            method = job.payload["method"]
-            duration = int((end - start).total_seconds()*1000)
-            filename = f"WORKER-{method}-{int(start.timestamp())}-{duration}ms.prof"
-            pr.dump_stats(os.path.join(profiling_path, filename))
-            return result
-        return wrapped_function
-
-    def _receive_files(self, d):
-        for key, val in d.items():
-            d[key] = self.queue._grid_to_file(val, results_only=False)
-        return d
-
-    def _decodeJobPayload(self, job_payload):
-        payload = job_payload
-        method_name = job_payload["method"]
-        method = getattr(self, method_name)
-        if not (hasattr(method, "remote") and method.remote == True):
-            raise NotImplementedError
-
-        params = json.loads(job_payload["params"])
-        params = restore_int_keys(params)
-
-        file_params = json.loads(job_payload["file_params"])
-        file_params = restore_int_keys(file_params)
-
-        file_params = self._receive_files(file_params)
-        file_params = json_post_processing(file_params, method.json_locations + method.kwjson_locations)
-
-        params = join_files_to_params(params, file_params)
-        params, kwparams = split_list_dict(params)
-
-        return method, params, kwparams
-
-    def _executeJobPayload(self, job_payload, job):
-        LOGGER.debug("DECODE JOB: %s", job_payload)
-        method, params, kwparams = self._decodeJobPayload(job_payload)
-        # Add progress reporter if necessary:
-        if method.progressor:
-            LOGGER.debug("kwparams: %s", kwparams)
-            kwparams["progress_reporter"] = JobProgressReporter(job, 0.1)
-        LOGGER.debug("EXECUTE JOB: %s", job_payload)
-        result = method(*params, **kwparams)
-        LOGGER.debug("FINISHED JOB: %s", job_payload)
-        return result
-
-    def _executeJob(self, job):
-        if time.time() - self.t_last_cleanup >= self.queue.clean_interval:
-            self.queue.clean()
-            self.t_last_cleanup = time.time()
-        try:
-            with job as j:
-                LOGGER.info("Processing Remote Job: %s", job)
-                result = self._executeJobPayload(j["payload"], job)
-                LOGGER.debug("Remote Job Result: %s", result)
-                # ensure we always have a job_id for finished job payloads
-                job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
-                LOGGER.info("Finished Remote Job: %s", job)
-        except:
-            pass
-
-    def run(self):
-        self._alive = True
-        while self._alive:
-            job = self.queue.next()
-            if job:
-                LOGGER.debug("Found job")
-                self._executeJob(job)
-            else:
-                time.sleep(0.1)
-
-    def terminate(self):
-        self._alive = False
-
-
-### Helper functions
-
-
-def from_binary(binary):
-    return json.loads(binary.decode("ascii"))
-
-
-def join_files_to_params(params, file_params):
-    for key, val in file_params.items():
-        params[key] = val
-    return params
-
-
-def split_list_dict(in_dict):
-    L = []
-    i = 0
-    while i in in_dict:
-        L.append(in_dict[i])
-        i += 1
-    out_dict = {key: val for key, val in in_dict.items() if type(key) != int}
-    return L, out_dict
-
-
-def json_post_processing(params, locations):
-    for f in locations:
-        if f in params:
-            params[f] = from_binary(params[f])
-    return params
-
-
-def restore_int_keys(params):
-    int_dict = {}
-    del_keys = []
-    for key, val in params.items():
-        try:
-            key_int = int(key)
-            int_dict[key_int] = val
-            del_keys.append(key)
-        except:
-            pass
-
-    for k in del_keys:
-        del params[k]
-    params.update(int_dict)
-    return params
-
 
 ################# Caller ##################
 class BaseRemoteCallerClass:
@@ -390,6 +236,162 @@ def _createJobPayload(method_name, params, grid_params, descriptor):
     }
     return payload
 
+
+
+################# Callee ##################
+
+# Marks Functions within a QueueRemoteCallee
+def Remote(progress=False, file_locations=[], kwfile_locations=[], json_locations=[], kwjson_locations=[]):
+    def change_function(function):
+        function.remote = True
+        function.progressor = progress
+        function.file_locations = file_locations
+        function.kwfile_locations = kwfile_locations
+        function.json_locations = json_locations
+        function.kwjson_locations = kwjson_locations
+        return function
+
+    return change_function
+
+
+# Class to be extended
+# It is derived from BaseRemoteCallerClass -> it can also query job results, etc
+class QueueRemoteCallee(BaseRemoteCallerClass):
+    def __init__(self, queue, profiling_path=None):
+        self.queue = queue
+        self.queue.clean()
+        self._alive = True
+        self.t_last_cleanup = time.time()
+        if profiling_path is not None:
+            self._executeJob = self.profiling_wrapper(self._executeJob, profiling_path)
+    
+    def profiling_wrapper(self, function, profiling_path):
+        import cProfile
+        @wraps(function)
+        def wrapped_function(job, *args, **kwargs):
+            start = datetime.utcnow()
+            with cProfile.Profile() as pr:
+                result = function(job, *args, **kwargs)
+            end = datetime.utcnow()
+            method = job.payload["method"]
+            duration = int((end - start).total_seconds()*1000)
+            filename = f"WORKER-{method}-{int(start.timestamp())}-{duration}ms.prof"
+            pr.dump_stats(os.path.join(profiling_path, filename))
+            return result
+        return wrapped_function
+
+    def _receive_files(self, d):
+        for key, val in d.items():
+            d[key] = self.queue._grid_to_file(val, results_only=False)
+        return d
+
+    def _decodeJobPayload(self, job_payload):
+        payload = job_payload
+        method_name = job_payload["method"]
+        method = getattr(self, method_name)
+        if not (hasattr(method, "remote") and method.remote == True):
+            raise NotImplementedError
+
+        params = json.loads(job_payload["params"])
+        params = restore_int_keys(params)
+
+        file_params = json.loads(job_payload["file_params"])
+        file_params = restore_int_keys(file_params)
+
+        file_params = self._receive_files(file_params)
+        file_params = json_post_processing(file_params, method.json_locations + method.kwjson_locations)
+
+        params = join_files_to_params(params, file_params)
+        params, kwparams = split_list_dict(params)
+
+        return method, params, kwparams
+
+    def _executeJobPayload(self, job_payload, job):
+        LOGGER.debug("DECODE JOB: %s", job_payload)
+        method, params, kwparams = self._decodeJobPayload(job_payload)
+        # Add progress reporter if necessary:
+        if method.progressor:
+            LOGGER.debug("kwparams: %s", kwparams)
+            kwparams["progress_reporter"] = JobProgressReporter(job, 0.1)
+        LOGGER.debug("EXECUTE JOB: %s", job_payload)
+        result = method(*params, **kwparams)
+        LOGGER.debug("FINISHED JOB: %s", job_payload)
+        return result
+
+    def _executeJob(self, job):
+        if time.time() - self.t_last_cleanup >= self.queue.clean_interval:
+            self.queue.clean()
+            self.t_last_cleanup = time.time()
+        try:
+            with job as j:
+                LOGGER.info("Processing Remote Job: %s", job)
+                result = self._executeJobPayload(j["payload"], job)
+                LOGGER.debug("Remote Job Result: %s", result)
+                # ensure we always have a job_id for finished job payloads
+                job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
+                LOGGER.info("Finished Remote Job: %s", job)
+        except:
+            pass
+
+    def run(self):
+        self._alive = True
+        while self._alive:
+            job = self.queue.next()
+            if job:
+                LOGGER.debug("Found job")
+                self._executeJob(job)
+            else:
+                time.sleep(0.1)
+
+    def terminate(self):
+        self._alive = False
+
+
+### Helper functions
+
+
+def from_binary(binary):
+    return json.loads(binary.decode("ascii"))
+
+
+def join_files_to_params(params, file_params):
+    for key, val in file_params.items():
+        params[key] = val
+    return params
+
+
+def split_list_dict(in_dict):
+    L = []
+    i = 0
+    while i in in_dict:
+        L.append(in_dict[i])
+        i += 1
+    out_dict = {key: val for key, val in in_dict.items() if type(key) != int}
+    return L, out_dict
+
+
+def json_post_processing(params, locations):
+    for f in locations:
+        if f in params:
+            params[f] = from_binary(params[f])
+    return params
+
+
+def restore_int_keys(params):
+    int_dict = {}
+    del_keys = []
+    for key, val in params.items():
+        try:
+            key_int = int(key)
+            int_dict[key_int] = val
+            del_keys.append(key)
+        except:
+            pass
+
+    for k in del_keys:
+        del params[k]
+    params.update(int_dict)
+    return params
 
 ################################### progress iterator
 
