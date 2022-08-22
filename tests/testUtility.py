@@ -5,7 +5,7 @@ import logging
 import os
 import unittest
 
-from mcrit.libs.utility import generate_unique_pairs, compress_b64, decompress_b64
+from mcrit.libs.utility import generate_unique_pairs, compress_encode, decompress_decode
 
 from .context import config
 
@@ -26,8 +26,8 @@ class TestUtility(unittest.TestCase):
 
     def testZip(self):
         content = {"test_key": "test data"}
-        zip_b64 = compress_b64(json.dumps(content))
-        decompressed = decompress_b64(zip_b64)
+        zip_b64 = compress_encode(json.dumps(content))
+        decompressed = decompress_decode(zip_b64)
         self.assertEqual(content, json.loads(decompressed))
 
 
