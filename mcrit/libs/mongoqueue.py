@@ -373,6 +373,8 @@ class Job(object):
     def progress(self):
         return self._data["progress"]
 
+
+    # This is a GridFS id, not the actual result
     @property
     def result(self):
         return self._data["result"]

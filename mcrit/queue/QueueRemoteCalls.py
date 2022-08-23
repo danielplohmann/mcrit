@@ -103,12 +103,6 @@ class QueueRemoteCallee(object):
                 result = self._executeJobPayload(j["payload"], job)
                 LOGGER.debug("Remote Job Result: %s", result)
                 # ensure we always have a job_id for finished job payloads
-                if "info" not in result:
-                    result["info"] = {"job": {"job_id": str(job.job_id)}}
-                elif "job" not in result["info"]:
-                    result["info"]["job"] = {"job_id": str(job.job_id)}
-                else:
-                    result["info"]["job"]["job_id"] = str(job.job_id)
                 job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
                 LOGGER.info("Finished Remote Job: %s", job)
         except:
@@ -206,21 +200,24 @@ class BaseRemoteCallerClass:
         return self.queue.get_job(job_id)._data
 
     def getResultForJob(self, job_id):
-        result = {}
+        result = None
         res_id = self.queue.get_job(job_id).result
         if res_id is not None:
             LOGGER.debug("GetResultForJob: %s -> %s", job_id, res_id)
             result = self.queue._grid_to_dicts(res_id)
-            result["info"]["job"]["result_id"] = str(res_id)
         return result
 
+    def getJobIdForResult(self, result_id):
+        job_id = None
+        meta = self.queue._grid_to_meta(result_id)
+        if meta is not None and "job" in meta:
+            job_id = meta["job"]
+            LOGGER.debug("getJobIdForResult: %s -> %s", result_id, job_id)
+        return job_id
+
     def getResult(self, res_id):
-        result = {}
         result_dict = self.queue._grid_to_dicts(res_id)
-        if result_dict is not None:
-            result = result_dict
-            result["info"]["job"]["result_id"] = str(res_id)
-        return result
+        return result_dict
 
     def awaitResult(self, job_id):
         job = self.queue.get_job(job_id)

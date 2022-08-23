@@ -368,6 +368,12 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/results/{result_id}")
         return handle_response(response)
 
+    def getJobForResult(self, result_id):
+        response = requests.get(f"{self.mcrit_server}/results/{result_id}/job")
+        data = handle_response(response)
+        if data is not None:
+            return Job(data, None)
+
     def awaitResult(self, job_id, sleep_time=2):
         if job_id is None:
             return None

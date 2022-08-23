@@ -87,3 +87,17 @@ class JobResource:
         # TODO throw 404 if job_id is unknown
         # resp.status = falcon.HTTP_404
         resp.data = jsonify({"status": "successful", "data": data})
+
+    @timing
+    def on_get_result_job(self, req, resp, result_id=None):
+        LOGGER.info("JobResource.on_get_results")
+        # validate that we only allow hexstrings with 24 chars
+        if not re.match("[a-fA-F0-9]{24}", result_id):
+            resp.status = falcon.HTTP_400
+            resp.data = jsonify({"status": "failed", "data": {"message": "Valid ResultIDs are hexstrings with 24 characters."}})
+            return  
+        job_id = self.index.getJobIdForResult(result_id)
+        data = self.index.getJobData(job_id)
+        # TODO throw 404 if job_id is unknown
+        # resp.status = falcon.HTTP_404
+        resp.data = jsonify({"status": "successful", "data": data})
