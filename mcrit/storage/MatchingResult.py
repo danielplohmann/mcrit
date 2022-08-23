@@ -177,10 +177,7 @@ class MatchingResult(object):
         return matching_entry
 
     def __str__(self):
-        # TODO: fix
-        return "Job: {} / {} - Matched: Samples: {} Functions: {}".format(
-            None,
-            None,
+        return "Matched: Samples: {} Functions: {}".format(
             len(self.sample_matches),
             len(self.function_matches),
         )
