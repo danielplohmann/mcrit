@@ -103,5 +103,6 @@ def get_app():
     _app.add_route("/jobs/{job_id}", job_resource)
     _app.add_route("/jobs/{job_id}/result", job_resource, suffix="job_result")
     _app.add_route("/results/{result_id}", job_resource, suffix="results")
+    _app.add_route("/results/{result_id}/job", job_resource, suffix="result_job")
 
     return _app
