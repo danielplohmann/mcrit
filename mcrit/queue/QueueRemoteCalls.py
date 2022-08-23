@@ -14,6 +14,232 @@ if len(logging._handlerList) == 0:
 LOGGER = logging.getLogger(__name__)
 
 
+
+################# Caller ##################
+class BaseRemoteCallerClass:
+    def __init__(self, queue):
+        self.queue = queue
+
+    #### JOB CONTROL ####
+    def JobStatus(self, job_id):
+        # returns status, msg
+        # status can be "NotFound", "Running", "Done", "Error"
+        # msg can be the error message or Result_id in case of Done
+        # Check mongoqueue for job_id if Error or Running -> Return
+        # Check results-collection/job-archive for results with original_job_id=job_id
+        # -> either return "Done" with result / where to find result, OR NotFound
+        pass
+
+    def getQueueData(self, filter=None):
+        LOGGER.debug(f"getQueueData(filter={filter}):")
+        if filter is not None:
+            # TODO apply filter to more fields
+            return [job._data for job in self.queue.get_jobs() if filter in job.parameters]
+        return [job._data for job in self.queue.get_jobs()]
+
+    def getJob(self, job_id):
+        LOGGER.debug("GetJob: %s", job_id)
+        return self.queue.get_job(job_id)
+
+    def getJobData(self, job_id):
+        LOGGER.debug("GetJobData: %s", job_id)
+        return self.queue.get_job(job_id)._data
+
+    def getResultForJob(self, job_id):
+        result = None
+        res_id = self.queue.get_job(job_id).result
+        if res_id is not None:
+            LOGGER.debug("GetResultForJob: %s -> %s", job_id, res_id)
+            result = self.queue._grid_to_dicts(res_id)
+        return result
+
+    def getJobIdForResult(self, result_id):
+        job_id = None
+        meta = self.queue._grid_to_meta(result_id)
+        if meta is not None and "job" in meta:
+            job_id = meta["job"]
+            LOGGER.debug("getJobIdForResult: %s -> %s", result_id, job_id)
+        return job_id
+
+    def getResult(self, res_id):
+        result_dict = self.queue._grid_to_dicts(res_id)
+        return result_dict
+
+    def awaitResult(self, job_id):
+        job = self.queue.get_job(job_id)
+        terminated = job._is_terminated(use_cached=True)
+        failed = job.is_failed
+        result_id = job.result
+        while (result_id is None) and (not terminated) and (not failed):
+            time.sleep(0.05)
+            # TODO what if job is already killed by clear?
+            job = self.queue.get_job(job_id)
+            terminated = job._is_terminated(use_cached=True)
+            failed = job.is_failed
+            result_id = job.result
+        return result_id
+
+
+########### START Class Metaprogramming
+# Add proxies to clsCallee to clsCaller
+# clsCallee is expected to be derived from QueueRemoteCallee
+# clsCaller needs an self.queue attribute
+def addRemoteCallFunctions(clsCallee, clsCaller):
+    method_list = [func for func in dir(clsCallee) if callable(getattr(clsCallee, func)) and not func.startswith("__")]
+    for name, method in zip(method_list, [getattr(clsCallee, func) for func in method_list]):
+        if hasattr(method, "remote") and method.remote == True:
+            new_method = RemotifyFunctionWrapper(method)
+            new_method.__qualname__ = ".".join([clsCaller.__qualname__, new_method.__name__])
+            setattr(clsCaller, name, new_method)
+    return clsCaller
+
+
+# Usage:
+# MyCallerClass = QueueRemoteCallee(MyWorkerClass)
+# or
+# class MyAdvancedCallerClass(QueueRemoteCallee(MyWorkerClass)):
+#     ...
+def QueueRemoteCaller(clsCallee):
+    class RemoteCallerClass(BaseRemoteCallerClass):
+        pass
+
+    return addRemoteCallFunctions(clsCallee, RemoteCallerClass)
+
+
+########### END Class Metaprogramming
+
+# Wrapper that creates a remote call proxy for a given method
+def RemotifyFunctionWrapper(function):
+    def submitPayloadQueue(self, payload, await_jobs):
+        return str(self.queue.put(payload, await_jobs=await_jobs))
+
+    # remote call proxy
+    def remote_call_function(self, *params, await_jobs=None, force_recalculation=False, **kwparams):
+        name = function.__name__
+
+        # join file locations:
+        file_locations = function.kwfile_locations + function.file_locations
+        json_locations = function.kwjson_locations + function.json_locations
+
+        # get rearranged parameters
+        params, file_params = rearrange_params(params, kwparams, file_locations, json_locations)
+
+        # get descriptor:
+        hashes = hash_all(file_params)
+        descriptor = get_descriptor(name, params, hashes)
+
+        # Evaluate Cached jobs
+        if not force_recalculation:
+            cachedJobId = self.queue.get_cached_job_id({"descriptor": descriptor})
+            if cachedJobId is not None:
+                return str(cachedJobId)
+
+        # Upload
+        grid_params = upload_file_params(self, file_params, hashes)
+
+        # Submit
+        payload = _createJobPayload(name, params, grid_params, descriptor)
+        if await_jobs is None:
+            await_jobs = []
+        job_id = submitPayloadQueue(self, payload, await_jobs)
+
+        # Add job ids to parameters
+        add_job_id_to_files(self, job_id, grid_params)
+
+        return job_id
+
+    return wraps(function)(remote_call_function)
+
+
+### Helper functions
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def to_binary(dicts):
+    return json.dumps(dicts, sort_keys=True).encode("ascii")
+
+
+## helpers for rearange_params
+def add_list_to_dict(Dict, List):
+    for i, entry in enumerate(List):
+        Dict[i] = entry
+
+
+def stringify_keys(d):
+    return {str(key): val for key, val in d.items()}
+
+
+def json_param_preprocessing(params, locations):
+    for f in locations:
+        if f in params:
+            params[f] = to_binary(params[f])
+    return params
+
+
+def file_param_split(params, locations):
+    files = {}
+    for f in locations:
+        if f in params:
+            files[str(f)] = params[f]
+            params[f] = None
+    return params, files
+
+
+# This function merges params and kwparams, by using VALUE-KEYS like "0", "1", ...
+# Then the parameters are split again, into "normal" params, and file_params, which are transmitted via gridfs
+def rearrange_params(params, kwparams, file_locations, json_locations):
+    all_file_locations = file_locations + json_locations
+    # join parameters:
+    add_list_to_dict(kwparams, params)
+    # all parameters are in params now:
+    params = kwparams
+    # do json preprocessing, replacing datastructures with strings
+    params = json_param_preprocessing(params, json_locations)
+    # split params into params and file_params
+    params, file_params = file_param_split(params, all_file_locations)
+    # stringify keys for params
+    params = stringify_keys(params)
+    # file_params = stringify_keys(file_params) #already done bei file_param_split
+    return params, file_params
+
+
+def hash_all(d):
+    return {key: sha256(val) for key, val in d.items()}
+
+
+def get_descriptor(name, params, hashes):
+    return json.dumps((name, params, hashes), sort_keys=True)
+
+
+def upload_file_params(self, file_params, hashes):
+    grid_params = {}
+    for key, val in file_params.items():
+        grid = self.queue.get_file_by_hash_inc_lock(hashes[key])
+        if grid is None:
+            metadata = {"sha256": hashes[key], "tmp_lock": 1, "jobs": []}
+            grid = self.queue._file_to_grid(val, metadata=metadata)
+        grid_params[key] = grid
+    return grid_params
+
+
+def add_job_id_to_files(self, job_id, grid_params):
+    for key, val in grid_params.items():
+        self.queue.add_job_id_to_file(job_id, val)
+
+
+# Function to encode call
+def _createJobPayload(method_name, params, grid_params, descriptor):
+    payload = {
+        "method": method_name,
+        "params": json.dumps(params),
+        "file_params": json.dumps(grid_params),
+        "descriptor": descriptor,
+    }
+    return payload
+
+
+
 ################# Callee ##################
 
 # Marks Functions within a QueueRemoteCallee
@@ -31,7 +257,8 @@ def Remote(progress=False, file_locations=[], kwfile_locations=[], json_location
 
 
 # Class to be extended
-class QueueRemoteCallee(object):
+# It is derived from BaseRemoteCallerClass -> it can also query job results, etc
+class QueueRemoteCallee(BaseRemoteCallerClass):
     def __init__(self, queue, profiling_path=None):
         self.queue = queue
         self.queue.clean()
@@ -167,229 +394,6 @@ def restore_int_keys(params):
         del params[k]
     params.update(int_dict)
     return params
-
-
-################# Caller ##################
-class BaseRemoteCallerClass:
-    def __init__(self, queue):
-        self.queue = queue
-
-    #### JOB CONTROL ####
-    def JobStatus(self, job_id):
-        # returns status, msg
-        # status can be "NotFound", "Running", "Done", "Error"
-        # msg can be the error message or Result_id in case of Done
-        # Check mongoqueue for job_id if Error or Running -> Return
-        # Check results-collection/job-archive for results with original_job_id=job_id
-        # -> either return "Done" with result / where to find result, OR NotFound
-        pass
-
-    def getQueueData(self, filter=None):
-        LOGGER.debug(f"getQueueData(filter={filter}):")
-        if filter is not None:
-            # TODO apply filter to more fields
-            return [job._data for job in self.queue.get_jobs() if filter in job.parameters]
-        return [job._data for job in self.queue.get_jobs()]
-
-    def getJob(self, job_id):
-        LOGGER.debug("GetJob: %s", job_id)
-        return self.queue.get_job(job_id)
-
-    def getJobData(self, job_id):
-        LOGGER.debug("GetJobData: %s", job_id)
-        return self.queue.get_job(job_id)._data
-
-    def getResultForJob(self, job_id):
-        result = None
-        res_id = self.queue.get_job(job_id).result
-        if res_id is not None:
-            LOGGER.debug("GetResultForJob: %s -> %s", job_id, res_id)
-            result = self.queue._grid_to_dicts(res_id)
-        return result
-
-    def getJobIdForResult(self, result_id):
-        job_id = None
-        meta = self.queue._grid_to_meta(result_id)
-        if meta is not None and "job" in meta:
-            job_id = meta["job"]
-            LOGGER.debug("getJobIdForResult: %s -> %s", result_id, job_id)
-        return job_id
-
-    def getResult(self, res_id):
-        result_dict = self.queue._grid_to_dicts(res_id)
-        return result_dict
-
-    def awaitResult(self, job_id):
-        job = self.queue.get_job(job_id)
-        terminated = job._is_terminated(use_cached=True)
-        failed = job.is_failed
-        result_id = job.result
-        while (result_id is None) and (not terminated) and (not failed):
-            time.sleep(0.05)
-            # TODO what if job is already killed by clear?
-            job = self.queue.get_job(job_id)
-            terminated = job._is_terminated(use_cached=True)
-            failed = job.is_failed
-            result_id = job.result
-        return result_id
-
-
-########### START Class Metaprogramming
-# Add proxies to clsCallee to clsCaller
-# clsCallee is expected to be derived from QueueRemoteCallee
-# clsCaller needs an self.queue attribute
-def addRemoteCallFunctions(clsCallee, clsCaller):
-    method_list = [func for func in dir(clsCallee) if callable(getattr(clsCallee, func)) and not func.startswith("__")]
-    for name, method in zip(method_list, [getattr(clsCallee, func) for func in method_list]):
-        if hasattr(method, "remote") and method.remote == True:
-            new_method = RemotifyFunctionWrapper(method)
-            new_method.__qualname__ = ".".join([clsCaller.__qualname__, new_method.__name__])
-            setattr(clsCaller, name, new_method)
-    return clsCaller
-
-
-# Usage:
-# MyCallerClass = QueueRemoteCallee(MyWorkerClass)
-# or
-# class MyAdvancedCallerClass(QueueRemoteCallee(MyWorkerClass)):
-#     ...
-def QueueRemoteCaller(clsCallee):
-    class RemoteCallerClass(BaseRemoteCallerClass):
-        pass
-
-    return addRemoteCallFunctions(clsCallee, RemoteCallerClass)
-
-
-########### END Class Metaprogramming
-
-# Wrapper that creates a remote call proxy for a given method
-def RemotifyFunctionWrapper(function):
-    def submitPayloadQueue(self, payload):
-        return str(self.queue.put(payload))
-
-    # remote call proxy
-    def remote_call_function(self, *params, force_recalculation=False, **kwparams):
-        name = function.__name__
-
-        # join file locations:
-        file_locations = function.kwfile_locations + function.file_locations
-        json_locations = function.kwjson_locations + function.json_locations
-
-        # get rearranged parameters
-        params, file_params = rearrange_params(params, kwparams, file_locations, json_locations)
-
-        # get descriptor:
-        hashes = hash_all(file_params)
-        descriptor = get_descriptor(name, params, hashes)
-
-        # Evaluate Cached jobs
-        if not force_recalculation:
-            cachedJobId = self.queue.get_cached_job_id({"descriptor": descriptor})
-            if cachedJobId is not None:
-                return str(cachedJobId)
-
-        # Upload
-        grid_params = upload_file_params(self, file_params, hashes)
-
-        # Submit
-        payload = _createJobPayload(name, params, grid_params, descriptor)
-        job_id = submitPayloadQueue(self, payload)
-
-        # Add job ids to parameters
-        add_job_id_to_files(self, job_id, grid_params)
-
-        return job_id
-
-    return wraps(function)(remote_call_function)
-
-
-### Helper functions
-def sha256(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-def to_binary(dicts):
-    return json.dumps(dicts, sort_keys=True).encode("ascii")
-
-
-## helpers for rearange_params
-def add_list_to_dict(Dict, List):
-    for i, entry in enumerate(List):
-        Dict[i] = entry
-
-
-def stringify_keys(d):
-    return {str(key): val for key, val in d.items()}
-
-
-def json_param_preprocessing(params, locations):
-    for f in locations:
-        if f in params:
-            params[f] = to_binary(params[f])
-    return params
-
-
-def file_param_split(params, locations):
-    files = {}
-    for f in locations:
-        if f in params:
-            files[str(f)] = params[f]
-            params[f] = None
-    return params, files
-
-
-# This function merges params and kwparams, by using VALUE-KEYS like "0", "1", ...
-# Then the parameters are split again, into "normal" params, and file_params, which are transmitted via gridfs
-def rearrange_params(params, kwparams, file_locations, json_locations):
-    all_file_locations = file_locations + json_locations
-    # join parameters:
-    add_list_to_dict(kwparams, params)
-    # all parameters are in params now:
-    params = kwparams
-    # do json preprocessing, replacing datastructures with strings
-    params = json_param_preprocessing(params, json_locations)
-    # split params into params and file_params
-    params, file_params = file_param_split(params, all_file_locations)
-    # stringify keys for params
-    params = stringify_keys(params)
-    # file_params = stringify_keys(file_params) #already done bei file_param_split
-    return params, file_params
-
-
-def hash_all(d):
-    return {key: sha256(val) for key, val in d.items()}
-
-
-def get_descriptor(name, params, hashes):
-    return json.dumps((name, params, hashes), sort_keys=True)
-
-
-def upload_file_params(self, file_params, hashes):
-    grid_params = {}
-    for key, val in file_params.items():
-        grid = self.queue.get_file_by_hash_inc_lock(hashes[key])
-        if grid is None:
-            metadata = {"sha256": hashes[key], "tmp_lock": 1, "jobs": []}
-            grid = self.queue._file_to_grid(val, metadata=metadata)
-        grid_params[key] = grid
-    return grid_params
-
-
-def add_job_id_to_files(self, job_id, grid_params):
-    for key, val in grid_params.items():
-        self.queue.add_job_id_to_file(job_id, val)
-
-
-# Function to encode call
-def _createJobPayload(method_name, params, grid_params, descriptor):
-    payload = {
-        "method": method_name,
-        "params": json.dumps(params),
-        "file_params": json.dumps(grid_params),
-        "descriptor": descriptor,
-    }
-    return payload
-
 
 ################################### progress iterator
 

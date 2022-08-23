@@ -57,9 +57,33 @@ class myWorker(QueueRemoteCallee):
     def function_that_isnt_remote(self, a, b, c):
         pass
 
+    @Remote()
+    def child_job(self, i):
+        time.sleep(0.2)
+        return i*i
+    
+    @Remote()
+    def parent_job(self, child_jobs):
+        results = []
+        for id in child_jobs:
+            results.append(self.getResultForJob(id))
+        results = [i for i in results if i is not None]
+        return sum(results)
+
+    
 
 # Define Caller Class
-Caller = QueueRemoteCaller(myWorker)
+class Caller(QueueRemoteCaller(myWorker)):
+    def start_child_and_parent_job(self):
+        child_job_ids = []
+        for i in range(9):
+            child_job_ids.append(self.child_job(i, force_recalculation=True))
+        # await_jobs param is managed by queue and not passed to function.
+        # Maybe call it job_dependencies?
+        # parent job will only be executed after all await_jobs were finished, terminated or failed.
+        parent_job_id = self.parent_job(child_job_ids, await_jobs=child_job_ids)
+        return parent_job_id	
+
 
 
 class RemoteCalleeTest(TestCase):
@@ -295,6 +319,21 @@ class LocalQueueRemoteCallTest(TestCase):
 
         # Check foo, if jobs were cleaned:
         self.assertEqual(self.queue._grid_to_meta(files["foo"])["jobs"], [job_id_3])
+
+    def test_job_dependencies(self):
+        self.queue.clear()
+        additional_worker = myWorker(self.queue)
+        additional_worker_thread = Thread(target=additional_worker.run)
+        additional_worker_thread.start()
+
+        job_id = self.caller.start_child_and_parent_job()
+        result_id = self.caller.awaitResult(job_id)
+        result = self.caller.getResult(result_id)
+        job = self.caller.getJob(job_id)
+        self.assertEqual(result, sum([i*i for i in range(9)]))
+        
+        additional_worker.terminate()
+        self.queue.clear()
 
 
 ### Added mongo attribute

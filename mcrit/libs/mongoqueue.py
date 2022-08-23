@@ -16,6 +16,7 @@
 import json
 import traceback
 from datetime import datetime, timedelta
+from typing import List
 
 import gridfs
 import pymongo
@@ -30,8 +31,10 @@ DEFAULT_INSERT = {
     "created_at": None,
     "started_at": None,
     "terminated": False,
+    "required_by": [],
     "number": None,
     "result": None,
+    "notify_done": False,
 }
 
 # added to track incremental job numbers via MCRIT storage (apart from OIDs)
@@ -98,17 +101,49 @@ class MongoQueue(object):
         """ """
         self.collection.find_one_and_update({"attempts_left": {"$lte": 0}}, remove=True)
 
-    def put(self, payload, priority=0):
+    def put(self, payload, priority=0, await_jobs:List[str]=[]):
         """Place a job into the queue"""
         job = dict(self._default_insert)
         job["number"] = _useCounter(self.collection.database, "job")
         job["created_at"] = datetime.now()
         job["priority"] = priority
         job["payload"] = payload
+        await_jobs_set = set(await_jobs)
+        job["unfinished_dependencies"] = list(await_jobs_set)
+        job["all_dependencies"] = list(await_jobs_set)
         insert_result = self.collection.insert_one(job)
         if insert_result.acknowledged:
-            return insert_result.inserted_id
+            job_id = insert_result.inserted_id
+            for child_job_id in await_jobs_set:
+                self._notify_on_done(child_job_id, job_id)
+            return job_id
         return None
+
+    def _notify_on_done(self, notifying_job_id:str, notified_job_id:str):
+        self.collection.find_one_and_update(
+            filter={"_id": ObjectId(notifying_job_id)},
+            update={"$push": {'required_by': notified_job_id}}
+        )
+        notifying_job = self.collection.find_one({"_id": ObjectId(notifying_job_id)})
+        if notifying_job["notify_done"]:
+            self.collection.find_one_and_update(
+                filter={"_id": ObjectId(notified_job_id)},
+                update={"$pull": {'unfinished_dependencies': notifying_job_id}},
+            )
+        #     # atomically
+        #     # should handle already deleted deps gracefully
+        #     remove job.id from job_to_notify.unfinished_deps
+    
+    def _notify_dependent_jobs(self, job_id:str):
+        job = self.collection.find_one_and_update(
+            filter={"_id": ObjectId(job_id)},
+            update={"$set": {'notify_done': True}},
+        )
+        for job_id_to_notify in job["required_by"]:
+            self.collection.find_one_and_update(
+                filter={"_id": ObjectId(job_id_to_notify)},
+                update={"$pull": {'unfinished_dependencies': job_id}},
+            )
 
     def next(self):
         current_time = datetime.now()
@@ -119,6 +154,7 @@ class MongoQueue(object):
                     "locked_at": None,
                     "attempts_left": {"$gt": 0},
                     "finished_at": None,
+                    "unfinished_dependencies": [],
                 },
                 update={"$set": {"locked_by": self.consumer_id, "locked_at": current_time, "started_at": current_time}},
                 sort=[("priority", pymongo.DESCENDING), ("created_at", pymongo.ASCENDING)],
@@ -389,18 +425,23 @@ class Job(object):
         """job has been completed."""
         if result:
             self._data["result"] = result
-        return self._queue.collection.find_one_and_update(
+        job = self._queue.collection.find_one_and_update(
             filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
             update={"$set": {"finished_at": datetime.now(), "result": self._data["result"], "progress": 1}},
             return_document=ReturnDocument.AFTER
         )
+        self._queue._notify_dependent_jobs(str(job["_id"]))
+        return job 
 
     def error(self, message=None):
         """note an error processing a job, and return it to the queue."""
-        self._queue.collection.find_one_and_update(
+        job = self._queue.collection.find_one_and_update(
             filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
             update={"$set": {"locked_by": None, "locked_at": None, "last_error": message}, "$inc": {"attempts_left": -1}},
+            return_document=ReturnDocument.AFTER
         )
+        if job["attempts_left"] <= 0:
+            self._queue._notify_dependent_jobs(self, str(job["_id"]))
 
     def progressor(self, count=0):
         """note progress on a long running task."""
