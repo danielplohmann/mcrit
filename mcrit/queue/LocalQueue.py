@@ -110,11 +110,10 @@ class Job(object):
             method_str += "(" + ", ".join([str(v) for v in combined_values]) + ")"
         return method_str
 
+
+    # NOTE: This is a GridFS id, not the actual result
     @property
     def result(self):
-        if self._data["result"] is None:
-            pass
-            # self._queue._worker._executeJob(self)
         return self._data["result"]
 
     @result.setter
