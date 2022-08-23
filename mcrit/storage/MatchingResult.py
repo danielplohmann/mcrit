@@ -13,11 +13,6 @@ if TYPE_CHECKING:  # pragma: no cover
 # assume sample_entry, smda_function always available
 
 class MatchingResult(object):
-    job_id: str
-    result_id: str
-    job_duration: int
-    job_timestamp: int
-    job_parameters: int
     reference_sample_entry: "SampleEntry"
     other_sample_entry: "SampleEntry"
     match_aggregation: Dict
@@ -148,13 +143,6 @@ class MatchingResult(object):
         # build the dictionary
         matching_entry = {
             "info": {
-                "job": {
-                    "job_id": self.job_id,
-                    "result_id": self.result_id,
-                    "duration": self.job_duration,
-                    "timestamp": self.job_timestamp,
-                    "parameters": self.job_parameters,
-                },
                 "sample": self.reference_sample_entry.toDict()
             },
             "matches": {
@@ -170,12 +158,6 @@ class MatchingResult(object):
     @classmethod
     def fromDict(cls, entry_dict):
         matching_entry = cls(None)
-        matching_entry.job_id = entry_dict["info"]["job"]["job_id"]
-        matching_entry.result_id = entry_dict["info"]["job"]["result_id"]
-        matching_entry.job_duration = entry_dict["info"]["job"]["duration"]
-        matching_entry.job_timestamp = entry_dict["info"]["job"]["timestamp"]
-        matching_entry.job_parameters = entry_dict["info"]["job"]["parameters"]
-
         matching_entry.reference_sample_entry = SampleEntry.fromDict(entry_dict["info"]["sample"])
         if "other_sample_info" in entry_dict:
             matching_entry.other_sample_entry = SampleEntry.fromDict(entry_dict["other_sample_info"])
@@ -195,9 +177,10 @@ class MatchingResult(object):
         return matching_entry
 
     def __str__(self):
+        # TODO: fix
         return "Job: {} / {} - Matched: Samples: {} Functions: {}".format(
-            self.job_timestamp,
-            self.job_parameters,
+            None,
+            None,
             len(self.sample_matches),
             len(self.function_matches),
         )
