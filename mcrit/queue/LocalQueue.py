@@ -73,6 +73,16 @@ class Job(object):
         return self._data["finished_at"] is not None
 
     @property
+    def duration(self):
+        if self.is_finished:
+            FMT = '%Y-%m-%d-%H:%M:%S'
+            finished_at = self.finished_at[:10] + "-" + self.finished_at[11:19]
+            started_at = self.started_at[:10] + "-" + self.started_at[11:19]
+            duration = datetime.strptime(finished_at, FMT)-datetime.strptime(started_at, FMT)
+            return duration
+        return None
+
+    @property
     def created_at(self):
         if isinstance(self._data["created_at"], dict):
             return str(self._data["created_at"]["$date"])
