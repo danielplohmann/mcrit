@@ -425,8 +425,10 @@ class MongoDbStorage(StorageInterface):
             )
             self._dbInsert("samples", sample_entry.toDict())
             function_ids = self._useCounterBulk("functions",  smda_report.num_functions)
+            function_dicts = []
             for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
-                self._addFunction(sample_entry, smda_function, function_id)
+                function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, function_id))
+            self._dbInsertMany("functions", function_dicts)
             self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             self._updateDbState()
         else:
@@ -698,10 +700,9 @@ class MongoDbStorage(StorageInterface):
 
     ########################## 'old' implementations below
 
-    def _addFunction(
-        self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", function_id: int, minhash: Optional["MinHash"] = None
-    ) -> "FunctionEntry":
-        function_entry = FunctionEntry(sample_entry, smda_function, function_id, minhash=minhash)
+    def _getFunctionDocument(
+        self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", function_id: int) -> Dict:
+        function_entry = FunctionEntry(sample_entry, smda_function, function_id)
         # calculate block hashes and add separately
         image_lower = sample_entry.base_addr
         image_upper = image_lower + sample_entry.binary_size
@@ -714,11 +715,7 @@ class MongoDbStorage(StorageInterface):
         # convert for persistance
         function_dict = function_entry.toDict()
         self._encodeFunction(function_dict)
-        self._dbInsert("functions", function_dict)
-        if minhash and minhash.hasMinHash():
-            minhash.function_id = function_entry.function_id
-            self._addMinHashToBands(minhash)
-        return function_entry
+        return function_dict
 
     def createMatchingCache(self, function_ids: List[int]) -> MatchingCache:
         cache_data = self._getCacheDataForFunctionIds(function_ids)
