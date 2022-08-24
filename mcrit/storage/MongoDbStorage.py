@@ -702,6 +702,11 @@ class MongoDbStorage(StorageInterface):
 
     def _getFunctionDocument(
         self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", function_id: int) -> Dict:
+        """
+        Converts a SmdaFunction to a dict ready for insertion into MongoDb.
+        Picblockhashes will be added to the function.
+        The function_id has to be explicitly provided.
+        """
         function_entry = FunctionEntry(sample_entry, smda_function, function_id)
         # calculate block hashes and add separately
         image_lower = sample_entry.base_addr
