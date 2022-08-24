@@ -5,7 +5,7 @@ import logging
 import datetime
 import traceback
 from operator import itemgetter
-from typing import Any, TYPE_CHECKING, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 LOGGER = logging.getLogger(__name__)
 try:
@@ -218,16 +218,22 @@ class MongoDbStorage(StorageInterface):
         record = {"ts": self._getCurrentTimestamp(), "%s_msg" % log_type: log_msg, "%s_details" % log_type: log_details}
         self._database[log_type].insert_one(self._toBinary(record))
 
-    def _useCounter(self, name: str) -> int:
-        result = self._database.counters.find_one_and_update(
+    def _useCounterBulk(self, name: str, num_counts: int) -> Iterable[int]:
+        assert num_counts >= 0
+        if num_counts == 0:
+            return []
+        query_result = self._database.counters.find_one_and_update(
             filter={"name": name}, 
-            update={"$inc": {"value": 1}}, 
-            # return_document=ReturnDocument.AFTER,
+            update={"$inc": {"value": num_counts}}, 
             upsert=True
         )
-        if result is None:
-            return 0
-        return result["value"]
+        first_count = 0
+        if query_result is not None:
+            first_count = query_result["value"]
+        return range(first_count, first_count+num_counts)
+    
+    def _useCounter(self, name:str) -> int:
+        return next(iter(self._useCounterBulk(name, 1)))
 
     def _updateDbState(self):
         result = self._database.settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
@@ -418,8 +424,11 @@ class MongoDbStorage(StorageInterface):
                 smda_report, sample_id=self._useCounter("samples"), family_id=family_id
             )
             self._dbInsert("samples", sample_entry.toDict())
-            for smda_function in smda_report.getFunctions():
-                self._addFunction(sample_entry, smda_function)
+            function_ids = self._useCounterBulk("functions",  smda_report.num_functions)
+            function_dicts = []
+            for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
+                function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, function_id))
+            self._dbInsertMany("functions", function_dicts)
             self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             self._updateDbState()
         else:
@@ -691,11 +700,14 @@ class MongoDbStorage(StorageInterface):
 
     ########################## 'old' implementations below
 
-    def _addFunction(
-        self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", minhash: Optional["MinHash"] = None
-    ) -> "FunctionEntry":
-        function_id = self._useCounter("functions")
-        function_entry = FunctionEntry(sample_entry, smda_function, function_id, minhash=minhash)
+    def _getFunctionDocument(
+        self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", function_id: int) -> Dict:
+        """
+        Converts a SmdaFunction to a dict ready for insertion into MongoDb.
+        Picblockhashes will be added to the function.
+        The function_id has to be explicitly provided.
+        """
+        function_entry = FunctionEntry(sample_entry, smda_function, function_id)
         # calculate block hashes and add separately
         image_lower = sample_entry.base_addr
         image_upper = image_lower + sample_entry.binary_size
@@ -708,11 +720,7 @@ class MongoDbStorage(StorageInterface):
         # convert for persistance
         function_dict = function_entry.toDict()
         self._encodeFunction(function_dict)
-        self._dbInsert("functions", function_dict)
-        if minhash and minhash.hasMinHash():
-            minhash.function_id = function_entry.function_id
-            self._addMinHashToBands(minhash)
-        return function_entry
+        return function_dict
 
     def createMatchingCache(self, function_ids: List[int]) -> MatchingCache:
         cache_data = self._getCacheDataForFunctionIds(function_ids)

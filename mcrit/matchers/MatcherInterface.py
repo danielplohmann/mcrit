@@ -5,7 +5,7 @@ import math
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import tqdm
 from mcrit.queue.QueueRemoteCalls import NoProgressReporter
@@ -24,7 +24,7 @@ LOGGER = logging.getLogger(__name__)
 
 # function_id_own, sample_id_foreign, function_id_foreign, score, is_pic_match, is_min_match
 HarmonizedMatches = Dict[Tuple[int, int, int], Tuple[float, bool, bool]]
-PichashMatches = Dict[int, Set[Tuple[int, int]]]
+PichashMatches = Dict[int, Set[Tuple[int, int, int]]]
 MinhashMatches = List[Tuple[int, int, int, int, float]]
 
 IS_MINHASH_FLAG = 1
@@ -147,7 +147,7 @@ class MatcherInterface(object):
         LOGGER.info("creating cache for %d functions", len(cache_function_ids))
         cache = self._createMatchingCache(cache_function_ids)
         packed_tuples = self._unrollGroupsAsPackedTuples(cache, candidate_groups)
-        num_packed_tuples = self._countPackedTuples(cache, candidate_groups)
+        num_packed_tuples = self._countPackedTuples(candidate_groups)
         self._progress_reporter.set_total(num_packed_tuples)
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
             target_function = functools.partial(
@@ -172,17 +172,16 @@ class MatcherInterface(object):
         self._storage.clearMatchingCache()
         return matching_results
 
-    def _countPackedTuples(
-        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
-    ) -> int:
-        num_packed = 0
-        for pack in self._unrollGroupsAsPackedTuples(cache, candidate_pairs, packsize):
-            num_packed += 1
-        return num_packed
+    def _countPackedTuples(self, candidate_pairs, packsize=10000) -> int:
+        count = 0
+        for candidate_ids in candidate_pairs.values():
+            count += len(candidate_ids) 
+        quotient, remainder = divmod(count, packsize)
+        return quotient + int(bool(remainder)) # always round up
 
     def _unrollGroupsAsPackedTuples(
         self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
-    ) -> List[List[Tuple[int, int, bytes, int, int, bytes]]]:
+    ) -> Iterable[List[Tuple[int, int, bytes, int, int, bytes]]]:
         # Query, VS, Sample
         # All were identical
         packed_tuples: List[List[Tuple[int, int, bytes, int, int, bytes]]] = []

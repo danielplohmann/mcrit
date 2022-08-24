@@ -283,6 +283,16 @@ class MemoryStorage(StorageInterface):
     def _addFunction(
         self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", minhash: Optional["MinHash"] = None
     ) -> "FunctionEntry":
+        """Add a function (and optionally its MinHash) to storage, using the respective SampleEntry for reference.
+
+        Args:
+            sample_entry: The SampleEntry of smda_function
+            smda_function: The SmdaFunction to be added.
+            minhash: (Optional, defaults to None) The MinHash of the Function
+
+        Returns:
+            A FunctionEntry
+        """
         function_entry = FunctionEntry(sample_entry, smda_function, self._useCounter("functions"), minhash=minhash)
         image_lower = sample_entry.base_addr
         image_upper = image_lower + sample_entry.binary_size
