@@ -456,8 +456,9 @@ class MongoDbStorage(StorageInterface):
 
     def importFunctionEntries(self, function_entries: List["FunctionEntry"]) -> Optional[List["FunctionEntry"]]:
         functions_as_dicts = []
-        for function_entry in function_entries:
-            function_entry.function_id = self._useCounter("functions")
+        function_ids = self._useCounterBulk("functions", len(function_entries))
+        for function_id, function_entry in zip(function_ids, function_entries):
+            function_entry.function_id = function_id
             # add function to regular storage
             function_dict = function_entry.toDict()
             self._encodeFunction(function_dict)

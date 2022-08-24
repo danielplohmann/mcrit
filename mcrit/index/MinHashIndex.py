@@ -146,6 +146,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "num_families_skipped": 0
         }
         # TODO adjust minimum required MCRIT version if we ever extend in a way that objects become incompatible
+        # TODO do not compare version as string
         if export_data["config"]["version"] <= "0.0.0":
             LOGGER.error("Cannot import data, version of export is incompatible / too old.")
             return 
@@ -173,6 +174,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 len(export_data["sample_entries"]))
         # iterate samples
         index = 0
+        function_entries_to_import = []
+        minhashes_to_import = []
         for sample_sha256, sample_entry_dict in export_data["sample_entries"].items():
             index += 1
             # check if sample is already present, and skip if yes
@@ -193,20 +196,23 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 if is_compressed:
                     function_entries = json.loads(decompress_decode(function_entries))
                 # iterate functions and add them, adjusting family_id and sample_id
-                minhashes = []
                 for old_function_id, function_entry_dict in function_entries.items():
                     function_entry = FunctionEntry.fromDict(function_entry_dict)
                     function_entry.sample_id = remapped_sample_entry.sample_id
                     function_entry.family_id = remapped_sample_entry.family_id
-                    remapped_function_entry = self._storage.importFunctionEntry(function_entry)
+                    function_entries_to_import.append(function_entry)
                     # delaying minhash insertion speeds up the procedure dramatically
                     if function_entry.minhash:
                         minhash = MinHash(function_entry.function_id, function_entry.minhash, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
-                        minhashes.append(minhash)
+                        minhashes_to_import.append(minhash)
                     import_report["num_functions_imported"] += 1
-                # ensure that their minhashes / pichashes are added to the respective indices
-                self._storage.addMinHashes(minhashes)
             LOGGER.info(f"Sample %d with SHA256 %s added...", index, sample_sha256)
+        
+        self._storage.importFunctionEntries(function_entries_to_import)
+        LOGGER.info(f"{len(function_entries_to_import)} functions added")
+        # ensure that their minhashes / pichashes are added to the respective indices
+        self._storage.addMinHashes(minhashes_to_import)
+        LOGGER.info(f"{len(minhashes_to_import)} Minhashes added")
         return import_report
 
     def respawn(self):
