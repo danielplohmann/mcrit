@@ -20,6 +20,7 @@ class MatchingResult(object):
     function_matches: List["MatchedFunctionEntry"]
     is_family_filtered: bool
     is_sample_filtered: bool
+    is_function_filtered: bool
 
     def __init__(self, sample_entry: "SampleEntry") -> None:
         self.reference_sample_entry = sample_entry
@@ -49,6 +50,12 @@ class MatchingResult(object):
         self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id == sample_id]
         self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_sample_id == sample_id]
         self.is_sample_filtered = True
+
+    def filterToFunctionId(self, function_id):
+        """ reduce contained matches to chosen function_id by deleting the other sample and function matches """
+        # self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id == sample_id]
+        self.function_matches = [function_match for function_match in self.function_matches if function_match.function_id == function_id]
+        self.is_function_filtered = True
 
     def getBestSampleMatchesPerFamily(self, start=None, limit=None):
         by_family = {}
