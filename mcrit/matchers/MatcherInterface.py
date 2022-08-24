@@ -147,7 +147,7 @@ class MatcherInterface(object):
         LOGGER.info("creating cache for %d functions", len(cache_function_ids))
         cache = self._createMatchingCache(cache_function_ids)
         packed_tuples = self._unrollGroupsAsPackedTuples(cache, candidate_groups)
-        num_packed_tuples = self._countPackedTuples(cache, candidate_groups)
+        num_packed_tuples = self._countPackedTuples(candidate_groups)
         self._progress_reporter.set_total(num_packed_tuples)
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
             target_function = functools.partial(
@@ -172,13 +172,12 @@ class MatcherInterface(object):
         self._storage.clearMatchingCache()
         return matching_results
 
-    def _countPackedTuples(
-        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
-    ) -> int:
-        num_packed = 0
-        for pack in self._unrollGroupsAsPackedTuples(cache, candidate_pairs, packsize):
-            num_packed += 1
-        return num_packed
+    def _countPackedTuples(self, candidate_pairs, packsize=10000) -> int:
+        count = 0
+        for candidate_ids in candidate_pairs.values():
+            count += len(candidate_ids) 
+        quotient, remainder = divmod(count, packsize)
+        return quotient + int(bool(remainder)) # always round up
 
     def _unrollGroupsAsPackedTuples(
         self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
