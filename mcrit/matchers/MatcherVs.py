@@ -37,9 +37,9 @@ class MatcherVs(MatcherInterface):
                 by_pichash[function_entry.pichash] = pic_entry
         return by_pichash
 
-    def _createMinHashCandidateGroups(self) -> Dict[int, Set[int]]:
+    def _createMinHashCandidateGroups(self, pichash_matches) -> Dict[int, Set[int]]:
         # find candidates based on bands
-        candidate_groups = super()._createMinHashCandidateGroups()
+        candidate_groups = super()._createMinHashCandidateGroups(pichash_matches)
 
         allowed_function_ids = set([entry.function_id for entry in self._function_entries_b])
         # NOTE Also include function ids of entry a to allow selfmatches

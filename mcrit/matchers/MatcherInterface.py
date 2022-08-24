@@ -96,7 +96,7 @@ class MatcherInterface(object):
         # Every Matcher has own implementation
         raise NotImplementedError
 
-    def _createMinHashCandidateGroups(self) -> Dict[int, Set[int]]:
+    def _createMinHashCandidateGroups(self, pichash_matches) -> Dict[int, Set[int]]:
         # Query, VS, Sample
         # Sample , Query have this plain version
         # VS adds another intersection step to this version
@@ -108,6 +108,13 @@ class MatcherInterface(object):
                 minhash_bits=self._worker._minhash_config.MINHASH_SIGNATURE_BITS
             )
         candidate_groups = self._storage.getCandidatesForMinHashes(function_id_to_minhash)
+        candidates_to_remove = {candidate_fid: set([candidate_fid]) for candidate_fid in candidate_groups}
+        if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
+            for pichash_match in pichash_matches:
+                if pichash_match[0] in candidates_to_remove:
+                    candidates_to_remove[pichash_match[0]].add(pichash_match[2])
+        for fid, removals in candidates_to_remove.items():
+            candidate_groups[fid].difference_update(removals)
         return candidate_groups
 
     def _createMatchingCache(self, function_ids):
@@ -122,7 +129,7 @@ class MatcherInterface(object):
         # Query, VS, Sample
         # All use this version
         pichash_matches = self._harmonizePicHashMatches(self._getPicHashMatches())
-        candidate_groups = self._createMinHashCandidateGroups()
+        candidate_groups = self._createMinHashCandidateGroups(pichash_matches)
         minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups))
         matching_report = self._craftResultDict(pichash_matches, minhash_matches)
         return matching_report
@@ -140,7 +147,8 @@ class MatcherInterface(object):
         LOGGER.info("creating cache for %d functions", len(cache_function_ids))
         cache = self._createMatchingCache(cache_function_ids)
         packed_tuples = self._unrollGroupsAsPackedTuples(cache, candidate_groups)
-        self._progress_reporter.set_total(len(packed_tuples))
+        num_packed_tuples = self._countPackedTuples(cache, candidate_groups)
+        self._progress_reporter.set_total(num_packed_tuples)
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
             target_function = functools.partial(
                 self._worker.minhasher.calculateScoresFromPackedTuples, minhash_threshold=self._minhash_threshold
@@ -148,13 +156,13 @@ class MatcherInterface(object):
             with Pool(cpu_count()) as pool:
                 for pool_result in tqdm.tqdm(
                     pool.imap_unordered(target_function, packed_tuples),
-                    total=len(packed_tuples),
+                    total=num_packed_tuples,
                 ):
                     matching_results.extend(pool_result)
                     self._progress_reporter.step()
         else:
             packed_tuple: List[Tuple[int, int, bytes, int, int, bytes]]
-            for packed_tuple in tqdm.tqdm(packed_tuples, total=len(packed_tuples)):
+            for packed_tuple in tqdm.tqdm(packed_tuples, total=num_packed_tuples):
                 matching_results.extend(
                     self._worker.minhasher.calculateScoresFromPackedTuples(
                         packed_tuple, minhash_threshold=self._minhash_threshold
@@ -163,6 +171,14 @@ class MatcherInterface(object):
                 self._progress_reporter.step()
         self._storage.clearMatchingCache()
         return matching_results
+
+    def _countPackedTuples(
+        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
+    ) -> int:
+        num_packed = 0
+        for pack in self._unrollGroupsAsPackedTuples(cache, candidate_pairs, packsize):
+            num_packed += 1
+        return num_packed
 
     def _unrollGroupsAsPackedTuples(
         self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
@@ -184,11 +200,13 @@ class MatcherInterface(object):
                 if count < packsize:
                     count += 1
                 else:
-                    packed_tuples.append(current_pack)
+                    # packed_tuples.append(current_pack)
+                    yield current_pack
                     current_pack = []
                     count = 0
         if current_pack:
-            packed_tuples.append(current_pack)
+            # packed_tuples.append(current_pack)
+            yield current_pack
         return packed_tuples
 
     def _harmonizePicHashMatches(self, pichash_matches: PichashMatches) -> HarmonizedMatches:
@@ -333,6 +351,8 @@ class MatcherInterface(object):
         matches_function_list = []
         for function_id, dict in match_function_mapping.items():
             dict["fid"] = function_id
+            # this creates additional stability for tests and processing
+            dict["matches"] = sorted(dict["matches"])
             matches_function_list.append(dict)
 
         aggregation["num_self_matches"] = len(self_matched_functions)
@@ -466,6 +486,10 @@ class MatcherInterface(object):
     ) -> Dict:
         # Query, VS, Sample
         # All use this version
+        if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
+            for key, new_entry in pichash_matches.items():
+                if key not in minhash_matches:
+                    minhash_matches[key] = (100.0, 0, 1)
         all_matches = minhash_matches.copy()
         for key, new_entry in pichash_matches.items():
             if key in all_matches:

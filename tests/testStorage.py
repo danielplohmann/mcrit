@@ -121,8 +121,6 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(new_report_d.sample_id, 4)
         self.assertTrue(self.storage.isFunctionId(49))
 
-
-
     def testFunctionHandling(self):
         self.storage.clearStorage()
         # TODO use SmdaReport.fromFile

@@ -62,8 +62,8 @@ class MatcherTestSuite(unittest.TestCase):
         {
             "fid": 9,
             "matches": [
-                (1, 0, 0, 84.375, IS_MINHASH_FLAG),
                 (0, 2, 19, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
+                (1, 0, 0, 84.375, IS_MINHASH_FLAG),
                 (2, 3, 22, 84.375, IS_MINHASH_FLAG),
             ],
             "num_bytes": 354.0,
@@ -72,9 +72,9 @@ class MatcherTestSuite(unittest.TestCase):
         {
             "fid": 11,
             "matches": [
+                (0, 2, 20, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
                 (1, 0, 1, 92.1875, IS_MINHASH_FLAG),
                 (1, 0, 5, 51.5625, IS_MINHASH_FLAG),
-                (0, 2, 20, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
             ],
             "num_bytes": 638.0,
             "offset": 364,
@@ -82,9 +82,9 @@ class MatcherTestSuite(unittest.TestCase):
         {
             "fid": 12,
             "matches": [
-                (1, 0, 2, 93.75, IS_MINHASH_FLAG),
                 (0, 2, 21, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
-                (1, 0, 5, 100.0, IS_PICHASH_FLAG),
+                (1, 0, 2, 93.75, IS_MINHASH_FLAG),
+                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
             ],
             "num_bytes": 166.0,
             "offset": 1004,
@@ -137,7 +137,7 @@ class MatcherTestSuite(unittest.TestCase):
             "fid": 12,
             "matches": [
                 (1, 0, 2, 93.75, IS_MINHASH_FLAG),
-                (1, 0, 5, 100.0, IS_PICHASH_FLAG),
+                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
             ],
             "num_bytes": 166.0,
             "offset": 1004,
@@ -434,8 +434,8 @@ class MatcherTestSuite(unittest.TestCase):
         self.assertEqual(
             result["matches"]["samples"],
             [
-                self.sample_summary_entry_2_expected,
                 self.sample_summary_lib_entry_expected,
+                self.sample_summary_entry_2_expected,
                 self.sample_summary_entry_3_expected,
             ],
         )

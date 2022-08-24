@@ -25,6 +25,7 @@ Sha256 = str
 
 class StorageInterface:
     _config: "StorageConfig"
+    _band_projection: None
 
     def __init__(self, config: "StorageConfig") -> None:
         """Set the StorageConfig, sets up an empty Storage or loads existing data, ensures indexing,
@@ -37,6 +38,7 @@ class StorageInterface:
             AssertionError: If family_id 0 already exists, but does not refer to Family \"\".
         """
         self._config = config
+        self._band_projection = None
 
     # -> Set[function_id]
     def getCandidatesForMinHash(self, minhash: "MinHash") -> Set[int]:
@@ -570,26 +572,38 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    # -> Dict[BandIndex, BandHash]
-    def getBandHashesForMinHash(self, minhash: "MinHash") -> Dict[int, int]:
-        """Calculate band hashes for a given minhash, based on config parameters (STORAGE_BAND_SEED, STORAGE_BANDS)
-
+    def createBandhashProjection(self, minhash):
+        """Calculate a projection for index permutation based on a given minhash
         Args:
-            minhash: the MinHash for which the BandHashes will be calculated
-
+            minhash: the MinHash used as reference
         Returns:
-            a dict containing BandHashes by BandId
+            a dict containing signature indices used for bandhashing by band id
         """
-        band_hashes = {}
+        band_projection = {}
         random.seed(self._config.STORAGE_BAND_SEED)
         band_index = 0
-        minhash_data = minhash.getMinHashInt()
         for band_size, num_bands in self._config.STORAGE_BANDS.items():
             for _ in range(num_bands):
                 index_sequence = [index for index in range(len(minhash.getMinHashInt()))]
                 random.shuffle(index_sequence)
-                band_data = [minhash_data[i] for i in index_sequence[:band_size]]
-                hashed_band_data = MinHash.hashData(band_data, 0)
-                band_hashes[band_index] = hashed_band_data
+                band_projection[band_index] = index_sequence[:band_size]
                 band_index += 1
+        return band_projection
+
+    # -> Dict[BandIndex, BandHash]
+    def getBandHashesForMinHash(self, minhash: "MinHash") -> Dict[int, int]:
+        """Calculate band hashes for a given minhash, based on config parameters (STORAGE_BAND_SEED, STORAGE_BANDS)
+        Args:
+            minhash: the MinHash for which the BandHashes will be calculated
+        Returns:
+            a dict containing BandHashes by BandId
+        """
+        if self._band_projection is None:
+            self._band_projection = self.createBandhashProjection(minhash)
+        band_hashes = {}
+        minhash_data = minhash.getMinHashInt()
+        for band_index, permutation in self._band_projection.items():
+            band_data = [minhash_data[i] for i in permutation]
+            hashed_band_data = MinHash.hashData(band_data, 0)
+            band_hashes[band_index] = hashed_band_data
         return band_hashes

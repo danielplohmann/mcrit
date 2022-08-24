@@ -330,7 +330,7 @@ class MongoDbStorage(StorageInterface):
         for function_entry in function_entries:
             minhash = function_entry.getMinHash()
             # remove minhash entries, if necessary
-            if not minhash:
+            if not minhash or not minhash.hasMinHash():
                 continue
             band_hashes = self.getBandHashesForMinHash(minhash)
             for band_number, band_hash in sorted(band_hashes.items()):
@@ -574,13 +574,13 @@ class MongoDbStorage(StorageInterface):
     def _addMinHashesToBands(self, minhashes: List["MinHash"]) -> None:
         band_hashes = {number: {} for number in range(self._config.STORAGE_NUM_BANDS)}
         for minhash in minhashes:
-            for band_number, band_hash in self.getBandHashesForMinHash(minhash).items():
-                if band_hash not in band_hashes[band_number]:
-                    band_hashes[band_number][band_hash] = []
-                band_hashes[band_number][band_hash].append(minhash.function_id)
+            if minhash.hasMinHash():
+                for band_number, band_hash in self.getBandHashesForMinHash(minhash).items():
+                    if band_hash not in band_hashes[band_number]:
+                        band_hashes[band_number][band_hash] = []
+                    band_hashes[band_number][band_hash].append(minhash.function_id)
         self._updateBands(band_hashes)
 
-    # original implementation, already working
     def _updateBands(self, band_hashes: Dict[int, Dict[int, List[int]]]) -> None:
         num_band_updates = 0
         for band_number, band_data in band_hashes.items():
@@ -592,15 +592,33 @@ class MongoDbStorage(StorageInterface):
             self._database["band_%d" % band_number].bulk_write(band_updates, ordered=False)
             num_band_updates += len(band_updates)
 
-    # COPIED FROM MEMORYSTORAGE
-    # TODO optimize or move to interface
     def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"]) -> Dict[int, Set[int]]:
         candidates = {}
+        target_band_hashes_per_band = {band_number: set() for band_number in range(self._config.STORAGE_NUM_BANDS)}
+        band_hash_to_function_ids = {band_number: {} for band_number in range(self._config.STORAGE_NUM_BANDS)}
         for function_id, minhash in function_id_to_minhash.items():
-            candidates[function_id] = self.getCandidatesForMinHash(minhash)
+            if not minhash.hasMinHash():
+                continue
+            band_hashes = self.getBandHashesForMinHash(minhash)
+            for band_number, band_hash in sorted(band_hashes.items()):
+                target_band_hashes_per_band[band_number].add(band_hash)
+                if band_hash not in band_hash_to_function_ids[band_number]:
+                    band_hash_to_function_ids[band_number][band_hash] = set()
+                band_hash_to_function_ids[band_number][band_hash].add(function_id)
+        for band_number, band_hashes in target_band_hashes_per_band.items():
+            match_query = {"$match": {"band_hash": {"$in": list(band_hashes)}}}
+            cursor = self._database["band_%d" % band_number].aggregate([match_query])
+            for hit in cursor:
+                reference_function_ids = band_hash_to_function_ids[band_number][hit["band_hash"]]
+                for function_id in reference_function_ids:
+                    if function_id not in candidates:
+                        candidates[function_id] = set()
+                    candidates[function_id].update(hit["function_ids"])
         return candidates
 
     def getCandidatesForMinHash(self, minhash: "MinHash") -> Set[int]:
+        if not minhash.hasMinHash():
+            return
         candidates = set([])
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
