@@ -5,7 +5,7 @@ import math
 from collections import defaultdict
 from multiprocessing import Pool, cpu_count
 from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import tqdm
 from mcrit.queue.QueueRemoteCalls import NoProgressReporter
@@ -24,7 +24,7 @@ LOGGER = logging.getLogger(__name__)
 
 # function_id_own, sample_id_foreign, function_id_foreign, score, is_pic_match, is_min_match
 HarmonizedMatches = Dict[Tuple[int, int, int], Tuple[float, bool, bool]]
-PichashMatches = Dict[int, Set[Tuple[int, int]]]
+PichashMatches = Dict[int, Set[Tuple[int, int, int]]]
 MinhashMatches = List[Tuple[int, int, int, int, float]]
 
 IS_MINHASH_FLAG = 1
@@ -182,7 +182,7 @@ class MatcherInterface(object):
 
     def _unrollGroupsAsPackedTuples(
         self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
-    ) -> List[List[Tuple[int, int, bytes, int, int, bytes]]]:
+    ) -> Iterable[List[Tuple[int, int, bytes, int, int, bytes]]]:
         # Query, VS, Sample
         # All were identical
         packed_tuples: List[List[Tuple[int, int, bytes, int, int, bytes]]] = []
