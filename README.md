@@ -82,6 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-08-29 v0.14.1: Minor fixes for deployment.
  * 2022-08-22 v0.14.0: Jobs can now depend on other jobs (preparation for moving crossjobs to backend), QoL improvements to job handling.
  * 2022-08-17 v0.13.1: Added commandline option for profiling (requires cProfile).
  * 2022-08-09 v0.13.0: Can now do efficient direct queries for PicHash and PicBlockHash matches.
