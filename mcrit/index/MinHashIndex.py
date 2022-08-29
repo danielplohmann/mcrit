@@ -3,7 +3,7 @@ import re
 import json
 import time
 import logging
-from typing import Dict
+from typing import Dict, List
 
 from smda.common.SmdaReport import SmdaReport
 
@@ -258,6 +258,13 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             report_json = json.load(fin)
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches)
+    
+    def getMatchesCross(self, sample_ids:List[int], force_recalculation=False, **params):
+        sample_to_job_id = {}
+        for id in sample_ids:
+            job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, **params)
+            sample_to_job_id[id] = job_id
+        return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation)
 
     #### SIMPLE LOOKUPS ####
     def getFamily(self, family_id):
