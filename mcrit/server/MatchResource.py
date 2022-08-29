@@ -34,6 +34,14 @@ class MatchResource:
         # resp.retry_after = 2
 
     @timing
+    def on_get_sample_cross(self, req, resp, sample_ids=None):
+        LOGGER.info("SampleResource.on_get_matches_cross")
+        parameters = getMatchingParams(req.params)
+        sample_ids_list = [int(id) for id in sample_ids.split(",")]
+        cross_matches = self.index.getMatchesCross(sample_ids_list, **parameters)
+        resp.data = jsonify({"status": "successful", "data": cross_matches})
+
+    @timing
     def on_get_sample_vs(self, req, resp, sample_id=None, sample_id_2=None):
         # NOTE: We don't need to check if the kw parameters are None. The routing ensures that they are always set.
         LOGGER.info("SampleResource.on_get_matches_vs")

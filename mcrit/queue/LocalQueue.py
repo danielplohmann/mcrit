@@ -27,6 +27,10 @@ class Job(object):
         return self._data["payload"]
 
     @property
+    def all_dependencies(self):
+        return self._data["all_dependencies"]
+
+    @property
     def job_id(self):
         if isinstance(self._data["_id"], dict):
             return str(self._data["_id"]["$oid"])

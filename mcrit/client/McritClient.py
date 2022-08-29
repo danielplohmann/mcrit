@@ -295,6 +295,22 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}",params=params)
         return handle_response(response)
 
+    def requestMatchesCross(
+        self,
+        sample_ids,
+        minhash_threshold=None,
+        pichash_size=None,
+        force_recalculation=False,
+    ) -> None:
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation
+        )
+        response = requests.get(
+            f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}",
+            params=params
+        )
+        return handle_response(response)
+
     def getMatchesForPicHash(self, pichash, summary=False):
         summary_string = "/summary" if summary else ""
         response = requests.get(f"{self.mcrit_server}/query/pichash/{pichash:016x}{summary_string}")

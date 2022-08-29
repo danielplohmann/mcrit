@@ -21,6 +21,7 @@ from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.matchers.MatcherCross import MatcherCross
 from mcrit.matchers.MatcherQuery import MatcherQuery
 from mcrit.matchers.MatcherSample import MatcherSample
 from mcrit.matchers.MatcherVs import MatcherVs
@@ -231,6 +232,18 @@ class Worker(QueueRemoteCallee):
         )
         match_report = matcher.getMatchesForSample(sample_id, other_sample_id)
         return match_report
+
+
+    @Remote()
+    def combineMatchesToCross(self, sample_to_job_id):
+        child_results = []
+        for job_id in sample_to_job_id.values():
+            result = self.getResultForJob(job_id)
+            if result is None:
+                raise ValueError("Cannot evaluate Cross Compare. A child job failed.")
+            child_results.append(result)
+        return MatcherCross().create_result(child_results)
+
 
     def _groupItems(self, items, packsize=500):
         packed_items = []
