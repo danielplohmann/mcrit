@@ -567,7 +567,45 @@ class MemoryStorage(StorageInterface):
             if band_hash not in self._bands[band_number]:
                 self._bands[band_number][band_hash] = []
             self._bands[band_number][band_hash].append(minhash.function_id)
-            
+
+
+    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None) -> Dict:
+        # query once to get all blocks from the functions of our samples
+        candidate_picblockhashes = {}
+        for function_id, entry in self._functions.items():
+            sample_id = entry.sample_id
+            for block_entry in entry.picblockhashes:
+                block_hash = block_entry["hash"]
+                if block_hash not in candidate_picblockhashes:
+                    candidate_picblockhashes[block_hash] = {
+                        "samples": set(),
+                        "length": block_entry["length"],
+                        "function_id": entry["function_id"],
+                        "offset": block_entry["offset"],
+                        "instructions": []
+                    }
+                candidate_picblockhashes[block_hash]["samples"].add(sample_id)
+        LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
+        for functiond_id, entry in self._functions.items():
+            sample_id = entry.sample_id
+            if sample_id not in sample_ids:
+                for block_entry in entry.picblockhashes:
+                    candidate_picblockhashes.pop(block_entry["hash"], None)
+        LOGGER.info(f"Reduced to {len(candidate_picblockhashes)} unique picblock hashes")
+        # iterate over candidates by function_id and extract instructions
+        function_id_to_block_offsets = {}
+        for picblockhash, entry in candidate_picblockhashes.items():
+            candidate_picblockhashes[picblockhash]["samples"] = sorted(list(entry["samples"]))
+            if entry["function_id"] not in function_id_to_block_offsets:
+                function_id_to_block_offsets[entry["function_id"]] = []
+            function_id_to_block_offsets[entry["function_id"]].append((entry["offset"], picblockhash))
+        for function_id, entry in self._functions:
+            if function_id not in function_id_to_block_offsets.keys():
+                continue
+            for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
+                candidate_picblockhashes[picblockhash]["instructions"] = entry.xcfg["blocks"][str(block_offset)]
+        return candidate_picblockhashes
+
     ##### helpers for search ######
 
     @staticmethod
@@ -611,7 +649,6 @@ class MemoryStorage(StorageInterface):
         full_tree = PropagateNot().visit(full_tree)
         filter = MemorySearchTranspiler().visit(full_tree)
         return filter
-
 
     ##### search ######
 

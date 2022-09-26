@@ -520,6 +520,18 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+
+    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None) -> Dict:
+        """Given a list of sample_ids, return all basic blocks that are only found in any of these samples (and no other samples in the storage)
+
+        Args:
+            sample_ids: (optional) a list of sample_ids
+
+        Returns:
+            a dictionary with the isolated blocks
+        """
+        raise NotImplementedError
+
     def findFamilyByString(self, needle: str, max_num_results: int = 100) -> Dict[int, str]:
         """Given a needle, return all families that contain the term we are searching.
 

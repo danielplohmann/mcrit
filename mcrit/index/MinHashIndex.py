@@ -343,6 +343,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getSampleBySha256(self, sample_sha256): 
         return self._storage.getSampleBySha256(sample_sha256)
 
+    def getUniqueBlocks(self, sample_ids):
+        return self._storage.getUniqueBlocks(sample_ids)
+
     #### SEARCH ####
 
     # When performing an initial search, the cursor should be set to None.

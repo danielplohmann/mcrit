@@ -9,6 +9,7 @@ from mcrit.server.FamilyResource import FamilyResource
 from .FunctionResource import FunctionResource
 from .JobResource import JobResource
 from .MatchResource import MatchResource
+from .BlocksResource import BlocksResource
 from .QueryResource import QueryResource
 from .SampleResource import SampleResource
 from .StatusResource import StatusResource
@@ -42,6 +43,7 @@ def get_app():
     sample_resource = SampleResource(index)
     function_resource = FunctionResource(index)
     match_resource = MatchResource(index)
+    block_resource = BlocksResource(index)
     query_resource = QueryResource(index)
     job_resource = JobResource(index)
 
@@ -87,6 +89,9 @@ def get_app():
     _app.add_route("/matches/sample/{sample_id:int}/{sample_id_2:int}", match_resource, suffix="sample_vs")
     _app.add_route("/matches/function/{function_id:int}/{function_id_2:int}", match_resource, suffix="function_vs")
     _app.add_route("/matches/function/{function_id:int}", match_resource, suffix="function")
+
+    _app.add_route("/uniqueblocks/samples/{comma_separated_sample_ids}", block_resource, suffix="unique_blocks_for_samples")
+    _app.add_route("/uniqueblocks/family/{family_id}", block_resource, suffix="unique_blocks_for_family")
 
     _app.add_route("/query", query_resource, suffix="query_smda")
     _app.add_route("/query/binary", query_resource, suffix="query_binary")
