@@ -5,6 +5,7 @@ import logging
 import datetime
 import traceback
 from operator import itemgetter
+from itertools import zip_longest
 from typing import Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 LOGGER = logging.getLogger(__name__)
@@ -642,14 +643,17 @@ class MongoDbStorage(StorageInterface):
         cache_data = {}
         sample_ids = {}
         minhashes = {}
-        for function_document in self._database.functions.find(
-            {"function_id": {"$in": list(function_ids)}}, {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1}
-        ):
-            function_id = function_document["function_id"]
-            sample_id = function_document["sample_id"]
-            minhash = bytes.fromhex(function_document["minhash"])
-            minhashes[function_id] = minhash
-            sample_ids[function_id] = sample_id
+        # process this in batches as the number of function_ids can be exceedingly large, pushing beyond Mongo's 16M limit
+        for sliced_ids in zip_longest(*[iter(function_ids)]*500000):
+            query_function_ids = [fid for fid in sliced_ids if fid is not None]
+            for function_document in self._database.functions.find(
+                {"function_id": {"$in": list(query_function_ids)}}, {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1}
+            ):
+                function_id = function_document["function_id"]
+                sample_id = function_document["sample_id"]
+                minhash = bytes.fromhex(function_document["minhash"])
+                minhashes[function_id] = minhash
+                sample_ids[function_id] = sample_id
         cache_data["func_id_to_minhash"] = minhashes
         cache_data["func_id_to_sample_id"] = sample_ids
         return cache_data
