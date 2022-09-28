@@ -33,7 +33,7 @@ class FamilyResource:
             samples = self.index.getSamplesByFamilyId(family_id)
             family.samples = {}
             for sample in samples:
-                family.samples[sample.sample_id] = self.index.getSampleById(sample.sample_id)
+                family.samples[sample.sample_id] = sample
         result = family.toDict()
         resp.data = jsonify({"status": "successful", "data": result})
 
