@@ -254,7 +254,7 @@ class MatcherTestSuite(unittest.TestCase):
         "sha256": "39401c7f9518f9710bfd6d64e13a5bf4efdec42e54c9de363b4871e8f374b57f",
         "filename": "",
         "num_bytes": 351.0,
-        "num_functions": 1,
+        "num_functions": 9,
         "matched": {
             "functions": {
                 "combined": 1,
