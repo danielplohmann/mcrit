@@ -17,6 +17,7 @@ def runWorker(profiling=False):
 def runServer(profiling=False):
     wrapped_app = app
     if profiling:
+        print("[!] Running as profiled application.")
         from werkzeug.middleware.profiler import ProfilerMiddleware
         profile_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "profiler")
         os.makedirs(profile_dir, exist_ok=True)

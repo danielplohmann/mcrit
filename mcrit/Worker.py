@@ -47,6 +47,7 @@ class Worker(QueueRemoteCallee):
             queue = QueueFactory().getQueue(config, consumer_id="Worker-" + str(uuid.uuid4()))
 
         if profiling:
+            print("[!] Running as profiled application.")
             profiling_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__ )), "..", "profiler"))
             os.makedirs(profiling_path, exist_ok=True)
         else:
