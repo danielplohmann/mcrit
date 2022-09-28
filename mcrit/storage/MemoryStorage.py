@@ -556,7 +556,7 @@ class MemoryStorage(StorageInterface):
             "num_families": len(self._families),
             "num_samples": len(self._samples),
             "num_functions": len(self._functions),
-            "bands": {k: len(v) for k, v in self._bands.items()},
+            "num_bands": len(self._bands),
             "num_pichashes": len(self._pichashes),
         }
         return stats

@@ -638,20 +638,19 @@ class MongoDbStorage(StorageInterface):
                 candidates.update(band_document["function_ids"])
         return candidates
 
-    # TODO return type
-    def _getCacheDataForFunctionIds(self, function_ids: List[int]):
+    def _getCacheDataForFunctionIds(self, function_ids: List[int]) -> Dict:
         cache_data = {}
         sample_ids = {}
-        minhashs = {}
-        # TODO why is list necessary here?
+        minhashes = {}
         for function_document in self._database.functions.find(
-            {"function_id": {"$in": list(function_ids)}}, {"_id": 0}
+            {"function_id": {"$in": list(function_ids)}}, {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1}
         ):
-            self._decodeFunction(function_document)
-            entry = FunctionEntry.fromDict(function_document)
-            minhashs[entry.function_id] = entry.minhash
-            sample_ids[entry.function_id] = entry.sample_id
-        cache_data["func_id_to_minhash"] = minhashs
+            function_id = function_document["function_id"]
+            sample_id = function_document["sample_id"]
+            minhash = bytes.fromhex(function_document["minhash"])
+            minhashes[function_id] = minhash
+            sample_ids[function_id] = sample_id
+        cache_data["func_id_to_minhash"] = minhashes
         cache_data["func_id_to_sample_id"] = sample_ids
         return cache_data
 
@@ -775,9 +774,6 @@ class MongoDbStorage(StorageInterface):
 
     # TODO add types
     def getStats(self) -> Dict:
-        band_info = {}
-        for band_id in range(self._config.STORAGE_NUM_BANDS):
-            band_info[band_id] = self._database["band_%d" % band_id].count_documents(filter={})
         # we will have to work around using .aggregate(), as a collection with unique pic hashes will easily exceed 16M
         # https://stackoverflow.com/questions/20348093/mongodb-aggregation-how-to-get-total-records-count
         num_unique_pichashes = 0
@@ -788,9 +784,8 @@ class MongoDbStorage(StorageInterface):
             "num_families": self._database.families.count_documents(filter={}),
             "num_samples": self._database.samples.count_documents(filter={}),
             "num_functions": self._database.functions.count_documents(filter={}),
-            "bands": band_info,
+            "num_bands": self._config.STORAGE_NUM_BANDS,
             "num_pichashes": num_unique_pichashes,
-            "num_matches": self._database.matches.count_documents(filter={}),
         }
         return stats
 
