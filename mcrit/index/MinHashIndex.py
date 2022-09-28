@@ -6,6 +6,8 @@ import logging
 from typing import Dict, List
 
 from smda.common.SmdaReport import SmdaReport
+from smda.common.SmdaInstruction import SmdaInstruction
+from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
@@ -344,7 +346,20 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return self._storage.getSampleBySha256(sample_sha256)
 
     def getUniqueBlocks(self, sample_ids):
-        return self._storage.getUniqueBlocks(sample_ids)
+        unique_blocks = self._storage.getUniqueBlocks(sample_ids)
+        # enrich with escaped sequences
+        sample_addr_borders = {}
+        for sample_id in sample_ids:
+            sample_entry = self._storage.getSampleById(sample_id)
+            sample_addr_borders[sample_id] = {"lower": sample_entry.base_addr, "upper": sample_entry.base_addr + sample_entry.binary_size}
+        for block_hash, entry in unique_blocks.items():
+            sample_id = entry["sample_id"]
+            escaped_sequences = []
+            for instruction in entry["instructions"]:
+                smda_instruction = SmdaInstruction(instruction)
+                escaped_sequences.append(smda_instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=sample_addr_borders[sample_id]["lower"], upper_addr=sample_addr_borders[sample_id]["upper"]))
+            unique_blocks[block_hash]["escaped_sequence"] = " ".join(escaped_sequences)
+        return unique_blocks
 
     #### SEARCH ####
 

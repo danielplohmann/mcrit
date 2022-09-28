@@ -816,11 +816,14 @@ class MongoDbStorage(StorageInterface):
                         "samples": set(),
                         "length": block_entry["length"],
                         "function_id": entry["function_id"],
+                        "sample_id": sample_id,
                         "offset": block_entry["offset"],
-                        "instructions": []
+                        "instructions": [],
+                        "escaped_sequence": ""
                     }
                 candidate_picblockhashes[block_hash]["samples"].add(sample_id)
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
+        # remove those that are not unique
         for entry in self._database.functions.find({"_picblockhashes": {"$exists": True, "$ne": [] }}, {"sample_id": 1, "_picblockhashes": 1, "_id": 0}):
             sample_id = entry["sample_id"]
             if sample_id not in sample_ids:
@@ -839,6 +842,7 @@ class MongoDbStorage(StorageInterface):
             self._decodeXcfg(entry)
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 candidate_picblockhashes[picblockhash]["instructions"] = entry["xcfg"]["blocks"][str(block_offset)]
+        LOGGER.info(f"Instructions for {len(candidate_picblockhashes)} blocks extracted.")
         return candidate_picblockhashes
 
 
