@@ -325,7 +325,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "status": {
                 "db_state": storage_stats["db_state"],
                 "storage_type": self._storage_config.STORAGE_METHOD,
-                "num_bands": storage_stats["bands"],
+                "num_bands": storage_stats["num_bands"],
                 "num_samples": storage_stats["num_samples"],
                 "num_families": storage_stats["num_families"],
                 "num_functions": storage_stats["num_functions"],
