@@ -13,7 +13,7 @@ class BlocksResource:
         self.index = index
 
     @timing
-    def on_get_unique_blocks_for_family(self, req, resp, family_id=None):
+    def on_get_unique_blocks_for_family(self, req, resp, family_id:int):
         LOGGER.info("BlocksResource.on_get_unique_blocks_for_family")
         unique_blocks = {}
         samples = self.index.getSamplesByFamilyId(family_id)

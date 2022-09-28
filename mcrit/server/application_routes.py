@@ -91,7 +91,7 @@ def get_app():
     _app.add_route("/matches/function/{function_id:int}", match_resource, suffix="function")
 
     _app.add_route("/uniqueblocks/samples/{comma_separated_sample_ids}", block_resource, suffix="unique_blocks_for_samples")
-    _app.add_route("/uniqueblocks/family/{family_id}", block_resource, suffix="unique_blocks_for_family")
+    _app.add_route("/uniqueblocks/family/{family_id:int}", block_resource, suffix="unique_blocks_for_family")
 
     _app.add_route("/query", query_resource, suffix="query_smda")
     _app.add_route("/query/binary", query_resource, suffix="query_binary")
