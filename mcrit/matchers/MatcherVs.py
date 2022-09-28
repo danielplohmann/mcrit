@@ -6,7 +6,7 @@ class MatcherVs(MatcherInterface):
     def _additional_setup(self):
         self._function_entries_b = []
         self._sample_to_lib_info = {}
-        self._sample_to_family_id = {}
+        self._sample_id_to_entry = {}
         self._sample_id = None
 
     @add_duration

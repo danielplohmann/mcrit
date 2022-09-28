@@ -309,17 +309,17 @@ class MatcherInterface(object):
                 self_matched_functions.add(own_function_id)
                 self_matched_functions.add(foreign_function_id)
             else:
-                if not foreign_sample_id in self._sample_to_lib_info:
+                if foreign_sample_id not in self._sample_to_lib_info:
                     self._sample_to_lib_info[foreign_sample_id] = (
                         self._storage.getLibraryInfoForSampleId(foreign_sample_id) is not None
                     )
                 has_libinfo = self._sample_to_lib_info[foreign_sample_id]
 
-                if not foreign_sample_id in self._sample_id_to_entry:
+                if foreign_sample_id not in self._sample_id_to_entry:
                     self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
                 foreign_family_id = self._sample_id_to_entry[foreign_sample_id].family_id
 
-                if not own_function_id in match_function_mapping:
+                if own_function_id not in match_function_mapping:
                     match_function_mapping[own_function_id] = {
                         "num_bytes": sample_fid_to_binweight[own_function_id],
                         "offset": sample_fid_to_offset[own_function_id],

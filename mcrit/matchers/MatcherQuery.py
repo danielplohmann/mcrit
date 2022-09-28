@@ -13,7 +13,7 @@ class MatcherQuery(MatcherInterface):
         self._sample_id = -1
         # initialize with query object
         self._sample_to_lib_info = {-1: False}
-        self._sample_to_family_id = {-1: 0}
+        self._sample_id_to_entry = {-1: 0}
 
     @add_duration
     def getMatchesForSmdaReport(self, smda_report: "SmdaReport"):

@@ -5,7 +5,7 @@ from mcrit.matchers.MatcherInterface import MatcherInterface, add_duration
 class MatcherSample(MatcherInterface):
     def _additional_setup(self):
         self._sample_to_lib_info = {}
-        self._sample_to_family_id = {}
+        self._sample_id_to_entry = {}
 
     @add_duration
     def getMatchesForSample(self, sample_id: int):
