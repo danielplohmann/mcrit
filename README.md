@@ -82,7 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
- * 2022-09-28 v0.15.1: Addressing performance issues for bigger instances.
+ * 2022-09-28 v0.15.2: Addressing performance issues for bigger instances, generating escaped instruction sequence for unique blocks.
  * 2022-09-26 v0.15.0: CrossJobs now in backend, started to provide functionality to identify unique basic blocks in samples.
  * 2022-08-29 v0.14.2: Minor fixes for deployment.
  * 2022-08-22 v0.14.0: Jobs can now depend on other jobs (preparation for moving crossjobs to backend), QoL improvements to job handling.
