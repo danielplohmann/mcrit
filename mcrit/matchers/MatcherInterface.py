@@ -12,6 +12,7 @@ from mcrit.queue.QueueRemoteCalls import NoProgressReporter
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FunctionEntry import FunctionEntry
+    from mcrit.storage.SampleEntry import SampleEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.MemoryStorage import MemoryStorage
     from mcrit.Worker import Worker
@@ -78,7 +79,7 @@ class MatcherInterface(object):
         self._pichash_size = pichash_size
         self._additional_setup()
         self._sample_to_lib_info: Dict[int, bool]
-        self._sample_to_family_id: Dict[int, int]
+        self._sample_id_to_entry: Dict[int, SampleEntry]
 
     def _additional_setup(self):
         pass
@@ -314,11 +315,9 @@ class MatcherInterface(object):
                     )
                 has_libinfo = self._sample_to_lib_info[foreign_sample_id]
 
-                if not foreign_sample_id in self._sample_to_family_id:
-                    self._sample_to_family_id[foreign_sample_id] = self._storage.getSampleById(
-                        foreign_sample_id
-                    ).family_id
-                foreign_family_id = self._sample_to_family_id[foreign_sample_id]
+                if not foreign_sample_id in self._sample_id_to_entry:
+                    self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
+                foreign_family_id = self._sample_id_to_entry[foreign_sample_id].family_id
 
                 if not own_function_id in match_function_mapping:
                     match_function_mapping[own_function_id] = {
@@ -390,7 +389,9 @@ class MatcherInterface(object):
         family_adjustment = self._get_family_adjustment(match_report)
 
         for foreign_sample_id in matches_per_sample:
-            sample_info = self._storage.getSampleById(foreign_sample_id)
+            if not foreign_sample_id in self._sample_id_to_entry:
+                self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
+            sample_info = self._sample_id_to_entry[foreign_sample_id]
             sample_summary[foreign_sample_id] = {
                 "family": sample_info.family,
                 "family_id": sample_info.family_id,
@@ -400,7 +401,7 @@ class MatcherInterface(object):
                 "filename": sample_info.filename,
                 "sample_id": foreign_sample_id,
                 "num_bytes": sample_info.binweight,
-                "num_functions": len(self._storage.getFunctionsBySampleId(sample_info.sample_id)),
+                "num_functions": sample_info.statistics["num_functions"],
                 "matched": {
                     "functions": {
                         "minhashes": 0,
