@@ -16,8 +16,8 @@ class BlocksResource:
     def on_get_unique_blocks_for_family(self, req, resp, family_id=None):
         LOGGER.info("BlocksResource.on_get_unique_blocks_for_family")
         unique_blocks = {}
-        # TODO get samples for family_id
-        target_sample_ids = []
+        samples = self.index.getSamplesByFamilyId(family_id)
+        target_sample_ids = [sample.sample_id for sample in samples]
         unique_blocks = self.index.getUniqueBlocks(target_sample_ids)
         resp.data = jsonify({"status": "successful", "data": unique_blocks})
 
