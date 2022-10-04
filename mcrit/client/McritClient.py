@@ -336,6 +336,13 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/status")
         return handle_response(response)
 
+    def getVersion(self):
+        response = requests.get(f"{self.mcrit_server}/version")
+        data = handle_response(response)
+        if isinstance(data, dict) and "version" in data:
+            return data["version"]
+        return None
+
     def getJobCount(self, filter=None):
         query_string = ""
         if isinstance(filter, str) and filter is not None:
@@ -428,7 +435,7 @@ class McritClient:
         return handle_response(response)
 
     ###########################################
-    ### Import / Export
+    ### Unique Blocks
     ###########################################
 
     def getUniqueBlocksForSamples(self, sample_ids: List[int]) -> Dict:

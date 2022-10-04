@@ -25,6 +25,11 @@ class StatusResource:
         resp.data = jsonify({"status": "successful", "data": self.index.getStatus()})
 
     @timing
+    def on_get_version(self, req, resp):
+        LOGGER.info("StatusResource.on_get_version")
+        resp.data = jsonify({"status": "successful", "data": self.index.getVersion()})
+
+    @timing
     def on_get_config(self, req, resp):
         LOGGER.info("StatusResource.on_get_config")
         resp.status = falcon.HTTP_NOT_IMPLEMENTED

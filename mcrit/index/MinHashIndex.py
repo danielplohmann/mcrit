@@ -336,6 +336,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         }
         return status
 
+    def getVersion(self):
+        return {"version": self.config.VERSION}
+
     def getMatchesForPicHash(self, pichash):
         return self._storage.getMatchesForPicHash(pichash)
         
