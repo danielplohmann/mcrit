@@ -613,7 +613,7 @@ class MemoryStorage(StorageInterface):
             self._bands[band_number][band_hash].append(minhash.function_id)
 
 
-    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None) -> Dict:
+    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
         candidate_picblockhashes = {}
         for function_id, entry in self._functions.items():

@@ -860,7 +860,7 @@ class MongoDbStorage(StorageInterface):
                 unhashed_functions.append(FunctionEntry.fromDict(function_document))
         return unhashed_functions
 
-    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None) -> Dict:
+    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
         candidate_picblockhashes = {}
         for entry in self._database.functions.find({"sample_id": {"$in": sample_ids}, "_picblockhashes": {"$exists": True, "$ne": [] }}, {"function_id": 1, "sample_id": 1, "_picblockhashes": 1, "_id": 0}):
@@ -875,21 +875,38 @@ class MongoDbStorage(StorageInterface):
                         "sample_id": sample_id,
                         "offset": block_entry["offset"],
                         "instructions": [],
-                        "escaped_sequence": ""
+                        "escaped_sequence": "",
+                        "score": 0
                     }
                 candidate_picblockhashes[block_hash]["samples"].add(sample_id)
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
+        if progress_reporter is not None:
+            progress_reporter.set_total(self._database.functions.count_documents(filter={}))
         # remove those that are not unique
         for entry in self._database.functions.find({"_picblockhashes": {"$exists": True, "$ne": [] }}, {"sample_id": 1, "_picblockhashes": 1, "_id": 0}):
+            if progress_reporter is not None:
+                progress_reporter.step()
             sample_id = entry["sample_id"]
             if sample_id not in sample_ids:
                 for block_entry in entry["_picblockhashes"]:
                     candidate_picblockhashes.pop(block_entry["hash"], None)
         LOGGER.info(f"Reduced to {len(candidate_picblockhashes)} unique picblock hashes")
+        # we are basically finished when we reached this step, so set progress to 100%
+        if progress_reporter is not None:
+            progress_reporter.set_total(1)
+            progress_reporter.step()
         # iterate over candidates by function_id and extract instructions
         function_id_to_block_offsets = {}
         for picblockhash, entry in candidate_picblockhashes.items():
             candidate_picblockhashes[picblockhash]["samples"] = sorted(list(entry["samples"]))
+            # we calculate the score for this block as 80% of how well it covers the samples and 20% how far its size is away from an "ideal" signature block
+            sample_score = 100.0 * len(entry["samples"]) / len(sample_ids)
+            length_score = 100.0
+            if entry["length"] < 7:
+                length_score = 100.0 - 100.0 * (7 - entry["length"])
+            elif entry["length"] > 10:
+                length_score = 100.0 * (1 / (entry["length"] - 10))
+            candidate_picblockhashes[picblockhash]["score"] = 0.8 * sample_score + 0.2 * length_score
             if entry["function_id"] not in function_id_to_block_offsets:
                 function_id_to_block_offsets[entry["function_id"]] = []
             function_id_to_block_offsets[entry["function_id"]].append((entry["offset"], picblockhash))

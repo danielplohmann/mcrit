@@ -522,11 +522,12 @@ class StorageInterface:
         raise NotImplementedError
 
 
-    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None) -> Dict:
+    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         """Given a list of sample_ids, return all basic blocks that are only found in any of these samples (and no other samples in the storage)
 
         Args:
             sample_ids: (optional) a list of sample_ids
+            progress_reporter: (optional) might be passed by worker to inquiry progress of this DB only operation
 
         Returns:
             a dictionary with the isolated blocks

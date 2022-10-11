@@ -16,6 +16,8 @@ from smda.common.SmdaFunction import SmdaFunction
 from smda.common.SmdaReport import SmdaReport
 from smda.Disassembler import Disassembler
 from smda.SmdaConfig import SmdaConfig
+from smda.common.SmdaInstruction import SmdaInstruction
+from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
@@ -164,6 +166,27 @@ class Worker(QueueRemoteCallee):
         if self.config.STORAGE_CONFIG.STORAGE_DROP_DISASSEMBLY:
             self._storage.deleteXcfgForSampleId(sample_id)
         return update_result
+
+    # Reports PROGRESS
+    @Remote(progress=True)
+    def getUniqueBlocks(self, sample_ids, family_id=None, progress_reporter=NoProgressReporter()):
+        # TODO we could propagate this progress reporter into the storage function for more fine grained progress tracking
+        progress_reporter.set_total(1)
+        unique_blocks = self._storage.getUniqueBlocks(sample_ids)
+        # enrich with escaped sequences
+        sample_addr_borders = {}
+        for sample_id in sample_ids:
+            sample_entry = self._storage.getSampleById(sample_id)
+            sample_addr_borders[sample_id] = {"lower": sample_entry.base_addr, "upper": sample_entry.base_addr + sample_entry.binary_size}
+        for block_hash, entry in unique_blocks.items():
+            sample_id = entry["sample_id"]
+            escaped_sequences = []
+            for instruction in entry["instructions"]:
+                smda_instruction = SmdaInstruction(instruction)
+                escaped_sequences.append(smda_instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=sample_addr_borders[sample_id]["lower"], upper_addr=sample_addr_borders[sample_id]["upper"]))
+            unique_blocks[block_hash]["escaped_sequence"] = " ".join(escaped_sequences)
+        progress_reporter.step()
+        return unique_blocks
 
     # Reports PROGRESS
     @Remote(progress=True, json_locations=[0])

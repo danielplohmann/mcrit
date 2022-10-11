@@ -18,7 +18,7 @@ class BlocksResource:
         unique_blocks = {}
         samples = self.index.getSamplesByFamilyId(family_id)
         target_sample_ids = [sample.sample_id for sample in samples]
-        unique_blocks = self.index.getUniqueBlocks(target_sample_ids)
+        unique_blocks = self.index.getUniqueBlocks(target_sample_ids, family_id=family_id)
         resp.data = jsonify({"status": "successful", "data": unique_blocks})
 
     @timing
