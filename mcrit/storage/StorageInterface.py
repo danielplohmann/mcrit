@@ -102,13 +102,14 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def addSmdaReport(self, smda_report: "SmdaReport") -> Optional["SampleEntry"]:
+    def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
         """Add a SMDA report to storage to create its sample representation and return corresponding SampleEntry object.
         This also adds the sample's functions. If the sample's family is not in storage yet, it will be added.
         If a sample with the same SHA256 already exists in storage, smda_report is not added and None is returned.
 
         Args:
             smda_report: the SmdaReport to add to the storage
+            isQuery: True if this SmdaReport is associated with a matching query and its data shall not be persisted in the main DB
 
         Returns:
             A SampleEntry corresponding to smda_report or None, if SmdaReport was already added.

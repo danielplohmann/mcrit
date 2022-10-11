@@ -111,6 +111,8 @@ class MemoryStorage(StorageInterface):
     _families: Dict[int, FamilyEntry]
     _samples: Dict[int, "SampleEntry"]
     _functions: Dict[int, "FunctionEntry"]
+    _query_samples: Dict[int, "SampleEntry"]
+    _query_functions: Dict[int, "FunctionEntry"]
     _pichashes: Dict[int, Set[Tuple[int, int, int]]]
     # Dict[band_number, Dict[?, List[function_id]]]
     _bands: Dict[int, Dict[int, List[int]]]
@@ -132,9 +134,16 @@ class MemoryStorage(StorageInterface):
         self._families = {}
         self._samples = {}
         self._functions = {}
+        self._query_samples = {}
+        self._query_functions = {}
         self._pichashes = {}
         self._bands = {band_number: {} for band_number in range(self._config.STORAGE_NUM_BANDS)}
         self._counters = defaultdict(lambda: 0)
+        # initialize query sample/function ids 
+        if self._counters["query_samples"] == 0:
+            self._counters["query_samples"] += 1
+        if self._counters["query_functions"] == 0:
+            self._counters["query_functions"] += 1
         # caches
         self._sample_by_sha256 = {}
         self._sample_id_to_function_ids = defaultdict(list)
@@ -161,6 +170,13 @@ class MemoryStorage(StorageInterface):
     def deleteSample(self, sample_id: int) -> bool:
         if not self.isSampleId(sample_id):
             return False
+        if sample_id < 0:
+            function_ids = self._sample_id_to_function_ids[sample_id]
+            for function_id in function_ids:
+                del self._functions[function_id]
+            del self._sample_id_to_function_ids[sample_id]
+            del self._samples[sample_id]
+            return True
         function_ids = self._sample_id_to_function_ids[sample_id]
         for function_id in function_ids:
             function_entry = self._functions[function_id]
@@ -215,23 +231,34 @@ class MemoryStorage(StorageInterface):
         self._updateDbState()
         return True
 
-    def addSmdaReport(self, smda_report: "SmdaReport") -> Optional["SampleEntry"]:
+    def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
         sample_entry = None
-        if not self.getSampleBySha256(smda_report.sha256):
-            family_id = self.addFamily(smda_report.family)
+        if isQuery:
             sample_entry = SampleEntry(
-                smda_report, sample_id=self._useCounter("samples"), family_id=family_id
+                smda_report, sample_id=-1 * self._useCounter("query_samples"), family_id=0
             )
-            self._samples[sample_entry.sample_id] = sample_entry
-            self._sample_by_sha256[sample_entry.sha256] = sample_entry.sample_id
+            self._query_samples[sample_entry.sample_id] = sample_entry
             function_ids = []
             for smda_function in smda_report.getFunctions():
-                function_entry = self._addFunction(sample_entry, smda_function)
+                function_entry = self._addFunction(sample_entry, smda_function, isQuery=True)
                 function_ids.append(function_entry.function_id)
             self._sample_id_to_function_ids[sample_entry.sample_id] = function_ids
-            self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
         else:
-            LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
+            if not self.getSampleBySha256(smda_report.sha256):
+                family_id = self.addFamily(smda_report.family)
+                sample_entry = SampleEntry(
+                    smda_report, sample_id=self._useCounter("samples"), family_id=family_id
+                )
+                self._samples[sample_entry.sample_id] = sample_entry
+                self._sample_by_sha256[sample_entry.sha256] = sample_entry.sample_id
+                function_ids = []
+                for smda_function in smda_report.getFunctions():
+                    function_entry = self._addFunction(sample_entry, smda_function)
+                    function_ids.append(function_entry.function_id)
+                self._sample_id_to_function_ids[sample_entry.sample_id] = function_ids
+                self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
+            else:
+                LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
         return sample_entry
 
     def importSampleEntry(self, sample_entry: "SampleEntry") -> Optional["SampleEntry"]:
@@ -281,7 +308,7 @@ class MemoryStorage(StorageInterface):
         return {"family": sample_entry.family, "version": sample_entry.version} if sample_entry.is_library else None
 
     def _addFunction(
-        self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", minhash: Optional["MinHash"] = None
+        self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", minhash: Optional["MinHash"] = None, isQuery=False
     ) -> "FunctionEntry":
         """Add a function (and optionally its MinHash) to storage, using the respective SampleEntry for reference.
 
@@ -293,7 +320,12 @@ class MemoryStorage(StorageInterface):
         Returns:
             A FunctionEntry
         """
-        function_entry = FunctionEntry(sample_entry, smda_function, self._useCounter("functions"), minhash=minhash)
+        if isQuery:
+            function_entry = FunctionEntry(sample_entry, smda_function, self._useCounter("query_functions"), minhash=minhash)
+            self._query_functions[function_entry.function_id] = function_entry
+            return function_entry
+        else:
+            function_entry = FunctionEntry(sample_entry, smda_function, self._useCounter("functions"), minhash=minhash)
         image_lower = sample_entry.base_addr
         image_upper = image_lower + sample_entry.binary_size
         picblockhashes = []
@@ -348,10 +380,10 @@ class MemoryStorage(StorageInterface):
         return deepcopy(list(self._families.keys()))
 
     def isSampleId(self, sample_id: int) -> bool:
-        return sample_id in self._samples
+        return sample_id in self._samples or sample_id in self._query_samples
 
     def isFunctionId(self, function_id: int) -> bool:
-        return function_id in self._functions
+        return function_id in self._functions or function_id in self._query_functions
 
     def isFamilyId(self, family_id: int) -> bool:
         return family_id in self._families
@@ -363,7 +395,6 @@ class MemoryStorage(StorageInterface):
         if pichash not in self._pichashes:
             return set()
         return deepcopy(self._pichashes[pichash])
-
 
     def getMatchesForPicBlockHash(self, picblockhash: int) -> Optional[Set[Tuple[int, int, int, int]]]:
         result = set()
@@ -392,8 +423,14 @@ class MemoryStorage(StorageInterface):
         return family_id
 
     def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
-        if function_id in self._functions:
-            function_entry = deepcopy(self._functions[function_id])
+        function_entry = None
+        if function_id < 0:
+            if function_id in self._query_functions:
+                function_entry = deepcopy(self._query_functions[function_id])
+        else:
+            if function_id in self._functions:
+                function_entry = deepcopy(self._functions[function_id])
+        if function_entry:
             if with_xcfg is False:
                 function_entry.xcfg = None
             return deepcopy(function_entry)
@@ -401,11 +438,14 @@ class MemoryStorage(StorageInterface):
 
     # TODO does this need to be more efficient?
     def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
-        if sample_id in self._samples:
+        if sample_id in self._samples or sample_id in self._query_samples:
             function_ids = self._sample_id_to_function_ids[sample_id]
             function_entries = []
             for function_id in function_ids:
-                function_entry = self._functions[function_id]
+                if sample_id < 0:
+                    function_entry = self._query_functions[function_id]
+                else:
+                    function_entry = self._functions[function_id]
                 function_entries.append(function_entry)
             # TODO is deepcopy necessary?
             return deepcopy(function_entries)
@@ -426,6 +466,8 @@ class MemoryStorage(StorageInterface):
     def getSampleById(self, sample_id: int) -> Optional["SampleEntry"]:
         if sample_id in self._samples:
             return deepcopy(self._samples[sample_id])
+        if sample_id in self._query_samples:
+            return deepcopy(self._query_samples[sample_id])
 
     def getSampleBySha256(self, sha256: str) -> Optional["SampleEntry"]:
         sample_entry = None
@@ -438,6 +480,8 @@ class MemoryStorage(StorageInterface):
         sample_id = None
         if function_id in self._functions:
             sample_id = self._functions[function_id].sample_id
+        if function_id in self._query_functions:
+            sample_id = self._query_functions[function_id].sample_id
         return sample_id
 
     def getSamples(self, start_index: int, limit: int) -> Optional["SampleEntry"]:
