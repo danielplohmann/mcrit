@@ -82,6 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-10-11 v0.17.0: Search for unique blocks is now an asychronous job through the Worker.
  * 2022-10-11 v0.16.0: Samples from MatchQuery jobs will now be stored with their Sample/FunctionEntries to allow better post processing.
  * 2022-10-04 v0.15.4: Server can now display its version.
  * 2022-09-28 v0.15.3: Addressing performance issues for bigger instances, generating escaped instruction sequence for unique blocks.
