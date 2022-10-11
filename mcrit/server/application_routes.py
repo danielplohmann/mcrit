@@ -51,6 +51,7 @@ def get_app():
     _app.req_options.strip_url_path_trailing_slash = True
     _app.add_route("/", status_resource)
     _app.add_route("/status", status_resource, suffix="status")
+    _app.add_route("/version", status_resource, suffix="version")
     _app.add_route("/config", status_resource, suffix="config")
     _app.add_route("/export", status_resource, suffix="export")
     _app.add_route("/export/{comma_separated_sample_ids}", status_resource, suffix="export_selection")
