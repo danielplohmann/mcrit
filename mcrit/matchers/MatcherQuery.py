@@ -18,11 +18,12 @@ class MatcherQuery(MatcherInterface):
     @add_duration
     def getMatchesForSmdaReport(self, smda_report: "SmdaReport"):
         # create temporary objects similar to the stored samples/functions
-        self._sample_entry = SampleEntry(smda_report, sample_id=-1)
+        self._sample_entry = self._storage.addSmdaReport(smda_report, isQuery=True)
+        self._sample_id = self._sample_entry.sample_id
+        self._sample_id_to_entry[self._sample_entry.sample_id] = self._sample_entry
         self._sample_info = self._sample_entry.toDict()
         tmp_function_entries_dict = {}
-        for smda_function in smda_report.getFunctions():
-            function_entry = FunctionEntry(self._sample_entry, smda_function, -1 * len(tmp_function_entries_dict) - 1)
+        for function_entry in self._storage.getFunctionsBySampleId(self._sample_entry.sample_id):
             tmp_function_entries_dict[function_entry.function_id] = function_entry
 
         minhashes = self._worker.calculateMinHashes(tmp_function_entries_dict.values())

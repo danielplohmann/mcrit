@@ -123,6 +123,21 @@ class MongoDbStorage(StorageInterface):
         self._database["functions"].create_index("_pichash")
         self._database["functions"].create_index("_picblockhashes.hash")
         self._database["functions"].create_index("_picblockhashes.offset")
+        # stored without guarantee of existence
+        self._database["query_samples"].create_index("sample_id")
+        self._database["query_functions"].create_index("function_id")
+        self._database["query_functions"].create_index("sample_id")
+        # ensure that their counters are at least 1, so that they never contain items with sample_id/function_id 0
+        self._database.counters.find_one_and_update(
+            filter={"name": "query_samples", "value": 0}, 
+            update={"$inc": {"value": 1}}, 
+            upsert=True
+        )
+        self._database.counters.find_one_and_update(
+            filter={"name": "query_functions", "value": 0}, 
+            update={"$inc": {"value": 1}}, 
+            upsert=True
+        )
         self._database["matches"].create_index("match_id")
         self._database["candidates"].create_index("function_id")
         self._database["counters"].create_index("name")
@@ -322,12 +337,21 @@ class MongoDbStorage(StorageInterface):
 
     # NOTE this actually only gets used in MemoryStorage / MatchingCache
     def getSampleIdByFunctionId(self, function_id: int) -> Optional[int]:
-        function_document = self._database.functions.find_one({"function_id": function_id})
+        if function_id < 0:
+            function_document = self._database.query_functions.find_one({"function_id": function_id})
+        else:
+            function_document = self._database.functions.find_one({"function_id": function_id})
         if function_document is None:
             return None
         return function_document["sample_id"]
 
     def deleteSample(self, sample_id: int) -> bool:
+        if sample_id < 0:
+            # remove functions
+            self._database.query_functions.delete_many({"sample_id": sample_id})
+            # remove sample
+            self._database.query_samples.delete_one({"sample_id": sample_id})
+            return 
         # TODO the way of removing function_ids from band hashes here is super inefficient and slow
         function_entries = self.getFunctionsBySampleId(sample_id)
         if function_entries is None:
@@ -417,23 +441,34 @@ class MongoDbStorage(StorageInterface):
             return SampleEntry.fromDict(report_dict)
         return None
 
-    def addSmdaReport(self, smda_report: "SmdaReport") -> Optional["SampleEntry"]:
+    def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
         sample_entry = None
-        if not self.getSampleBySha256(smda_report.sha256):
-            family_id = self.addFamily(smda_report.family)
+        if isQuery:
             sample_entry = SampleEntry(
-                smda_report, sample_id=self._useCounter("samples"), family_id=family_id
+                smda_report, sample_id=-1 * self._useCounter("query_samples"), family_id=0
             )
-            self._dbInsert("samples", sample_entry.toDict())
-            function_ids = self._useCounterBulk("functions",  smda_report.num_functions)
+            self._dbInsert("query_samples", sample_entry.toDict())
+            function_ids = self._useCounterBulk("query_functions",  smda_report.num_functions)
             function_dicts = []
             for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
-                function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, function_id))
-            self._dbInsertMany("functions", function_dicts)
-            self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
-            self._updateDbState()
+                function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, -1 * function_id))
+            self._dbInsertMany("query_functions", function_dicts)
         else:
-            LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
+            if not self.getSampleBySha256(smda_report.sha256):
+                family_id = self.addFamily(smda_report.family)
+                sample_entry = SampleEntry(
+                    smda_report, sample_id=self._useCounter("samples"), family_id=family_id
+                )
+                self._dbInsert("samples", sample_entry.toDict())
+                function_ids = self._useCounterBulk("functions",  smda_report.num_functions)
+                function_dicts = []
+                for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
+                    function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, function_id))
+                self._dbInsertMany("functions", function_dicts)
+                self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
+                self._updateDbState()
+            else:
+                LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
         return sample_entry
 
     def importSampleEntry(self, sample_entry: "SampleEntry") -> Optional["SampleEntry"]:
@@ -470,7 +505,10 @@ class MongoDbStorage(StorageInterface):
     def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
         if not self.isSampleId(sample_id):
             return None
-        function_dicts = list(self._database.functions.find({"sample_id": sample_id}, {"_id": 0}))
+        if sample_id < 0:
+            function_dicts = list(self._database.query_functions.find({"sample_id": sample_id}, {"_id": 0}))
+        else:
+            function_dicts = list(self._database.functions.find({"sample_id": sample_id}, {"_id": 0}))
         functions = []
         for f in function_dicts:
             self._decodeFunction(f)
@@ -488,7 +526,12 @@ class MongoDbStorage(StorageInterface):
         return self._database.samples.find().distinct("sample_id")
 
     def isSampleId(self, sample_id: int) -> bool:
-        return bool(self._database.samples.find_one({"sample_id": sample_id}))
+        is_sample_id = None
+        if sample_id < 0:
+            is_sample_id = bool(self._database.query_samples.find_one({"sample_id": sample_id}))
+        else:
+            is_sample_id = bool(self._database.samples.find_one({"sample_id": sample_id}))
+        return is_sample_id
 
     def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
         if not self.isSampleId(sample_id):
@@ -541,7 +584,12 @@ class MongoDbStorage(StorageInterface):
         return pichashes
 
     def isFunctionId(self, function_id: int) -> bool:
-        return bool(self._database.functions.find_one({"function_id": function_id}))
+        is_function_id = None
+        if function_id < 0:
+            is_function_id = bool(self._database.query_functions.find_one({"function_id": function_id}))
+        else:
+            is_function_id = bool(self._database.functions.find_one({"function_id": function_id}))
+        return is_function_id
 
     def isFamilyId(self, family_id: int) -> bool:
         return bool(self._database.families.find_one({"family_id": family_id}))
@@ -764,14 +812,20 @@ class MongoDbStorage(StorageInterface):
         field_selection = {"_id": 0}
         if not with_xcfg:
             field_selection["_xcfg"] = 0
-        function_document = self._database.functions.find_one({"function_id": function_id}, field_selection)
+        if function_id < 0:
+            function_document = self._database.query_functions.find_one({"function_id": function_id}, field_selection)
+        else:
+            function_document = self._database.functions.find_one({"function_id": function_id}, field_selection)
         if not function_document:
             return None
         self._decodeFunction(function_document)
         return FunctionEntry.fromDict(function_document)
 
     def getSampleById(self, sample_id: int) -> Optional["SampleEntry"]:
-        sample_document = self._database.samples.find_one({"sample_id": sample_id}, {"_id": 0})
+        if sample_id < 0:
+            sample_document = self._database.query_samples.find_one({"sample_id": sample_id}, {"_id": 0})
+        else:
+            sample_document = self._database.samples.find_one({"sample_id": sample_id}, {"_id": 0})
         if not sample_document:
             return None
         return SampleEntry.fromDict(sample_document)
@@ -787,6 +841,8 @@ class MongoDbStorage(StorageInterface):
             "db_state": self._getDbState(),
             "num_families": self._database.families.count_documents(filter={}),
             "num_samples": self._database.samples.count_documents(filter={}),
+            "num_query_samples": self._database.query_samples.count_documents(filter={}),
+            "num_query_functions": self._database.query_functions.count_documents(filter={}),
             "num_functions": self._database.functions.count_documents(filter={}),
             "num_bands": self._config.STORAGE_NUM_BANDS,
             "num_pichashes": num_unique_pichashes,
