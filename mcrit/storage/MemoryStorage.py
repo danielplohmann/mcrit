@@ -544,18 +544,19 @@ class MemoryStorage(StorageInterface):
                 candidates.update(self._bands[band_number][band_hash])
         return candidates
 
-    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None) -> List["FunctionEntry"]:
+    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
+        result = []
         if function_ids is None:
-            return [
-                function_entry
-                for _, function_entry in self._functions.items()
-                if function_entry.xcfg and not function_entry.minhash
-            ]
-        return [
-            function_entry
-            for _, function_entry in self._functions.items()
-            if (not function_entry.minhash and function_entry.function_id in function_ids)
-        ]
+            if only_function_ids:
+                result = [function_entry.function_id for _, function_entry in self._functions.items() if function_entry.xcfg and not function_entry.minhash]
+            else:
+                result = [function_entry for _, function_entry in self._functions.items() if function_entry.xcfg and not function_entry.minhash]
+            return result
+        if only_function_ids:
+            result = [function_entry.function_id for _, function_entry in self._functions.items() if (not function_entry.minhash and function_entry.function_id in function_ids)]
+        else:
+            result = [function_entry for _, function_entry in self._functions.items() if (not function_entry.minhash and function_entry.function_id in function_ids)]
+        return result
 
     def deleteXcfgData(self) -> None:
         for function_id, function_entry in self._functions.items():

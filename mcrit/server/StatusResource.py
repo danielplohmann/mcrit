@@ -77,6 +77,13 @@ class StatusResource:
         self.index.respawn()
         resp.data = jsonify({"status": "successful", "data": {"message": "Successfully performed reset of MCRIT instance."}})
 
+    @timing
+    def on_get_complete_minhashes(self, req, resp):
+        LOGGER.info("StatusResource.on_get_complete_minhashes")
+        minhash_report = self.index.updateMinHashes(None)
+        resp.data = jsonify({"status": "successful", "data": minhash_report})
+        return
+
     @staticmethod
     def _get_search_args(params):
         result = {

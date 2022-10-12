@@ -59,6 +59,8 @@ def get_app():
     _app.add_route("/import", status_resource, suffix="import")  # post
     # drops storage and sets up new empty instance
     _app.add_route("/respawn", status_resource, suffix="respawn")  # post
+    # schedule a job that calculates all missing minhashes for all samples/functions, in case the respective jobs failed before
+    _app.add_route("/complete_minhashes", status_resource, suffix="complete_minhashes")  # get
 
     # search suitable fields based on query
     _app.add_route("/search/families", status_resource, suffix="search_families")

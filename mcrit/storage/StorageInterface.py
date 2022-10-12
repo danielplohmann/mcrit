@@ -509,12 +509,13 @@ class StorageInterface:
     def getStats(self) -> Dict[str, Union[int, Dict[int, int]]]:
         raise NotImplementedError
 
-    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None) -> List["FunctionEntry"]:
+    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
         """Given a list of function_ids, return all FunctionEntry objects corresponding to these IDs if they do not have a minhash yet.
         Otherwise, return all FunctionEntry objects that do not have a minhash.
 
         Args:
             function_ids: (optional) a list of function_ids
+            only_function_ids: (optional) instead if FunctionEntry objects, only return function_ids
 
         Returns:
             a list of FunctionEntry objects without minhash

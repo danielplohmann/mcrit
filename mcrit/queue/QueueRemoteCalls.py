@@ -332,7 +332,7 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
                 # ensure we always have a job_id for finished job payloads
                 job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
                 LOGGER.info("Finished Remote Job: %s", job)
-        except:
+        except Exception as exc:
             pass
 
     def run(self):

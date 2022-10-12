@@ -202,6 +202,10 @@ class McritClient:
         if data is not None:
             return FunctionEntry.fromDict(data)
 
+    def completeMinhashes(self):
+        response = requests.get(f"{self.mcrit_server}/complete_minhashes")
+        return handle_response(response)
+
     ###########################################
     ### Matching 
     ###########################################

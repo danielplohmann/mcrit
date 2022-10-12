@@ -849,15 +849,18 @@ class MongoDbStorage(StorageInterface):
         }
         return stats
 
-    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None) -> List["FunctionEntry"]:
+    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
         unhashed_functions = []
         search_query = {}
         if function_ids is not None:
             search_query = {"function_id": {"$in": list(function_ids)}}
         for function_document in self._database.functions.find(search_query, {"_id": 0}):
-            self._decodeFunction(function_document)
-            if not function_document["minhash"]:
-                unhashed_functions.append(FunctionEntry.fromDict(function_document))
+            if function_document["minhash"] == "":
+                if only_function_ids:
+                    unhashed_functions.append(function_document["function_id"])
+                else:
+                    self._decodeFunction(function_document)
+                    unhashed_functions.append(FunctionEntry.fromDict(function_document))
         return unhashed_functions
 
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
@@ -903,7 +906,7 @@ class MongoDbStorage(StorageInterface):
             sample_score = 100.0 * len(entry["samples"]) / len(sample_ids)
             length_score = 100.0
             if entry["length"] < 7:
-                length_score = 100.0 - 100.0 * (7 - entry["length"])
+                length_score = 100.0 - (100.0 * (7 - entry["length"]) / 7)
             elif entry["length"] > 10:
                 length_score = 100.0 * (1 / (entry["length"] - 10))
             candidate_picblockhashes[picblockhash]["score"] = 0.8 * sample_score + 0.2 * length_score
