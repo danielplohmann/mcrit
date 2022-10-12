@@ -158,7 +158,6 @@ class MemoryStorage(StorageInterface):
         self._counters[name] += 1
         return result
 
-
     def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
         family_entry = self.getFamily(family_id)
         assert family_entry is not None
@@ -170,22 +169,21 @@ class MemoryStorage(StorageInterface):
     def deleteSample(self, sample_id: int) -> bool:
         if not self.isSampleId(sample_id):
             return False
+        function_ids = self._sample_id_to_function_ids[sample_id]
         if sample_id < 0:
-            function_ids = self._sample_id_to_function_ids[sample_id]
             for function_id in function_ids:
                 del self._functions[function_id]
             del self._sample_id_to_function_ids[sample_id]
             del self._samples[sample_id]
             return True
-        function_ids = self._sample_id_to_function_ids[sample_id]
         for function_id in function_ids:
             function_entry = self._functions[function_id]
+            minhash = function_entry.getMinHash()
             # remove function
             del self._functions[function_id]
             # remove pichash entries
             if function_entry.pichash:
                 self._pichashes[function_entry.pichash].remove((function_entry.family_id, sample_id, function_id))
-            minhash = function_entry.getMinHash()
             # remove minhash entries, if necessary
             if not minhash:
                 continue
@@ -321,7 +319,7 @@ class MemoryStorage(StorageInterface):
             A FunctionEntry
         """
         if isQuery:
-            function_entry = FunctionEntry(sample_entry, smda_function, self._useCounter("query_functions"), minhash=minhash)
+            function_entry = FunctionEntry(sample_entry, smda_function, -1 * self._useCounter("query_functions"), minhash=minhash)
             self._query_functions[function_entry.function_id] = function_entry
             return function_entry
         else:
