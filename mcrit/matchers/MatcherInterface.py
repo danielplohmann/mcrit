@@ -109,71 +109,83 @@ class MatcherInterface(object):
                 minhash_bits=self._worker._minhash_config.MINHASH_SIGNATURE_BITS
             )
         candidate_groups = self._storage.getCandidatesForMinHashes(function_id_to_minhash)
-        candidates_to_remove = {candidate_fid: set([candidate_fid]) for candidate_fid in candidate_groups}
-        if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
-            for pichash_match in pichash_matches:
-                if pichash_match[0] in candidates_to_remove:
-                    candidates_to_remove[pichash_match[0]].add(pichash_match[2])
-        for fid, removals in candidates_to_remove.items():
-            candidate_groups[fid].difference_update(removals)
+
         return candidate_groups
 
-    def _createMatchingCache(self, function_ids):
+    def _createMatchingCache(self, candidate_groups):
         # Query, VS, Sample
         # This version is used by VS, Sample
         # Own version by Query
-        return self._storage.createMatchingCache(function_ids)
+        cache_function_ids = set()
+        for candidate_key, candidate_functions in candidate_groups.items():
+            cache_function_ids.add(candidate_key)
+            cache_function_ids.update(candidate_functions)
+        LOGGER.info("creating cache for %d functions", len(cache_function_ids))
+        return self._storage.createMatchingCache(cache_function_ids)
 
     ######## Below this line, nothing will be overwritten by Subclasses #########
+
+    def filter_pichashes_from_candidate_groups(self, matching_cache, candidate_groups, pichash_matches):
+        candidates_to_remove = {candidate_fid: set([candidate_fid]) for candidate_fid in candidate_groups}
+        for pichash_match in pichash_matches:
+            if pichash_match[0] in candidates_to_remove:
+                # remove all candidates of the respective sample instead
+                pichash_match_fid_sid = matching_cache.getSampleIdByFunctionId(pichash_match[0])
+                pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(pichash_match_fid_sid)
+                candidates_to_remove[pichash_match[0]].update(pichash_match_sid_fids)
+        for fid, removals in candidates_to_remove.items():
+            candidate_groups[fid].difference_update(removals)
+        return candidate_groups
 
     def _getMatchesRoutine(self):
         # Query, VS, Sample
         # All use this version
         pichash_matches = self._harmonizePicHashMatches(self._getPicHashMatches())
         candidate_groups = self._createMinHashCandidateGroups(pichash_matches)
-        minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups))
+        matching_cache = self._createMatchingCache(candidate_groups)
+        if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
+            candidate_groups = self.filter_pichashes_from_candidate_groups(matching_cache, candidate_groups, pichash_matches)
+        minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
         matching_report = self._craftResultDict(pichash_matches, minhash_matches)
         return matching_report
 
     # Reports PROGRESS
-    def _performMinHashMatching(self, candidate_groups: Dict[int, Set[int]]) -> List[Tuple[int, int, int, int, float]]:
+    def _performMinHashMatching(self, candidate_groups: Dict[int, Set[int]], cache) -> List[Tuple[int, int, int, int, float]]:
         # Query, VS, Sample
         # All use the same version
         """perform matching between candidates, provided as candidate_groups in the form of a dict: {function_id: [function_ids]}"""
+        # result format: sample_id_a, function_id_a, sample_id_b, function_id_b, score
         matching_results: List[Tuple[int, int, int, int, float]] = []
-        cache_function_ids = set()
-        for candidate_key, candidate_functions in candidate_groups.items():
-            cache_function_ids.add(candidate_key)
-            cache_function_ids.update(candidate_functions)
-        LOGGER.info("creating cache for %d functions", len(cache_function_ids))
-        cache = self._createMatchingCache(cache_function_ids)
+        organized_matching_results: Dict[Tuple[int, int, int], Tuple[int, float]] = defaultdict(lambda: (-1, -1.0))
         packed_tuples = self._unrollGroupsAsPackedTuples(cache, candidate_groups)
         num_packed_tuples = self._countPackedTuples(candidate_groups)
         self._progress_reporter.set_total(num_packed_tuples)
+        calculation_function = functools.partial(
+            self._worker.minhasher.calculateAggregatedScoresFromPackedTuples, minhash_threshold=self._minhash_threshold
+        )
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
-            target_function = functools.partial(
-                self._worker.minhasher.calculateScoresFromPackedTuples, minhash_threshold=self._minhash_threshold
-            )
             with Pool(cpu_count()) as pool:
                 for pool_result in tqdm.tqdm(
-                    pool.imap_unordered(target_function, packed_tuples),
+                    pool.imap_unordered(calculation_function, packed_tuples),
                     total=num_packed_tuples,
                 ):
-                    matching_results.extend(pool_result)
+                    for key, new_value in pool_result.items():
+                        original_value = organized_matching_results[key]
+                        organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
                     self._progress_reporter.step()
         else:
             packed_tuple: List[Tuple[int, int, bytes, int, int, bytes]]
             for packed_tuple in tqdm.tqdm(packed_tuples, total=num_packed_tuples):
-                matching_results.extend(
-                    self._worker.minhasher.calculateScoresFromPackedTuples(
-                        packed_tuple, minhash_threshold=self._minhash_threshold
-                    )
-                )
+                pool_result = calculation_function(packed_tuple)
+                for key, new_value in pool_result.items():
+                    original_value = organized_matching_results[key]
+                    organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
                 self._progress_reporter.step()
+        matching_results = [k+v for k, v in organized_matching_results.items()]
         self._storage.clearMatchingCache()
         return matching_results
 
-    def _countPackedTuples(self, candidate_pairs, packsize=10000) -> int:
+    def _countPackedTuples(self, candidate_pairs, packsize=20000) -> int:
         count = 0
         for candidate_ids in candidate_pairs.values():
             count += len(candidate_ids) 
@@ -181,7 +193,7 @@ class MatcherInterface(object):
         return quotient + int(bool(remainder)) # always round up
 
     def _unrollGroupsAsPackedTuples(
-        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=10000
+        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=20000
     ) -> Iterable[List[Tuple[int, int, bytes, int, int, bytes]]]:
         # Query, VS, Sample
         # All were identical
