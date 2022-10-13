@@ -150,7 +150,7 @@ class Worker(QueueRemoteCallee):
             unhashed_function_ids = self._storage.getUnhashedFunctions(None, only_function_ids=True)
             # to up to 10.000 function per batch
             LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_function_ids))
-            for sliced_ids in zip_longest(*[iter(unhashed_function_ids)]*20000):
+            for sliced_ids in zip_longest(*[iter(unhashed_function_ids)]*10000):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
                 unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
                 minhashes = self.calculateMinHashes(unhashed_functions, progress_reporter=progress_reporter)
@@ -158,12 +158,15 @@ class Worker(QueueRemoteCallee):
                     self._storage.addMinHashes(minhashes)
                     LOGGER.info("Updated minhashes for %d function entries.", len(minhashes))
         else:
-            unhashed_functions = self._storage.getUnhashedFunctions(function_ids)
-            LOGGER.info("Updating MinHashes: %d function entries (from %d functions) have no MinHash yet.", len(unhashed_functions), len(function_ids))
-            minhashes = self.calculateMinHashes(unhashed_functions, progress_reporter=progress_reporter)
-            if minhashes:
-                self._storage.addMinHashes(minhashes)
-                LOGGER.info("Updated minhashes for %d function entries.", len(minhashes))
+            LOGGER.info("Updating MinHashes: %d function entries considered.", len(function_ids))
+            for sliced_ids in zip_longest(*[iter(function_ids)]*10000):
+                sliced_ids = [fid for fid in sliced_ids if fid is not None]
+                unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
+                LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_functions))
+                minhashes = self.calculateMinHashes(unhashed_functions, progress_reporter=progress_reporter)
+                if minhashes:
+                    self._storage.addMinHashes(minhashes)
+                    LOGGER.info("Updated minhashes for %d function entries.", len(minhashes))
         # TODO if we do deferred calculation for a batch of minhashes, we might have to clear them here or address this where else updateMinHashes is used
         return len(minhashes)
 
