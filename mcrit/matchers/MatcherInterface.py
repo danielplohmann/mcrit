@@ -126,15 +126,12 @@ class MatcherInterface(object):
     ######## Below this line, nothing will be overwritten by Subclasses #########
 
     def filter_pichashes_from_candidate_groups(self, matching_cache, candidate_groups, pichash_matches):
-        candidates_to_remove = {candidate_fid: set([candidate_fid]) for candidate_fid in candidate_groups}
         for pichash_match in pichash_matches:
-            if pichash_match[0] in candidates_to_remove:
+            if pichash_match[0] in candidate_groups:
                 # remove all candidates of the respective sample instead
                 pichash_match_fid_sid = matching_cache.getSampleIdByFunctionId(pichash_match[0])
                 pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(pichash_match_fid_sid)
-                candidates_to_remove[pichash_match[0]].update(pichash_match_sid_fids)
-        for fid, removals in candidates_to_remove.items():
-            candidate_groups[fid].difference_update(removals)
+                candidate_groups[pichash_match[0]].difference_update(pichash_match_sid_fids)
         return candidate_groups
 
     def _getMatchesRoutine(self):
