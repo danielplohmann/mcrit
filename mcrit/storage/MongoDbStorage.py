@@ -691,6 +691,7 @@ class MongoDbStorage(StorageInterface):
     def _getCacheDataForFunctionIds(self, function_ids: List[int]) -> Dict:
         cache_data = {}
         sample_ids = {}
+        sample_to_func_ids = {}
         minhashes = {}
         # process this in batches as the number of function_ids can be exceedingly large, pushing beyond Mongo's 16M limit
         for sliced_ids in zip_longest(*[iter(function_ids)]*500000):
@@ -703,8 +704,12 @@ class MongoDbStorage(StorageInterface):
                 minhash = bytes.fromhex(function_document["minhash"])
                 minhashes[function_id] = minhash
                 sample_ids[function_id] = sample_id
+                if sample_id not in sample_to_func_ids:
+                    sample_to_func_ids[sample_id] = set()
+                sample_to_func_ids[sample_id].add(function_id)
         cache_data["func_id_to_minhash"] = minhashes
         cache_data["func_id_to_sample_id"] = sample_ids
+        cache_data["sample_id_to_func_ids"] = sample_to_func_ids
         return cache_data
 
     def deleteXcfgForSampleId(self, sample_id: int) -> None:
