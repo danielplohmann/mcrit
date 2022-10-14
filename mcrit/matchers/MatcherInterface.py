@@ -129,9 +129,9 @@ class MatcherInterface(object):
         for pichash_match in pichash_matches:
             if pichash_match[0] in candidate_groups:
                 # remove all candidates of the respective sample instead
-                pichash_match_fid_sid = matching_cache.getSampleIdByFunctionId(pichash_match[0])
-                pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(pichash_match_fid_sid)
-                candidate_groups[pichash_match[0]].difference_update(pichash_match_sid_fids)
+                own_fid, foreign_sid, foreign_fid = pichash_match
+                pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(foreign_sid)
+                candidate_groups[own_fid].difference_update(pichash_match_sid_fids)
         return candidate_groups
 
     def _getMatchesRoutine(self):
@@ -187,6 +187,7 @@ class MatcherInterface(object):
         for candidate_ids in candidate_pairs.values():
             count += len(candidate_ids) 
         quotient, remainder = divmod(count, packsize)
+        LOGGER.info("Processing a total of %d candidates.", count)
         return quotient + int(bool(remainder)) # always round up
 
     def _unrollGroupsAsPackedTuples(
@@ -503,6 +504,7 @@ class MatcherInterface(object):
         for key, new_entry in pichash_matches.items():
             if key in all_matches:
                 old_entry = all_matches[key]
+                # update values: score, is_pic, is_min
                 all_matches[key] = tuple([max(old_entry[i], new_entry[i]) for i in range(3)])
             else:
                 all_matches[key] = new_entry
