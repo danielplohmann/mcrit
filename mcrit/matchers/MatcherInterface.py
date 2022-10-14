@@ -126,12 +126,15 @@ class MatcherInterface(object):
     ######## Below this line, nothing will be overwritten by Subclasses #########
 
     def filter_pichashes_from_candidate_groups(self, matching_cache, candidate_groups, pichash_matches):
+        finished_tuples = set()
         for pichash_match in pichash_matches:
-            if pichash_match[0] in candidate_groups:
+            own_fid, foreign_sid, foreign_fid = pichash_match
+            if own_fid in candidate_groups:
                 # remove all candidates of the respective sample instead
-                own_fid, foreign_sid, foreign_fid = pichash_match
-                pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(foreign_sid)
-                candidate_groups[own_fid].difference_update(pichash_match_sid_fids)
+                if (own_fid, foreign_sid) not in finished_tuples:
+                    pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(foreign_sid)
+                    candidate_groups[own_fid].difference_update(pichash_match_sid_fids)
+                    finished_tuples.add((own_fid, foreign_sid))
         return candidate_groups
 
     def _getMatchesRoutine(self):
