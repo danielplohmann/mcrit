@@ -138,12 +138,18 @@ class MatcherInterface(object):
         # Query, VS, Sample
         # All use this version
         pichash_matches = self._harmonizePicHashMatches(self._getPicHashMatches())
+        LOGGER.info("Calculated PicHash matches")
         candidate_groups = self._createMinHashCandidateGroups(pichash_matches)
+        LOGGER.info("Created candidate groups from MinHash bands")
         matching_cache = self._createMatchingCache(candidate_groups)
+        LOGGER.info("Created MatchingCache")
         if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
             candidate_groups = self.filter_pichashes_from_candidate_groups(matching_cache, candidate_groups, pichash_matches)
+            LOGGER.info("Removed PicHash matches from CandidateGroups")
         minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
+        LOGGER.info("Calculated MinHash matches.")
         matching_report = self._craftResultDict(pichash_matches, minhash_matches)
+        LOGGER.info("Returning aggregated match report.")
         return matching_report
 
     # Reports PROGRESS
