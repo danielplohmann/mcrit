@@ -97,14 +97,16 @@ class MatcherInterface(object):
         # Every Matcher has own implementation
         raise NotImplementedError
 
-    def _createMinHashCandidateGroups(self, pichash_matches) -> Dict[int, Set[int]]:
+    def _createMinHashCandidateGroups(self, start=0, end=None) -> Dict[int, Set[int]]:
         # Query, VS, Sample
         # Sample , Query have this plain version
         # VS adds another intersection step to this version
         # find candidates based on bands
+        if end is None:
+            end = len(self._function_entries)
         candidate_groups = {}
         function_id_to_minhash = {}
-        for function_entry in self._function_entries:
+        for function_entry in self._function_entries[start:end]:
             function_id_to_minhash[function_entry.function_id] = function_entry.getMinHash(
                 minhash_bits=self._worker._minhash_config.MINHASH_SIGNATURE_BITS
             )
@@ -142,16 +144,20 @@ class MatcherInterface(object):
         # All use this version
         pichash_matches = self._harmonizePicHashMatches(self._getPicHashMatches())
         LOGGER.info("Calculated PicHash matches")
-        candidate_groups = self._createMinHashCandidateGroups(pichash_matches)
-        LOGGER.info("Created candidate groups from MinHash bands")
-        matching_cache = self._createMatchingCache(candidate_groups)
-        LOGGER.info("Created MatchingCache")
-        if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
-            candidate_groups = self.filter_pichashes_from_candidate_groups(matching_cache, candidate_groups, pichash_matches)
-            LOGGER.info("Removed PicHash matches from CandidateGroups")
-        minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
+        all_minhash_matches = {}
+        # if we have an exceedingly large number of functions, we need to process in batches...
+        for start_index in range(0, len(self._function_entries), 50000):
+            candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+50000)
+            LOGGER.info("Created candidate groups from MinHash bands")
+            matching_cache = self._createMatchingCache(candidate_groups)
+            LOGGER.info("Created MatchingCache")
+            if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
+                candidate_groups = self.filter_pichashes_from_candidate_groups(matching_cache, candidate_groups, pichash_matches)
+                LOGGER.info("Removed PicHash matches from CandidateGroups")
+            minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
+            all_minhash_matches.update(minhash_matches)
         LOGGER.info("Calculated MinHash matches.")
-        matching_report = self._craftResultDict(pichash_matches, minhash_matches)
+        matching_report = self._craftResultDict(pichash_matches, all_minhash_matches)
         LOGGER.info("Returning aggregated match report.")
         return matching_report
 
