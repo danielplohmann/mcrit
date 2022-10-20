@@ -282,6 +282,9 @@ class Worker(QueueRemoteCallee):
             result = self.getResultForJob(job_id)
             if result is None:
                 raise ValueError("Cannot evaluate Cross Compare. A child job failed.")
+            # here we strip the results to sample level only, as function level matches are 
+            # not required and may easily blow up memory
+            result["matches"].pop("functions")
             child_results.append(result)
         return MatcherCross().create_result(child_results)
 
