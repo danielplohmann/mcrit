@@ -6,17 +6,19 @@ with open("README.md") as f:
     README = f.read()
 
 requirements = [
+    "dataclasses",
     "falcon>=2.0.0",
-    "waitress",
+    "fastcluster",
     "mmh3>=2.5.1",
     "numpy",
-    "tqdm",
-    "smda>=1.3.0",
-    "dataclasses",
-    "pymongo",
     "picblocks>=1.1.2",
+    "pymongo",
+    "pyparsing>=3",
     "requests",
-    "pyparsing>=3"
+    "scipy",
+    "smda>=1.3.0",
+    "tqdm",
+    "waitress",
 ]
 
 setup(
