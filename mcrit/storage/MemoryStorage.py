@@ -614,6 +614,18 @@ class MemoryStorage(StorageInterface):
 
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
+        block_statistics = {
+            "by_sample_id": {
+                sample_id: {
+                    "sample_id": sample_id,
+                    "total_blocks": 0,
+                    "characteristic_blocks": 0,
+                    "unique_blocks": 0
+                } for sample_id in sample_ids
+            },
+            "unique_blocks_overall": 0,
+            "num_samples": len(sample_ids)
+        }
         candidate_picblockhashes = {}
         for function_id, entry in self._functions.items():
             sample_id = entry.sample_id
@@ -628,12 +640,24 @@ class MemoryStorage(StorageInterface):
                         "instructions": []
                     }
                 candidate_picblockhashes[block_hash]["samples"].add(sample_id)
+        # update statistics based on candidates
+        for picblockhash, entry in candidate_picblockhashes.items():
+            for sample_id in entry["samples"]:
+                block_statistics["by_sample_id"][sample_id]["total_blocks"] += 1
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
         for functiond_id, entry in self._functions.items():
             sample_id = entry.sample_id
             if sample_id not in sample_ids:
                 for block_entry in entry.picblockhashes:
                     candidate_picblockhashes.pop(block_entry["hash"], None)
+        # update statistics again after having reduced to results
+        for picblockhash, entry in candidate_picblockhashes.items():
+            if len(entry["samples"]) == 1:
+                single_sample_id = list(entry["samples"])[0]
+                block_statistics["by_sample_id"][single_sample_id]["unique_blocks"] += 1
+            for sample_id in entry["samples"]:
+                block_statistics["by_sample_id"][sample_id]["characteristic_blocks"] += 1
+        block_statistics["unique_blocks_overall"] = len(candidate_picblockhashes)
         LOGGER.info(f"Reduced to {len(candidate_picblockhashes)} unique picblock hashes")
         # iterate over candidates by function_id and extract instructions
         function_id_to_block_offsets = {}
@@ -647,7 +671,7 @@ class MemoryStorage(StorageInterface):
                 continue
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 candidate_picblockhashes[picblockhash]["instructions"] = entry.xcfg["blocks"][str(block_offset)]
-        return candidate_picblockhashes
+        return {"statistics": block_statistics, "unique_blocks": candidate_picblockhashes}
 
     ##### helpers for search ######
 

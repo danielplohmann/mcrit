@@ -4,6 +4,7 @@ import json
 import logging
 import datetime
 import traceback
+from collections import defaultdict
 from operator import itemgetter
 from itertools import zip_longest
 from typing import Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
@@ -865,6 +866,18 @@ class MongoDbStorage(StorageInterface):
 
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
+        block_statistics = {
+            "by_sample_id": {
+                sample_id: {
+                    "sample_id": sample_id,
+                    "total_blocks": 0,
+                    "characteristic_blocks": 0,
+                    "unique_blocks": 0
+                } for sample_id in sample_ids
+            },
+            "unique_blocks_overall": 0,
+            "num_samples": len(sample_ids)
+        }
         candidate_picblockhashes = {}
         for entry in self._database.functions.find({"sample_id": {"$in": sample_ids}, "_picblockhashes": {"$exists": True, "$ne": [] }}, {"function_id": 1, "sample_id": 1, "_picblockhashes": 1, "_id": 0}):
             sample_id = entry["sample_id"]
@@ -882,6 +895,10 @@ class MongoDbStorage(StorageInterface):
                         "score": 0
                     }
                 candidate_picblockhashes[block_hash]["samples"].add(sample_id)
+        # update statistics based on candidates
+        for picblockhash, entry in candidate_picblockhashes.items():
+            for sample_id in entry["samples"]:
+                block_statistics["by_sample_id"][sample_id]["total_blocks"] += 1
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
         if progress_reporter is not None:
             progress_reporter.set_total(self._database.functions.count_documents(filter={}))
@@ -893,6 +910,14 @@ class MongoDbStorage(StorageInterface):
             if sample_id not in sample_ids:
                 for block_entry in entry["_picblockhashes"]:
                     candidate_picblockhashes.pop(block_entry["hash"], None)
+        # update statistics again after having reduced to results
+        for picblockhash, entry in candidate_picblockhashes.items():
+            if len(entry["samples"]) == 1:
+                single_sample_id = list(entry["samples"])[0]
+                block_statistics["by_sample_id"][single_sample_id]["unique_blocks"] += 1
+            for sample_id in entry["samples"]:
+                block_statistics["by_sample_id"][sample_id]["characteristic_blocks"] += 1
+        block_statistics["unique_blocks_overall"] = len(candidate_picblockhashes)
         LOGGER.info(f"Reduced to {len(candidate_picblockhashes)} unique picblock hashes")
         # we are basically finished when we reached this step, so set progress to 100%
         if progress_reporter is not None:
@@ -919,7 +944,7 @@ class MongoDbStorage(StorageInterface):
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 candidate_picblockhashes[picblockhash]["instructions"] = entry["xcfg"]["blocks"][str(block_offset)]
         LOGGER.info(f"Instructions for {len(candidate_picblockhashes)} blocks extracted.")
-        return candidate_picblockhashes
+        return {"statistics": block_statistics, "unique_blocks": candidate_picblockhashes}
 
 
     ##### helpers for search ######

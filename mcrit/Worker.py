@@ -189,7 +189,46 @@ class Worker(QueueRemoteCallee):
     def getUniqueBlocks(self, sample_ids, family_id=None, progress_reporter=NoProgressReporter()):
         # TODO we could propagate this progress reporter into the storage function for more fine grained progress tracking
         progress_reporter.set_total(1)
-        unique_blocks = self._storage.getUniqueBlocks(sample_ids)
+        blocks_result_dict = self._storage.getUniqueBlocks(sample_ids, progress_reporter=progress_reporter)
+        blocks_result_dict["statistics"]["has_yara_rule"] = False
+        unique_blocks = blocks_result_dict["unique_blocks"]
+        # greedily produce a multi set cover of picblockhashes for sample_ids, i.e. a YARA rule :)
+        yara_rule = []
+        sample_coverage = {sample_id: 0 for sample_id in sample_ids}
+        covers_required = 10
+        functions_used = set()
+        samples_covered = set()
+        has_yara_success = False
+        while True:
+            # calculate block_scores as how much benefit they bring, i.e. how many uncovered samples they can cover at once
+            block_candidates = []
+            for block_hash, entry in unique_blocks.items():
+                sample_ids_coverable = set(entry["samples"]).difference(samples_covered)
+                if sample_ids_coverable and block_hash not in yara_rule:
+                    candidate = {
+                        "block_hash": block_hash,
+                        "coverable": sample_ids_coverable,
+                        "value": len(sample_ids_coverable),
+                        "score": entry["score"]
+                    }
+                    block_candidates.append(candidate)
+            # check if we are done yet, successful or not
+            if len(samples_covered) == len(sample_ids):
+                has_yara_success = True
+                blocks_result_dict["statistics"]["has_yara_rule"] = True
+                break
+            if len(block_candidates) == 0:
+                yara_rule = []
+                break
+            # if not, choose the best block
+            block_candidates.sort(key=lambda i: (i["value"], i["score"]))
+            selected_block = block_candidates.pop()
+            yara_rule.append(selected_block["block_hash"])
+            # and update counters
+            for sample_id in selected_block["coverable"]:
+                sample_coverage[sample_id] += 1
+            samples_covered = set([sample_id for sample_id, count in sample_coverage.items() if count >= covers_required])
+        blocks_result_dict["yara_rule"] = yara_rule
         # enrich with escaped sequences
         sample_addr_borders = {}
         for sample_id in sample_ids:
@@ -202,8 +241,9 @@ class Worker(QueueRemoteCallee):
                 smda_instruction = SmdaInstruction(instruction)
                 escaped_sequences.append(smda_instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=sample_addr_borders[sample_id]["lower"], upper_addr=sample_addr_borders[sample_id]["upper"]))
             unique_blocks[block_hash]["escaped_sequence"] = " ".join(escaped_sequences)
+        blocks_result_dict["unique_blocks"] = unique_blocks
         progress_reporter.step()
-        return unique_blocks
+        return blocks_result_dict
 
     # Reports PROGRESS
     @Remote(progress=True, json_locations=[0])

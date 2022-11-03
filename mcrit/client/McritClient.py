@@ -442,7 +442,7 @@ class McritClient:
     ### Unique Blocks
     ###########################################
 
-    def getUniqueBlocksForSamples(self, sample_ids: List[int]) -> Dict:
+    def requestUniqueBlocksForSamples(self, sample_ids: List[int]) -> Dict:
         if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
             sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
             response = requests.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}")
@@ -451,7 +451,7 @@ class McritClient:
             raise ValueError("sample_ids must be a list of int.")
         return result_data
 
-    def getUniqueBlocksForFamily(self, family_id: int) -> Dict:
+    def requestUniqueBlocksForFamily(self, family_id: int) -> Dict:
         if isinstance(family_id, int):
             response = requests.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}")
             result_data = handle_response(response)
