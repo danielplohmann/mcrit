@@ -191,6 +191,8 @@ class Worker(QueueRemoteCallee):
         progress_reporter.set_total(1)
         blocks_result_dict = self._storage.getUniqueBlocks(sample_ids, progress_reporter=progress_reporter)
         blocks_result_dict["statistics"]["has_yara_rule"] = False
+        blocks_result_dict["statistics"]["yara_covers"] = 0
+        blocks_result_dict["statistics"]["has_complete_yara_rule"] = False
         unique_blocks = blocks_result_dict["unique_blocks"]
         # greedily produce a multi set cover of picblockhashes for sample_ids, i.e. a YARA rule :)
         yara_rule = []
@@ -198,7 +200,6 @@ class Worker(QueueRemoteCallee):
         covers_required = 10
         functions_used = set()
         samples_covered = set()
-        has_yara_success = False
         while True:
             # calculate block_scores as how much benefit they bring, i.e. how many uncovered samples they can cover at once
             block_candidates = []
@@ -214,11 +215,12 @@ class Worker(QueueRemoteCallee):
                     block_candidates.append(candidate)
             # check if we are done yet, successful or not
             if len(samples_covered) == len(sample_ids):
-                has_yara_success = True
                 blocks_result_dict["statistics"]["has_yara_rule"] = True
+                blocks_result_dict["statistics"]["has_complete_yara_rule"] = True
                 break
             if len(block_candidates) == 0:
-                yara_rule = []
+                if len(yara_rule) > 0:
+                    blocks_result_dict["statistics"]["has_yara_rule"] = True
                 break
             # if not, choose the best block
             block_candidates.sort(key=lambda i: (i["value"], i["score"]))
@@ -228,6 +230,7 @@ class Worker(QueueRemoteCallee):
             for sample_id in selected_block["coverable"]:
                 sample_coverage[sample_id] += 1
             samples_covered = set([sample_id for sample_id, count in sample_coverage.items() if count >= covers_required])
+        blocks_result_dict["statistics"]["num_samples_covered"] = len(samples_covered)
         blocks_result_dict["yara_rule"] = yara_rule
         # enrich with escaped sequences
         sample_addr_borders = {}
