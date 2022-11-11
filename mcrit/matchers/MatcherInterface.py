@@ -134,9 +134,10 @@ class MatcherInterface(object):
             if own_fid in candidate_groups:
                 # remove all candidates of the respective sample instead
                 if (own_fid, foreign_sid) not in finished_tuples:
-                    pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(foreign_sid)
-                    candidate_groups[own_fid].difference_update(pichash_match_sid_fids)
-                    finished_tuples.add((own_fid, foreign_sid))
+                    if matching_cache.hasSampleId(foreign_sid):
+                        pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(foreign_sid)
+                        candidate_groups[own_fid].difference_update(pichash_match_sid_fids)
+                        finished_tuples.add((own_fid, foreign_sid))
         return candidate_groups
 
     def _getMatchesRoutine(self):
@@ -146,14 +147,16 @@ class MatcherInterface(object):
         LOGGER.info("Calculated PicHash matches")
         all_minhash_matches = {}
         # if we have an exceedingly large number of functions, we need to process in batches...
-        for start_index in range(0, len(self._function_entries), 50000):
-            candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+50000)
+        for start_index in range(0, len(self._function_entries), 10000):
+            candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+10000)
             LOGGER.info("Created candidate groups from MinHash bands")
             matching_cache = self._createMatchingCache(candidate_groups)
             LOGGER.info("Created MatchingCache")
             if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
+                LOGGER.info("Removing PicHash matches")
                 candidate_groups = self.filter_pichashes_from_candidate_groups(matching_cache, candidate_groups, pichash_matches)
                 LOGGER.info("Removed PicHash matches from CandidateGroups")
+            LOGGER.info("Now starting MinHash matching")
             minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
             all_minhash_matches.update(minhash_matches)
         LOGGER.info("Calculated MinHash matches.")
