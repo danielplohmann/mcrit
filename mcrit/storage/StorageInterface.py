@@ -245,6 +245,17 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["int"]]:
+        """For a given sample_id, get all corresponding function_ids.
+
+        Args:
+            sample_id: a sample_id
+
+        Returns:
+            A list of int or None, if sample_id does not exist
+        """
+        raise NotImplementedError
+
     def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
         """Given a function_id, return the respective FunctionEntry or None, if function_id is not contained otherwise.
 

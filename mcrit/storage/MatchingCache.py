@@ -6,7 +6,7 @@ class MatchingCache(object):
         self._func_id_to_sample_id = cache_data["func_id_to_sample_id"]
         self._sample_id_to_func_ids = cache_data["sample_id_to_func_ids"]
 
-    def hasSampleId(self, sample_id):
+    def isSampleId(self, sample_id):
         return sample_id in self._sample_id_to_func_ids
 
     def getMinHashByFunctionId(self, function_id):

@@ -134,7 +134,7 @@ class MatcherInterface(object):
             if own_fid in candidate_groups:
                 # remove all candidates of the respective sample instead
                 if (own_fid, foreign_sid) not in finished_tuples:
-                    if matching_cache.hasSampleId(foreign_sid):
+                    if matching_cache.isSampleId(foreign_sid):
                         pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(foreign_sid)
                         candidate_groups[own_fid].difference_update(pichash_match_sid_fids)
                         finished_tuples.add((own_fid, foreign_sid))

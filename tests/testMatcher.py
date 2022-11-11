@@ -74,20 +74,9 @@ class MatcherTestSuite(unittest.TestCase):
             "matches": [
                 (0, 2, 20, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
                 (1, 0, 1, 92.1875, IS_MINHASH_FLAG),
-                (1, 0, 5, 51.5625, IS_MINHASH_FLAG),
             ],
             "num_bytes": 638.0,
             "offset": 364,
-        },
-        {
-            "fid": 12,
-            "matches": [
-                (0, 2, 21, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
-                (1, 0, 2, 93.75, IS_MINHASH_FLAG),
-                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
-            ],
-            "num_bytes": 166.0,
-            "offset": 1004,
         },
         {
             "fid": 13,
@@ -112,6 +101,15 @@ class MatcherTestSuite(unittest.TestCase):
             "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
             "num_bytes": 1850.0,
             "offset": 4424,
+        },
+        {
+            "fid": 12,
+            "matches": [
+                (0, 2, 21, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
+                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
+            ],
+            "num_bytes": 166.0,
+            "offset": 1004,
         },
     ]
 
@@ -128,19 +126,9 @@ class MatcherTestSuite(unittest.TestCase):
             "fid": 11,
             "matches": [
                 (1, 0, 1, 92.1875, IS_MINHASH_FLAG),
-                (1, 0, 5, 51.5625, IS_MINHASH_FLAG),
             ],
             "num_bytes": 638.0,
             "offset": 364,
-        },
-        {
-            "fid": 12,
-            "matches": [
-                (1, 0, 2, 93.75, IS_MINHASH_FLAG),
-                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
-            ],
-            "num_bytes": 166.0,
-            "offset": 1004,
         },
         {
             "fid": 13,
@@ -166,11 +154,19 @@ class MatcherTestSuite(unittest.TestCase):
             "num_bytes": 1850.0,
             "offset": 4424,
         },
+        {
+            "fid": 12,
+            "matches": [
+                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
+            ],
+            "num_bytes": 166.0,
+            "offset": 1004,
+        },
     ]
 
     minhash_aggregation_expected = {
         "num_own_functions_matched": 7,
-        "num_foreign_functions_matched": 11,
+        "num_foreign_functions_matched": 10,
         "num_own_functions_matched_as_library": 3,
         "num_self_matches": 2,
         "bytes_matched": 5697.0,
@@ -178,7 +174,7 @@ class MatcherTestSuite(unittest.TestCase):
 
     minhash_aggregation_expected_vs = {
         "num_own_functions_matched": 7,
-        "num_foreign_functions_matched": 7,
+        "num_foreign_functions_matched": 6,
         "num_own_functions_matched_as_library": 0,
         "num_self_matches": 2,
         "bytes_matched": 5697.0,
