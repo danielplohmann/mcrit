@@ -449,6 +449,12 @@ class MemoryStorage(StorageInterface):
             return deepcopy(function_entries)
         return None
 
+    def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["int"]]:
+        function_ids = None
+        if sample_id in self._samples or sample_id in self._query_samples:
+            function_ids = self._sample_id_to_function_ids[sample_id]
+        return function_ids
+
     def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
         index = 0
         function_entries = []

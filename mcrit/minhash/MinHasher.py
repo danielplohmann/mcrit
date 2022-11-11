@@ -2,8 +2,8 @@
 
 import logging
 import random
-from collections import Counter
-from typing import List, Tuple
+from collections import Counter, defaultdict
+from typing import List, Tuple, Dict
 
 from mcrit.libs.utility import generate_segmented_sequence
 from mcrit.minhash.MinHash import MinHash
@@ -84,6 +84,26 @@ class MinHasher(object):
             minhash.function_id = function_id
             minhashes.append(minhash)
         return minhashes
+
+    def calculateAggregatedScoresFromPackedTuples(
+        self,
+        packed_tuples: List[Tuple[int, int, bytes, int, int, bytes]],
+        ignore_threshold=False,
+        minhash_threshold=None,
+    ) -> Dict[Tuple[int, int, int], Tuple[int, float]]:
+        results: Dict[Tuple[int, int, int], Tuple[int, float]] = {}
+        if minhash_threshold is None:
+            minhash_threshold = self._minhash_config.MINHASH_MATCHING_THRESHOLD
+        for minhash_tuple in packed_tuples:
+            sample_id_a, function_id_a, minhash_a, sample_id_b, function_id_b, minhash_b = minhash_tuple
+            score = MinHash.calculateMinHashScore(
+                minhash_a, minhash_b, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS
+            )
+            if ignore_threshold or score > minhash_threshold:
+                key = (sample_id_a, function_id_a, sample_id_b)
+                if key not in results or score > results[key][1]:
+                    results[key] = (function_id_b, score)
+        return results
 
     def calculateScoresFromPackedTuples(
         self,
