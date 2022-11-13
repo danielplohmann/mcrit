@@ -8,7 +8,8 @@ import unittest
 from smda.common.SmdaFunction import SmdaFunction
 from smda.common.SmdaReport import SmdaReport
 
-from mcrit.config.MinHashConfig import MinHashConfig
+from mcrit.config.McritConfig import McritConfig
+from mcrit.config.StorageConfig import StorageConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.minhash.MinHash import MinHash
 from mcrit.minhash.MinHasher import MinHasher
@@ -70,9 +71,10 @@ class MinHashingTestSuite(unittest.TestCase):
         self.assertEqual(minhash_score, minhash_score_int)
 
     def testBandingVariableSize(self):
-        config = MinHashConfig()
-        config.STORAGE_BANDS = {2: 2, 3: 1}
-        config.STORAGE_BAND_SEED = 0
+        config = McritConfig()
+        config.STORAGE_CONFIG = StorageConfig()
+        config.STORAGE_CONFIG.STORAGE_BANDS = {2: 2, 3: 1}
+        config.STORAGE_CONFIG.STORAGE_BAND_SEED = 0
         minhash_a = MinHash(
             function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39]
         )
@@ -89,9 +91,10 @@ class MinHashingTestSuite(unittest.TestCase):
         self.assertNotEqual(band_hashes_a[1], band_hashes_b[1])
 
     def testBandingVariableSize8Bits(self):
-        config = MinHashConfig()
-        config.STORAGE_BANDS = {2: 2, 3: 1}
-        config.STORAGE_BAND_SEED = 0
+        config = McritConfig()
+        config.STORAGE_CONFIG = StorageConfig()
+        config.STORAGE_CONFIG.STORAGE_BANDS = {2: 2, 3: 1}
+        config.STORAGE_CONFIG.STORAGE_BAND_SEED = 0
         minhash_a = MinHash(
             function_id=1,
             minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39],

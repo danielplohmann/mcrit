@@ -30,7 +30,7 @@ class MatcherQuery(MatcherInterface):
         for minhash in minhashes:
             tmp_function_entries_dict[minhash.function_id].minhash = minhash.getMinHash()
             tmp_function_entries_dict[minhash.function_id].minhash_shingle_composition = minhash.getComposition()
-        self._function_entries = tmp_function_entries_dict.values()
+        self._function_entries = list(tmp_function_entries_dict.values())
 
         return self._getMatchesRoutine()
 
@@ -42,15 +42,20 @@ class MatcherQuery(MatcherInterface):
                 pichash_matches[function_entry.pichash].add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
         return pichash_matches
 
-    def _createMatchingCache(self, function_ids):
-        cache_data = {"func_id_to_minhash": {}, "func_id_to_sample_id": {}}
+    def _createMatchingCache(self, candidate_groups):
+        cache_data = {"func_id_to_minhash": {}, "func_id_to_sample_id": {}, "sample_id_to_func_ids": {}}
         for function_entry in self._function_entries:
             cache_data["func_id_to_minhash"][function_entry.function_id] = function_entry.minhash
             cache_data["func_id_to_sample_id"][function_entry.function_id] = function_entry.sample_id
-        for function_id in function_ids:
-            if function_id >= 0:
-                function_entry = self._storage.getFunctionById(function_id)
-                cache_data["func_id_to_minhash"][function_id] = function_entry.minhash
-                cache_data["func_id_to_sample_id"][function_id] = function_entry.sample_id
+        cache_data["sample_id_to_func_ids"][self._sample_id] = [f.function_id for f in self._function_entries]
+        for own_function_id, other_function_ids in candidate_groups.items():
+            for function_id in other_function_ids:
+                if function_id >= 0:
+                    function_entry = self._storage.getFunctionById(function_id, with_xcfg=False)
+                    cache_data["func_id_to_minhash"][function_id] = function_entry.minhash
+                    cache_data["func_id_to_sample_id"][function_id] = function_entry.sample_id
+                    sample_cache = cache_data["sample_id_to_func_ids"].get(function_entry.sample_id, [])
+                    sample_cache.append(function_entry.function_id)
+                    cache_data["sample_id_to_func_ids"][function_entry.sample_id] = sample_cache
         cache = MatchingCache(cache_data)
         return cache

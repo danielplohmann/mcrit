@@ -60,7 +60,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         self._storage_config = config.STORAGE_CONFIG
         self._minhash_config = config.MINHASH_CONFIG
         self._shingler_config = config.SHINGLER_CONFIG
-        self._storage = StorageFactory.getStorage(config.STORAGE_CONFIG)
+        self._queue_config = config.QUEUE_CONFIG
+        self._storage = StorageFactory.getStorage(config)
         # config.QUEUE_CONFIG.QUEUE_METHOD = QueueFactory.QUEUE_METHOD_FAKE
         queue = QueueFactory().getQueue(config, storage=self._storage, consumer_id="index")
         self.search_query_parser = SearchQueryParser()
@@ -78,6 +79,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 "minhash_config": self._minhash_config.toDict(),
                 "shingler_config": self._shingler_config.toDict(),
                 "storage_config": self._storage_config.toDict(),
+                "queue_config": self._queue_config.toDict(),
             },
             "stats": self._storage.getStats(),
             "storage": self._storage.getContent(),
@@ -88,8 +90,14 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         self._minhash_config = MinHashConfig.fromDict(storage_data["config"]["minhash_config"])
         self._shingler_config = ShinglerConfig.fromDict(storage_data["config"]["shingler_config"])
         self._storage_config = StorageConfig.fromDict(storage_data["config"]["storage_config"])
+        self._queue_config = StorageConfig.fromDict(storage_data["config"]["queue_config"])
+        mcrit_config = McritConfig()
+        mcrit_config.MINHASH_CONFIG = self._minhash_config
+        mcrit_config.SHINGLER_CONFIG = self._shingler_config
+        mcrit_config.STORAGE_CONFIG = self._storage_config
+        mcrit_config.QUEUE_CONFIG = self._queue_config
         # reinitialize
-        self._storage = StorageFactory.getStorage(self._storage_config)
+        self._storage = StorageFactory.getStorage(mcrit_config)
         self._storage.setContent(storage_data["storage"])
 
     def getExportData(self, sample_ids=None, compress_data=False):

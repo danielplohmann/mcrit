@@ -23,6 +23,8 @@ from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
+from mcrit.config.QueueConfig import QueueConfig
+from mcrit.config.McritConfig import McritConfig
 from mcrit.config.StorageConfig import StorageConfig
 from mcrit.matchers.MatcherCross import MatcherCross
 from mcrit.matchers.MatcherQuery import MatcherQuery
@@ -61,11 +63,12 @@ class Worker(QueueRemoteCallee):
         self._storage_config = config.STORAGE_CONFIG
         self._minhash_config = config.MINHASH_CONFIG
         self._shingler_config = config.SHINGLER_CONFIG
+        self._queue_config = config.QUEUE_CONFIG
         self.minhasher = MinHasher(config.MINHASH_CONFIG, config.SHINGLER_CONFIG)
         if storage:
             self._storage = storage
         else:
-            self._storage = StorageFactory.getStorage(config.STORAGE_CONFIG)
+            self._storage = StorageFactory.getStorage(config)
 
     #### STORAGE IO ####
     def getStorage(self):
@@ -79,6 +82,7 @@ class Worker(QueueRemoteCallee):
                 "minhash_config": self._minhash_config.toDict(),
                 "shingler_config": self._shingler_config.toDict(),
                 "storage_config": self._storage_config.toDict(),
+                "queue_config": self._queue_config.toDict(),
             },
             "stats": self._storage.getStats(),
             "storage": self._storage.getContent(),
@@ -89,9 +93,15 @@ class Worker(QueueRemoteCallee):
         self._minhash_config = MinHashConfig.fromDict(storage_data["config"]["minhash_config"])
         self._shingler_config = ShinglerConfig.fromDict(storage_data["config"]["shingler_config"])
         self._storage_config = StorageConfig.fromDict(storage_data["config"]["storage_config"])
+        self._queue_config = QueueConfig.fromDict(storage_data["config"]["queue_config"])
+        mcrit_config = McritConfig()
+        mcrit_config.MINHASH_CONFIG = self._minhash_config
+        mcrit_config.SHINGLER_CONFIG = self._shingler_config
+        mcrit_config.STORAGE_CONFIG = self._storage_config
+        mcrit_config.QUEUE_CONFIG = self._queue_config
         # reinitialize
         self.minhasher = MinHasher(self._minhash_config, self._shingler_config)
-        self._storage = StorageFactory.getStorage(self._storage_config)
+        self._storage = StorageFactory.getStorage(mcrit_config)
         self._storage.setContent(storage_data["storage"])
 
     #### REDIRECTED FROM INDEX: MAIN WORKER FUNKTIONALITY ###

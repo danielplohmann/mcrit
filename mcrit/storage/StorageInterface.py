@@ -5,6 +5,8 @@ from mcrit.minhash.MinHash import MinHash
 
 if TYPE_CHECKING: # pragma: no cover
     from mcrit.config.StorageConfig import StorageConfig
+    from mcrit.config.McritConfig import McritConfig
+    from mcrit.config.MinHashConfig import MinHashConfig
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.MemoryStorage import MemoryStorage
@@ -27,7 +29,7 @@ class StorageInterface:
     _config: "StorageConfig"
     _band_projection: None
 
-    def __init__(self, config: "StorageConfig") -> None:
+    def __init__(self, config: "McritConfig") -> None:
         """Set the StorageConfig, sets up an empty Storage or loads existing data, ensures indexing,
         and ensures the existence of an Family with name \"\" and family_id 0.
 
@@ -38,6 +40,8 @@ class StorageInterface:
             AssertionError: If family_id 0 already exists, but does not refer to Family \"\".
         """
         self._config = config
+        self._storage_config = config.STORAGE_CONFIG
+        self._minhash_config = config.MINHASH_CONFIG
         self._band_projection = None
 
     # -> Set[function_id]
@@ -590,9 +594,9 @@ class StorageInterface:
             a dict containing signature indices used for bandhashing by band id
         """
         band_projection = {}
-        random.seed(self._config.STORAGE_BAND_SEED)
+        random.seed(self._storage_config.STORAGE_BAND_SEED)
         band_index = 0
-        for band_size, num_bands in self._config.STORAGE_BANDS.items():
+        for band_size, num_bands in self._storage_config.STORAGE_BANDS.items():
             for _ in range(num_bands):
                 index_sequence = [index for index in range(len(minhash.getMinHashInt()))]
                 random.shuffle(index_sequence)

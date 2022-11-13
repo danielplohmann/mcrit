@@ -178,6 +178,8 @@ class MatcherInterface(object):
         calculation_function = functools.partial(
             self._worker.minhasher.calculateAggregatedScoresFromPackedTuples, minhash_threshold=self._minhash_threshold
         )
+        packed_tuples = [p for p in packed_tuples]
+        print(packed_tuples)
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
             with Pool(cpu_count()) as pool:
                 for pool_result in tqdm.tqdm(

@@ -6,7 +6,11 @@ from datetime import datetime
 from unittest import TestCase, main
 
 import pymongo
+from mcrit.config.McritConfig import McritConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.config.MinHashConfig import MinHashConfig
+from mcrit.config.ShinglerConfig import ShinglerConfig
+from mcrit.config.QueueConfig import QueueConfig
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
@@ -22,11 +26,16 @@ logging.disable(logging.CRITICAL)
 
 class MemoryStorageTest(TestCase):
     def setUp(self):
-        self._config = StorageConfig(
+        self._storage_config = StorageConfig(
             STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MEMORY,
             STORAGE_DROP_DISASSEMBLY=False,
         )
-        self.storage = StorageFactory.getStorage(self._config)
+        mcrit_config = McritConfig()
+        mcrit_config.STORAGE_CONFIG = self._storage_config
+        mcrit_config.MINHASH_CONFIG = MinHashConfig()
+        mcrit_config.SHINGLER_CONFIG = ShinglerConfig()
+        mcrit_config.QUEUE_CONFIG = QueueConfig()
+        self.storage = StorageFactory.getStorage(mcrit_config)
         # get example_file_path
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
@@ -88,6 +97,30 @@ class MemoryStorageTest(TestCase):
         self.storage.addSmdaReport(smda_report_b)
         self.storage.addSmdaReport(smda_report_c)
         sample_entry_d = self.storage.addSmdaReport(smda_report_d)
+        # produce minhashes for  later testing of clean deletion
+        unhashed_function_ids = self.storage.getUnhashedFunctions(None, only_function_ids=True)
+        unhashed_functions = self.storage.getUnhashedFunctions(unhashed_function_ids)
+        # minhashes = self.calculateMinHashes(unhashed_functions)
+        from mcrit.minhash.MinHasher import MinHasher
+        from smda.common.BinaryInfo import BinaryInfo
+        from smda.common.SmdaFunction import SmdaFunction
+        minhasher = MinHasher(MinHashConfig(), ShinglerConfig())
+        minhashes = []
+        smda_functions = []
+        for func in unhashed_functions:
+            binary_info = BinaryInfo(b"")
+            binary_info.architecture = func.architecture
+            smda_functions.append((func.function_id, SmdaFunction.fromDict(func.xcfg, binary_info=binary_info)))
+        smda_functions = [
+            (function_id, smda_function)
+            for function_id, smda_function in smda_functions
+            if minhasher.isMinHashableFunction(smda_function)
+        ]
+        for smda_function in smda_functions:
+            minhashes.append(minhasher.calculateMinHashFromStorage(smda_function))
+        if minhashes:
+            self.storage.addMinHashes(minhashes)
+        # start tests
         self.assertIsInstance(sample_entry_d, SampleEntry)
         self.assertEqual(sample_entry_d.sample_id, 3)
         self.assertEqual(None, self.storage.addSmdaReport(smda_report_d))
@@ -109,13 +142,20 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(0, self.storage.getSampleBySha256(64* "a").sample_id)
         self.assertEqual(None, self.storage.getSampleBySha256(64* "z"))
 
+        # test deletions
         self.assertFalse(self.storage.deleteSample(1000))
-
+        functions_to_be_deleted = self.storage.getFunctionsBySampleId(3)
+        function_ids_to_be_deleted = [f.function_id for f in functions_to_be_deleted]
+        minhashes_of_deleted_functions = [f.getMinHash(minhash_bits=MinHashConfig.MINHASH_SIGNATURE_BITS) for f in functions_to_be_deleted if f.minhash]
         delete_result = self.storage.deleteSample(3)
         self.assertTrue(delete_result)
         self.assertEqual(None, self.storage.getSampleById(3))
         # functions, minhashes will be cascadically deleted
         self.assertEqual(None, self.storage.getSampleIdByFunctionId(30))
+        # no function id should be contained in minhash bands
+        for minhash in minhashes_of_deleted_functions:
+            candidates = self.storage.getCandidatesForMinHash(minhash)
+            self.assertTrue(len(set(candidates).intersection(set(function_ids_to_be_deleted))) == 0)
         new_report_d = self.storage.addSmdaReport(smda_report_d)
         self.assertIsNotNone(new_report_d)
         self.assertEqual(new_report_d.sample_id, 4)
@@ -245,13 +285,18 @@ from nose.plugins.attrib import attr
 @attr("mongo")
 class MongoDbStorageTest(MemoryStorageTest):
     def setUp(self):
-        self._config = StorageConfig(
+        self._storage_config = StorageConfig(
             STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB,
             STORAGE_SERVER=os.environ.get("TEST_MONGODB"),
             STORAGE_MONGODB_DBNAME="test_mongodbstorage_mcrit",
             STORAGE_DROP_DISASSEMBLY=False,
         )
-        self.storage = StorageFactory.getStorage(self._config)
+        mcrit_config = McritConfig()
+        mcrit_config.STORAGE_CONFIG = self._storage_config
+        mcrit_config.MINHASH_CONFIG = MinHashConfig()
+        mcrit_config.SHINGLER_CONFIG = ShinglerConfig()
+        mcrit_config.QUEUE_CONFIG = QueueConfig()
+        self.storage = StorageFactory.getStorage(mcrit_config)
         # get example_file_path
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))

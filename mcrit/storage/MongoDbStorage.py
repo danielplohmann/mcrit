@@ -108,7 +108,7 @@ class MongoDbStorage(StorageInterface):
         super().__init__(config)  # sets config
         self._matching_cache = None
         self.blockhasher = BlockHasher()
-        self._initDb(self._config.STORAGE_SERVER, self._config.STORAGE_PORT, self._config.STORAGE_MONGODB_DBNAME)
+        self._initDb(self._storage_config.STORAGE_SERVER, self._storage_config.STORAGE_PORT, self._storage_config.STORAGE_MONGODB_DBNAME)
 
     def _initDb(self, server, port, db_name):
         self._database = MongoClient(server, port=port)[db_name]
@@ -142,7 +142,7 @@ class MongoDbStorage(StorageInterface):
         self._database["matches"].create_index("match_id")
         self._database["candidates"].create_index("function_id")
         self._database["counters"].create_index("name")
-        for band_id in range(self._config.STORAGE_NUM_BANDS):
+        for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             self._database["band_%d" % band_id].create_index("band_hash")
         # Add Family "" if it is not already in storage
         if self.getFamily(0) is None:
@@ -360,7 +360,7 @@ class MongoDbStorage(StorageInterface):
             return False
 
         for function_entry in function_entries:
-            minhash = function_entry.getMinHash()
+            minhash = function_entry.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
             # remove minhash entries, if necessary
             if not minhash or not minhash.hasMinHash():
                 continue
@@ -428,7 +428,7 @@ class MongoDbStorage(StorageInterface):
 
     def clearStorage(self) -> None:
         collections = ["samples", "families", "functions", "matches", "candidates", "counters"]
-        for band_id in range(self._config.STORAGE_NUM_BANDS):
+        for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
             self._database[c].drop()
@@ -516,7 +516,7 @@ class MongoDbStorage(StorageInterface):
             functions.append(FunctionEntry.fromDict(f))
         return functions
 
-    def getFunctionIdBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
+    def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
         function_ids = None
         if not self.isSampleId(sample_id):
             return function_ids
@@ -645,7 +645,7 @@ class MongoDbStorage(StorageInterface):
         self._addMinHashesToBands([minhash])
 
     def _addMinHashesToBands(self, minhashes: List["MinHash"]) -> None:
-        band_hashes = {number: {} for number in range(self._config.STORAGE_NUM_BANDS)}
+        band_hashes = {number: {} for number in range(self._storage_config.STORAGE_NUM_BANDS)}
         for minhash in minhashes:
             if minhash.hasMinHash():
                 for band_number, band_hash in self.getBandHashesForMinHash(minhash).items():
@@ -667,8 +667,8 @@ class MongoDbStorage(StorageInterface):
 
     def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"]) -> Dict[int, Set[int]]:
         candidates = {}
-        target_band_hashes_per_band = {band_number: set() for band_number in range(self._config.STORAGE_NUM_BANDS)}
-        band_hash_to_function_ids = {band_number: {} for band_number in range(self._config.STORAGE_NUM_BANDS)}
+        target_band_hashes_per_band = {band_number: set() for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        band_hash_to_function_ids = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         for function_id, minhash in function_id_to_minhash.items():
             if not minhash.hasMinHash():
                 continue
@@ -863,7 +863,7 @@ class MongoDbStorage(StorageInterface):
             "num_query_samples": self._database.query_samples.count_documents(filter={}),
             "num_query_functions": self._database.query_functions.count_documents(filter={}),
             "num_functions": self._database.functions.count_documents(filter={}),
-            "num_bands": self._config.STORAGE_NUM_BANDS,
+            "num_bands": self._storage_config.STORAGE_NUM_BANDS,
             "num_pichashes": num_unique_pichashes,
         }
         return stats

@@ -17,7 +17,9 @@ from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
 
 if TYPE_CHECKING: # pragma: no cover
+    from mcrit.config.McritConfig import McritConfig
     from mcrit.config.StorageConfig import StorageConfig
+    from mcrit.config.MinHashConfig import MinHashConfig
     from mcrit.minhash.MinHash import MinHash
     from mcrit.storage.MatchingCache import MatchingCache
     from smda.common.SmdaFunction import SmdaFunction
@@ -120,7 +122,7 @@ class MemoryStorage(StorageInterface):
     _sample_by_sha256: Dict[str, int]
     _sample_id_to_function_ids: Dict[int, List[int]]
 
-    def __init__(self, config: "StorageConfig") -> None:
+    def __init__(self, config: "McritConfig") -> None:
         super().__init__(config)  # sets config
         self._setupEmptyStorage()
         self.blockhasher = BlockHasher()
@@ -137,7 +139,7 @@ class MemoryStorage(StorageInterface):
         self._query_samples = {}
         self._query_functions = {}
         self._pichashes = {}
-        self._bands = {band_number: {} for band_number in range(self._config.STORAGE_NUM_BANDS)}
+        self._bands = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         self._counters = defaultdict(lambda: 0)
         # initialize query sample/function ids 
         if self._counters["query_samples"] == 0:
@@ -178,14 +180,14 @@ class MemoryStorage(StorageInterface):
             return True
         for function_id in function_ids:
             function_entry = self._functions[function_id]
-            minhash = function_entry.getMinHash()
+            minhash = function_entry.getMinHash(self._minhash_config.MINHASH_SIGNATURE_BITS)
             # remove function
             del self._functions[function_id]
             # remove pichash entries
             if function_entry.pichash:
                 self._pichashes[function_entry.pichash].remove((function_entry.family_id, sample_id, function_id))
             # remove minhash entries, if necessary
-            if not minhash:
+            if not minhash or not minhash.hasMinHash():
                 continue
             band_hashes = self.getBandHashesForMinHash(minhash)
             for band_number, band_hash in sorted(band_hashes.items()):
@@ -206,7 +208,6 @@ class MemoryStorage(StorageInterface):
         # remove sample
         del self._samples[sample_id]
         return True
-
 
     def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
         if family_id not in self.families:
