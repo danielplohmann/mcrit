@@ -398,6 +398,80 @@ class MongoDbStorage(StorageInterface):
             }
         )
 
+    def modifySample(self, sample_id: int, update_information: dict) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        sample_entry = self.getSampleById(sample_id)
+        if "is_library" in update_information:
+            is_library_info_changed = sample_entry.is_library != update_information["is_library"]
+            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": update_information["is_library"]}})
+            family_entry = self.getFamily(sample_entry.family_id)
+            if is_library_info_changed:
+                new_value = family_entry.num_library_samples + (1 if update_information["is_library"] else -1)
+                self._database.families.update_one({"family_id": sample_entry.family_id}, {"$set": {"num_library_samples": new_value}})
+        if "family_name" in update_information:
+            old_family_entry = self.getFamily(sample_entry.family_id)
+            family_name = update_information["family_name"]
+            family_id = self.addFamily(family_name)
+            new_family_entry = self.getFamily(family_id)
+            # update sample_entry and function_entries with new family information
+            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
+            self._database.functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}})
+            # update family entry with statistics
+            self._database.families.update_one(
+                {"family_id": old_family_entry.family_id}, 
+                {"$set": {
+                    "num_samples": old_family_entry.num_samples - 1,
+                    "num_functions": old_family_entry.num_functions - sample_entry.statistics["num_functions"],
+                    "num_library_samples": old_family_entry.num_library_samples - (1 if sample_entry.is_library else 0),
+                    }
+                }
+            )
+            self._database.families.update_one(
+                {"family_id": family_id}, 
+                {"$set": {
+                    "num_samples": new_family_entry.num_samples + 1,
+                    "num_functions": new_family_entry.num_functions + sample_entry.statistics["num_functions"],
+                    "num_library_samples": new_family_entry.num_library_samples + (1 if sample_entry.is_library else 0),
+                    }
+                }
+            )
+            old_family_entry = self.getFamily(sample_entry.family_id)
+            # delete family if empty
+            if old_family_entry.num_samples == 0:
+                self._database.families.delete_one({"family_id": old_family_entry.family_id})
+            self._updateDbState()
+        if "version" in update_information:
+            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"version": update_information["version"]}})
+        if "component" in update_information:
+            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"component": update_information["component"]}})
+        return True
+
+    def modifyFamily(self, family_id: int, update_information: dict) -> bool:
+        if not self.isFamilyId(family_id):
+            return False
+        old_family_info = self.getFamily(family_id)
+        if "is_library" in update_information:
+            self._database.samples.update_many({"family_id": family_id}, {"$set": {"is_library": update_information["is_library"]}})
+            self._database.families.update_one({"family_id": family_id}, {"$set": {"num_library_samples": old_family_info.num_samples}})
+            self._updateDbState()
+        if "family_name" in update_information:
+            old_family_info = self.getFamily(family_id)
+            family_name = update_information["family_name"]
+            new_family_id = self.addFamily(family_name)
+            new_family_info = self.getFamily(new_family_id)
+            new_num_samples = new_family_info.num_samples + old_family_info.num_samples
+            new_num_functions = new_family_info.num_functions + old_family_info.num_functions
+            new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
+            # update family_entry
+            self._database.families.delete_one({"family_id": family_id})
+            self._database.families.update_one({"family_id": new_family_id}, {"$set": {"num_samples": new_num_samples, "num_functions": new_num_functions, "num_library_samples": new_num_lib_samples}})
+            # update sample_entry and function_entries with new family information
+            self._database.samples.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id, "family": family_name}})
+            self._database.functions.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id}})
+            self._updateDbState()
+        return True
+
     def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
         family_document = self._database.families.find_one({"family_id": family_id})
         family_name = family_document["family_name"]

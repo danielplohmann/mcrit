@@ -1,3 +1,4 @@
+import re
 import logging
 
 import falcon
@@ -36,6 +37,27 @@ class FamilyResource:
                 family.samples[sample.sample_id] = sample
         result = family.toDict()
         resp.data = jsonify({"status": "successful", "data": result})
+
+    @timing
+    def on_put(self, req, resp, family_id=None):
+        resp.status = falcon.HTTP_400
+        if not req.content_length or not isinstance(req.media, dict):
+            resp.data = jsonify({"status": "failed","data": {"message": "PUT request without body can't be processed."}})
+            return
+        # sanitize sample information
+        information_update = req.media
+        if "family_name" in information_update and not re.match("^(?=[a-zA-Z0-9._\-]{0,64}$)(?!.*[\-_.]{2})[^\-_.].*[^\-_.]$", information_update["family_name"]):
+            resp.data = jsonify({"status": "failed","data": {"message": "family_name may be 0-64 alphanumeric chars with single dots, dashes, underscores inbetween."}})
+            return
+        if "is_library" in information_update and not isinstance(information_update["is_library"], bool):
+            resp.data = jsonify({"status": "failed","data": {"message": "is_library must be boolean."}})
+            return
+        successful = self.index.modifyFamily(family_id, information_update)
+        if successful:
+            resp.data = jsonify({"status": "successful", "data": {"message": "Family modified."}})
+            resp.status = falcon.HTTP_202
+        else:
+            resp.data = jsonify({"status": "failed", "data": {"message": "Failed to modify family."}})
 
     @timing
     def on_delete(self, req, resp, family_id=None):

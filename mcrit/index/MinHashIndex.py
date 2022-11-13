@@ -240,6 +240,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getAggregatedMatchesForSample(self, sample_id, minhash_threshold=None):
     def getUniqueBlocks(self, sample_ids):
     def addBinarySample(self, binary, is_dump, bitness, base_address,):
+    # these need to be jobs to ensure database consistency
+    def deleteSample(self, sample_id):
+    def deleteFamily(self, family_id, keep_samples=False):
     """
 
     #### NOT REDIRECTED ####
@@ -287,12 +290,6 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
     def isSampleId(self, sample_id):
         return self._storage.isSampleId(sample_id)
-
-    def deleteSample(self, sample_id):
-        return self._storage.deleteSample(sample_id)
-
-    def deleteFamily(self, family_id, keep_samples=False):
-        return self._storage.deleteFamily(family_id, keep_samples=keep_samples)
 
     def getFunctionById(self, function_id, with_xcfg=False):
         return self._storage.getFunctionById(function_id, with_xcfg=with_xcfg)

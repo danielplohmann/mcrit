@@ -68,14 +68,16 @@ def get_app():
     _app.add_route("/search/functions", status_resource, suffix="search_functions")
 
     _app.add_route("/families", family_resource, suffix="collection")
+    # supports GET, PUT (for modification of family_name, is_library), DELETE (for all samples)
     _app.add_route("/families/{family_id:int}", family_resource)
 
-    # supports GET and POST(to insert one sample)
+    # supports GET and POST (to insert one sample)
     _app.add_route("/samples", sample_resource, suffix="collection")
     # post only
     _app.add_route("/samples/binary", sample_resource, suffix="submit_binary")
-    # supports GET and DELETE(for one sample)
+    # supports GET, PUT (for modification of family_name, version, component, is_library), DELETE (for one sample)
     _app.add_route("/samples/{sample_id:int}", sample_resource)
+    #
     _app.add_route("/samples/sha256/{sample_sha256}", sample_resource, suffix="by_sha256")
     _app.add_route("/samples/{sample_id:int}/functions", sample_resource, suffix="functions")
     _app.add_route(

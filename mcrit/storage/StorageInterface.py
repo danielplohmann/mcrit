@@ -158,6 +158,30 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def modifyFamily(self, family_id: int, update_information: dict) -> bool:
+        """Update a family from the storage
+
+        Args:
+            family_id: the id of the sample to modify
+            update_information: a dictionary with update information for fields (family_name, is_library)
+
+        Returns:
+            True if family_id was contained in the storage and updated successfully, False otherwise
+        """
+        raise NotImplementedError
+
+    def modifySample(self, sample_id: int, update_information: dict) -> bool:
+        """Update a sample from the storage
+
+        Args:
+            sample_id: the id of the sample to modify
+            update_information: a dictionary with update information for fields (family_name, version, component, is_library)
+
+        Returns:
+            True if sample_id was contained in the storage and updated successfully, False otherwise
+        """
+        raise NotImplementedError
+
     def deleteSample(self, sample_id: int) -> bool:
         """Remove a sample from the storage, also removes all functions of the sample.
         All minhashes will be removed from the bands.

@@ -108,6 +108,15 @@ class McritClient:
     ### Families 
     ###########################################
 
+    def modifyFamily(self, family_id, family_name=None, is_library=None):
+        update_dict = {}
+        if family_name is not None:
+            update_dict["family_name"] = family_name
+        if is_library is not None:
+            update_dict["is_library"] = is_library
+        response = requests.put(f"{self.mcrit_server}/families/{family_id}", update_dict)
+        return handle_response(response)
+
     def getFamily(self, family_id: int, with_samples=True) -> Optional[FamilyEntry]:
         query_params = "?with_samples=true" if with_samples else "?with_samples=false"
         response = requests.get(f"{self.mcrit_server}/families/{family_id}{query_params}")
@@ -141,6 +150,19 @@ class McritClient:
         if data is not None:
             return True
         return False
+
+    def modifySample(self, sample_id, family_name=None, version=None, component=None, is_library=None):
+        update_dict = {}
+        if family_name is not None:
+            update_dict["family_name"] = family_name
+        if version is not None:
+            update_dict["version"] = version
+        if component is not None:
+            update_dict["component"] = component
+        if is_library is not None:
+            update_dict["is_library"] = is_library
+        response = requests.put(f"{self.mcrit_server}/samples/{sample_id}", update_dict)
+        return handle_response(response)
 
     def deleteSample(self, sample_id):
         response = requests.delete(f"{self.mcrit_server}/samples/{sample_id}")

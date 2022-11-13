@@ -2,6 +2,7 @@ import logging
 
 import falcon
 import re
+import json
 
 from mcrit.server.utils import timing, jsonify
 from mcrit.index.MinHashIndex import MinHashIndex
@@ -63,7 +64,34 @@ class SampleResource:
         else:
             resp.data = jsonify({"status": "failed", "data": {"message": "Failed to delete sample."}})
             # TODO whats the correct code?
-            resp.status = falcon.HTTP_410
+            resp.status = falcon.HTTP_400
+
+    @timing
+    def on_put(self, req, resp, sample_id=None):
+        resp.status = falcon.HTTP_400
+        if not req.content_length or not isinstance(req.media, dict):
+            resp.data = jsonify({"status": "failed","data": {"message": "PUT request without body can't be processed."}})
+            return
+        # sanitize sample information
+        information_update = req.media
+        if "family_name" in information_update and not re.match("^(?=[a-zA-Z0-9._\-]{0,64}$)(?!.*[\-_.]{2})[^\-_.].*[^\-_.]$", information_update["family_name"]):
+            resp.data = jsonify({"status": "failed","data": {"message": "family_name may be 0-64 alphanumeric chars with single dots, dashes, underscores inbetween."}})
+            return
+        if "version" in information_update and not re.match("^[ -~]{1,64}$", information_update["version"]):
+            resp.data = jsonify({"status": "failed","data": {"message": "version may be 0-64 printable characters."}})
+            return
+        if "component" in information_update and not re.match("^[ -~]{1,64}$", information_update["component"]):
+            resp.data = jsonify({"status": "failed","data": {"message": "component may be 0-64 printable characters."}})
+            return
+        if "is_library" in information_update and not isinstance(information_update["is_library"], bool):
+            resp.data = jsonify({"status": "failed","data": {"message": "is_library must be boolean."}})
+            return
+        successful = self.index.modifySample(sample_id, information_update)
+        if successful:
+            resp.data = jsonify({"status": "successful", "data": {"message": "Sample modified."}})
+            resp.status = falcon.HTTP_202
+        else:
+            resp.data = jsonify({"status": "failed", "data": {"message": "Failed to modify sample."}})
 
     @timing
     def on_post_collection(self, req, resp):
@@ -80,7 +108,6 @@ class SampleResource:
             return
         summary = self.index.addReportJson(req.media)
         if summary is not None:
-            # TODO 2019-05-10 return full sample_entry in response
             resp.data = jsonify({"status": "successful", "data": summary})
         else:
             resp.data = jsonify({"status": "failed", "data": {"message": "Could not process JSON."}})

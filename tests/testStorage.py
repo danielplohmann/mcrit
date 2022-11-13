@@ -71,6 +71,14 @@ class MemoryStorageTest(TestCase):
         self.assertIsNone(self.storage.getFamily(1000))
         self.assertIsNone(self.storage.getFamilyId("nonexistent"))
 
+        # family modification
+        self.storage.modifyFamily(1, {"family_name": "family_1a"})
+        self.assertEqual(None, self.storage.getFamilyId("family_1"))
+        self.assertEqual(4, self.storage.getFamilyId("family_1a"))
+        # family deletion
+        self.storage.deleteFamily(4)
+        self.assertEqual(None, self.storage.getFamilyId("family_1a"))
+
     def testSampleHandling(self):
         self.storage.clearStorage()
         # TODO: different samples required, because addSmdaReport wont accept identical hashes
@@ -141,6 +149,13 @@ class MemoryStorageTest(TestCase):
 
         self.assertEqual(0, self.storage.getSampleBySha256(64* "a").sample_id)
         self.assertEqual(None, self.storage.getSampleBySha256(64* "z"))
+
+        # test modifications
+        self.storage.modifySample(3, {"family_name": "changed_family", "version": "new_version", "component": "new_component", "is_library": True})
+        self.assertEqual("changed_family", self.storage.getSampleById(3).family)
+        self.assertEqual("new_version", self.storage.getSampleById(3).version)
+        self.assertEqual("new_component", self.storage.getSampleById(3).component)
+        self.assertEqual(True, self.storage.getSampleById(3).is_library)
 
         # test deletions
         self.assertFalse(self.storage.deleteSample(1000))

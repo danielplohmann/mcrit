@@ -106,6 +106,18 @@ class Worker(QueueRemoteCallee):
 
     #### REDIRECTED FROM INDEX: MAIN WORKER FUNKTIONALITY ###
 
+    def modifyFamily(self, family_id, update_information):
+        return self._storage.modifyFamily(family_id, update_information)
+
+    def modifySample(self, sample_id, update_information):
+        return self._storage.modifySample(sample_id, update_information)
+
+    def deleteSample(self, sample_id):
+        return self._storage.deleteSample(sample_id)
+
+    def deleteFamily(self, family_id, keep_samples=False):
+        return self._storage.deleteFamily(family_id, keep_samples=keep_samples)
+
     def _addReport(self, smda_report, calculate_hashes=True, calculate_matches=False) -> "SampleEntry":
         sample_entry = self._storage.getSampleBySha256(smda_report.sha256)
         if sample_entry:

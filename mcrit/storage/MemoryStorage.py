@@ -209,8 +209,80 @@ class MemoryStorage(StorageInterface):
         del self._samples[sample_id]
         return True
 
+    def modifySample(self, sample_id: int, update_information: dict) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        if "is_library" in update_information:
+            is_library_info_changed = self._samples[sample_id].is_library != update_information["is_library"]
+            self._samples[sample_id].is_library = update_information["is_library"]
+            if is_library_info_changed:
+                self._families[family_id].num_library_samples += 1 if update_information["is_library"] else -1
+        if "family_name" in update_information:
+            family_name = update_information["family_name"]
+            old_family_id = self._samples[sample_id].family_id
+            family_id = self.addFamily(family_name)
+            # update sample_entry and function_entries with new family information
+            self._samples[sample_id].family = family_name
+            self._samples[sample_id].family_id = family_id
+            for function_id, function_entry in self._functions.items():
+                if function_entry.sample_id == sample_id:
+                    function_entry.family_id = family_id
+                    self._functions[function_id] = function_entry  
+                    self._pichashes[function_entry.pichash].remove((old_family_id, sample_id, function_id))
+                    self._pichashes[function_entry.pichash].add((family_id, sample_id, function_id))
+            # update family information itself
+            self._families[old_family_id].num_samples -= 1
+            self._families[old_family_id].num_functions -= self._samples[sample_id].statistics["num_functions"]
+            self._families[family_id].num_samples += 1
+            self._families[family_id].num_functions += self._samples[sample_id].statistics["num_functions"]
+            if self._samples[sample_id].is_library:
+                self._families[old_family_id].num_library_samples -= 1
+                self._families[family_id].num_library_samples += 1
+            if self._families[old_family_id].num_samples == 0:
+                self._families.pop(old_family_id)
+        if "version" in update_information:
+            self._samples[sample_id].version = update_information["version"]
+        if "component" in update_information:
+            self._samples[sample_id].component = update_information["component"]
+        return True
+
+    def modifyFamily(self, family_id: int, update_information: dict) -> bool:
+        if not self.isFamilyId(family_id):
+            return False
+        old_family_info = self.getFamily(family_id)
+        if "is_library" in update_information:
+            for sample_id, sample_entry in self._samples.items():
+                if family_id == sample_entry.family_id:
+                    self._samples["sample_id"].is_library = update_information["is_library"]
+            self._families[family_id].num_library_samples = self._families[family_id].num_samples
+        if "family_name" in update_information:
+            old_family_info = self.getFamily(family_id)
+            family_name = update_information["family_name"]
+            new_family_id = self.addFamily(family_name)
+            new_family_info = self.getFamily(new_family_id)
+            new_num_samples = new_family_info.num_samples + old_family_info.num_samples
+            new_num_functions = new_family_info.num_functions + old_family_info.num_functions
+            new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
+            # update family_entry
+            self._families.pop(family_id)
+            self._families[new_family_id].num_samples = new_num_samples
+            self._families[new_family_id].new_num_functions = new_num_functions
+            self._families[new_family_id].num_library_samples = new_num_lib_samples
+            # update sample_entry and function_entries with new family information
+            for sample_id, sample_entry in self._samples.items():
+                if family_id == sample_entry.family_id:
+                    self._samples[sample_id].family_id = new_family_id
+                    self._samples[sample_id].family = family_name
+            for function_id, function_entry in self._functions.items():
+                if family_id == function_entry.family_id:
+                    self._functions[function_id].family_id = new_family_id
+                    self._pichashes[function_entry.pichash].remove((family_id, sample_id, function_id))
+                    self._pichashes[function_entry.pichash].add((new_family_id, sample_id, function_id))
+        self._updateDbState()
+        return True
+
     def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
-        if family_id not in self.families:
+        if family_id not in self._families:
             return False
         sample_entries = self.getSamplesByFamilyId(family_id)
         self._families.pop(family_id)
