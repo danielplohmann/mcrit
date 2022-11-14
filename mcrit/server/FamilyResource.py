@@ -49,9 +49,14 @@ class FamilyResource:
         if "family_name" in information_update and not re.match("^(?=[a-zA-Z0-9._\-]{0,64}$)(?!.*[\-_.]{2})[^\-_.].*[^\-_.]$", information_update["family_name"]):
             resp.data = jsonify({"status": "failed","data": {"message": "family_name may be 0-64 alphanumeric chars with single dots, dashes, underscores inbetween."}})
             return
-        if "is_library" in information_update and not isinstance(information_update["is_library"], bool):
-            resp.data = jsonify({"status": "failed","data": {"message": "is_library must be boolean."}})
-            return
+        if "is_library" in information_update:
+            if not (isinstance(information_update["is_library"], bool) or information_update["is_library"] in ["True", "False", "true", "false", "0", "1", 0, 1]):
+                resp.data = jsonify({"status": "failed","data": {"message": "is_library must be boolean."}})
+                return
+            if information_update["is_library"] in ["True", "true", "1", 1]:
+                information_update["is_library"] = True
+            elif information_update["is_library"] in ["False", "false", "0", 0]:
+                information_update["is_library"] = False
         successful = self.index.modifyFamily(family_id, information_update)
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Family modified."}})

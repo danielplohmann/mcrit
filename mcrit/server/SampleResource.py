@@ -83,9 +83,14 @@ class SampleResource:
         if "component" in information_update and not re.match("^[ -~]{1,64}$", information_update["component"]):
             resp.data = jsonify({"status": "failed","data": {"message": "component may be 0-64 printable characters."}})
             return
-        if "is_library" in information_update and not isinstance(information_update["is_library"], bool):
-            resp.data = jsonify({"status": "failed","data": {"message": "is_library must be boolean."}})
-            return
+        if "is_library" in information_update:
+            if not (isinstance(information_update["is_library"], bool) or information_update["is_library"] in ["True", "False", "true", "false", "0", "1", 0, 1]):
+                resp.data = jsonify({"status": "failed","data": {"message": "is_library must be boolean."}})
+                return
+            if information_update["is_library"] in ["True", "true", "1", 1]:
+                information_update["is_library"] = True
+            elif information_update["is_library"] in ["False", "false", "0", 0]:
+                information_update["is_library"] = False
         successful = self.index.modifySample(sample_id, information_update)
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Sample modified."}})
