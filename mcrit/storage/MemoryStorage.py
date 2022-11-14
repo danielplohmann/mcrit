@@ -238,7 +238,7 @@ class MemoryStorage(StorageInterface):
             if self._samples[sample_id].is_library:
                 self._families[old_family_id].num_library_samples -= 1
                 self._families[family_id].num_library_samples += 1
-            if self._families[old_family_id].num_samples == 0:
+            if self._families[old_family_id].num_samples == 0 and old_family_id != 0:
                 self._families.pop(old_family_id)
         if "version" in update_information:
             self._samples[sample_id].version = update_information["version"]
@@ -264,9 +264,14 @@ class MemoryStorage(StorageInterface):
             new_num_functions = new_family_info.num_functions + old_family_info.num_functions
             new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
             # update family_entry
-            self._families.pop(family_id)
+            if family_id == 0:
+                self._families[0].num_samples = 0
+                self._families[0].num_functions = 0
+                self._families[0].num_library_samples = 0
+            else:
+                self._families.pop(family_id)
             self._families[new_family_id].num_samples = new_num_samples
-            self._families[new_family_id].new_num_functions = new_num_functions
+            self._families[new_family_id].num_functions = new_num_functions
             self._families[new_family_id].num_library_samples = new_num_lib_samples
             # update sample_entry and function_entries with new family information
             for sample_id, sample_entry in self._samples.items():
@@ -285,7 +290,12 @@ class MemoryStorage(StorageInterface):
         if family_id not in self._families:
             return False
         sample_entries = self.getSamplesByFamilyId(family_id)
-        self._families.pop(family_id)
+        if family_id == 0:
+            self._families[0].num_samples = 0
+            self._families[0].num_functions = 0
+            self._families[0].num_library_samples = 0
+        else:
+            self._families.pop(family_id)
         if keep_samples:
             for sample_entry in sample_entries:
                 self._samples[sample_entry.sample_id]["family_id"] = 0
@@ -296,6 +306,9 @@ class MemoryStorage(StorageInterface):
                     function_ids_to_modify.add(function_id)
             for function_id in function_ids_to_modify:
                     self._functions[function_id]["family_id"] = 0
+            self._families[0].num_samples += len(sample_entries)
+            self._families[0].num_functions += len(function_ids_to_modify)
+            self._families[0].num_library_samples += len([s for s in sample_entries if s.is_library])
         else:
             for sample_entry in sample_entries:
                 self.deleteSample(sample_entry.sample_id)
