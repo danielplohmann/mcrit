@@ -383,6 +383,13 @@ class MongoDbStorage(StorageInterface):
         self._database.functions.delete_many({"sample_id": sample_id})
         # remove sample
         self._database.samples.delete_one({"sample_id": sample_id})
+        # delete family if empty
+        family_info = self.getFamily(sample_entry.family_id)
+        if family_info.num_samples == 0:
+            self._database.families.delete_one({"family_id": family_info.family_id})
+            # ensure we always have family_id 0 as empty family.
+            if family_info.family_id == 0:
+                self.addFamily("")
         self._updateDbState()
         return True
 
@@ -440,6 +447,9 @@ class MongoDbStorage(StorageInterface):
             # delete family if empty
             if old_family_entry.num_samples == 0:
                 self._database.families.delete_one({"family_id": old_family_entry.family_id})
+                # ensure we always have family_id 0 as empty family.
+                if old_family_entry.family_id == 0:
+                    self.addFamily("")
             self._updateDbState()
         if "version" in update_information:
             self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"version": update_information["version"]}})
@@ -465,6 +475,9 @@ class MongoDbStorage(StorageInterface):
             new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
             # update family_entry
             self._database.families.delete_one({"family_id": family_id})
+            # ensure we always have family_id 0 as empty family.
+            if family_id == 0:
+                self.addFamily("")
             self._database.families.update_one({"family_id": new_family_id}, {"$set": {"num_samples": new_num_samples, "num_functions": new_num_functions, "num_library_samples": new_num_lib_samples}})
             # update sample_entry and function_entries with new family information
             self._database.samples.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id, "family": family_name}})
@@ -478,13 +491,16 @@ class MongoDbStorage(StorageInterface):
         if family_document is None:
             return False
         sample_entries = self.getSamplesByFamilyId(family_id)
-        self._database.families.delete_one({"family_id": family_id})
         if keep_samples:
             self._database.samples.update_many({"family_id": family_id}, {"$set": {"family_id": 0, "family": ""}})
             self._database.functions.update_many({"family_id": family_id}, {"$set": {"family_id": 0}})
         else:
             for sample_entry in sample_entries:
                 self.deleteSample(sample_entry.sample_id)
+        self._database.families.delete_one({"family_id": family_id})
+        # ensure we always have family_id 0 as empty family.
+        if family_id == 0:
+            self.addFamily("")
         self._updateDbState()
         return True
 

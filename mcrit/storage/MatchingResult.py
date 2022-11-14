@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.MatchedSampleEntry import MatchedSampleEntry
 from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
+import mcrit.matchers.MatcherInterface as MatcherInterface
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.SampleEntry import SampleEntry
@@ -18,6 +19,8 @@ class MatchingResult(object):
     match_aggregation: Dict
     sample_matches: List["MatchedSampleEntry"]
     function_matches: List["MatchedFunctionEntry"]
+    # function_id -> [(family_id, sample_id), ...]
+    library_matches: Dict
     is_family_filtered: bool
     is_sample_filtered: bool
     is_function_filtered: bool
@@ -174,12 +177,16 @@ class MatchingResult(object):
         matching_entry.sample_matches = [MatchedSampleEntry.fromDict(entry) for entry in entry_dict["matches"]["samples"]]
         # expand function matches into individual entries
         list_of_function_matches = []
+        matching_entry.library_matches = {entry["fid"]: [] for entry in entry_dict["matches"]["functions"]}
         for function_match_summary in entry_dict["matches"]["functions"]:
             num_bytes = function_match_summary["num_bytes"]
             offset = function_match_summary["offset"]
             function_id = function_match_summary["fid"]
             for match_tuple in function_match_summary["matches"]:
                 list_of_function_matches.append(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
+                if match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG:
+                    if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
+                        matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
         matching_entry.function_matches = list_of_function_matches
         return matching_entry
 

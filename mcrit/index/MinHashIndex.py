@@ -243,6 +243,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     # these need to be jobs to ensure database consistency
     def deleteSample(self, sample_id):
     def deleteFamily(self, family_id, keep_samples=False):
+    def modifyFamily(self, family_id, update_information):
+    def modifySample(self, sample_id, update_information):
     """
 
     #### NOT REDIRECTED ####
