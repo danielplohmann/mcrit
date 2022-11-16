@@ -353,12 +353,14 @@ class MongoDbStorage(StorageInterface):
             # remove sample
             self._database.query_samples.delete_one({"sample_id": sample_id})
             return 
-        # TODO the way of removing function_ids from band hashes here is super inefficient and slow
         function_entries = self.getFunctionsBySampleId(sample_id)
         if function_entries is None:
             # in this case sample_id is does not exist
             return False
 
+        # collect all band entries that need updating and pull all function_ids at once.
+        # might need to batch this into slices of function_ids again
+        minhashes_to_remove = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         for function_entry in function_entries:
             minhash = function_entry.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
             # remove minhash entries, if necessary
@@ -366,15 +368,11 @@ class MongoDbStorage(StorageInterface):
                 continue
             band_hashes = self.getBandHashesForMinHash(minhash)
             for band_number, band_hash in sorted(band_hashes.items()):
-                # delete function id from bandhash
-                band_document = self._database["band_%d" % band_number].find_one_and_update(
-                    {"band_hash": band_hash},
-                    {"$pull": {"function_ids": minhash.function_id}},
-                    return_document=ReturnDocument.AFTER,
-                )
-                # delete bandhash if empty
-                if band_document is not None and len(band_document["function_ids"]) == 0:
-                    self._database["band_%d" % band_number].delete_one({"band_hash": band_hash})
+                if band_hash not in minhashes_to_remove[band_number]:
+                    minhashes_to_remove[band_number][band_hash] = []
+                if function_entry.function_id not in minhashes_to_remove[band_number][band_hash]:
+                    minhashes_to_remove[band_number][band_hash].append(function_entry.function_id)
+        self._updateBands(minhashes_to_remove, method="pull")
 
         # update family stats
         sample_entry = self.getSampleById(sample_id)
@@ -738,16 +736,23 @@ class MongoDbStorage(StorageInterface):
                     band_hashes[band_number][band_hash].append(minhash.function_id)
         self._updateBands(band_hashes)
 
-    def _updateBands(self, band_hashes: Dict[int, Dict[int, List[int]]]) -> None:
+    def _updateBands(self, band_hashes: Dict[int, Dict[int, List[int]]], method="push") -> None:
+        if method not in ["push", "pull"]:
+            raise ValueError(f"MongoDbStorage._updateBands() can only do 'push' and 'pull', not '{method}'.")
         num_band_updates = 0
         for band_number, band_data in band_hashes.items():
             band_updates = []
             for band_hash, function_ids in band_data.items():
+                update_command = None
                 if len(function_ids) >= 1:
-                    push_command = {"$push": {"function_ids": {"$each": function_ids}}}
-                band_updates.append(UpdateOne({"band_hash": band_hash}, push_command, upsert=True))
+                    if method == "push":
+                        update_command = {"$push": {"function_ids": {"$each": function_ids}}}
+                    else:
+                        update_command = {"$pull": {"function_ids": function_ids}}
+                band_updates.append(UpdateOne({"band_hash": band_hash}, update_command, upsert=True))
             self._database["band_%d" % band_number].bulk_write(band_updates, ordered=False)
             num_band_updates += len(band_updates)
+        return num_band_updates
 
     def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"]) -> Dict[int, Set[int]]:
         candidates = {}
