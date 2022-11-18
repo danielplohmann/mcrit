@@ -57,9 +57,9 @@ class SampleResource:
 
     @timing
     def on_delete(self, req, resp, sample_id=None):
-        successful = self.index.deleteSample(sample_id)
+        successful = self.index.deleteSample(sample_id, force_recalculation=True)
         if successful:
-            resp.data = jsonify({"status": "successful", "data": {"message": "Sample deleted."}})
+            resp.data = jsonify({"status": "successful", "data": successful})
             resp.status = falcon.HTTP_202
         else:
             resp.data = jsonify({"status": "failed", "data": {"message": "Failed to delete sample."}})
@@ -91,7 +91,7 @@ class SampleResource:
                 information_update["is_library"] = True
             elif information_update["is_library"] in ["False", "false", "0", 0]:
                 information_update["is_library"] = False
-        successful = self.index.modifySample(sample_id, information_update)
+        successful = self.index.modifySample(sample_id, information_update, force_recalculation=True)
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Sample modified."}})
             resp.status = falcon.HTTP_202

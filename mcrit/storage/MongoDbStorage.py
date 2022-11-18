@@ -347,6 +347,9 @@ class MongoDbStorage(StorageInterface):
         return function_document["sample_id"]
 
     def deleteSample(self, sample_id: int) -> bool:
+        sample_entry = self.getSampleById(sample_id)
+        if sample_entry is None:
+            return False
         if sample_id < 0:
             # remove functions
             self._database.query_functions.delete_many({"sample_id": sample_id})
@@ -375,7 +378,6 @@ class MongoDbStorage(StorageInterface):
         self._updateBands(minhashes_to_remove, method="pull")
 
         # update family stats
-        sample_entry = self.getSampleById(sample_id)
         self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove functions
         self._database.functions.delete_many({"sample_id": sample_id})
@@ -455,7 +457,8 @@ class MongoDbStorage(StorageInterface):
         old_family_info = self.getFamily(family_id)
         if "is_library" in update_information:
             self._database.samples.update_many({"family_id": family_id}, {"$set": {"is_library": update_information["is_library"]}})
-            self._database.families.update_one({"family_id": family_id}, {"$set": {"num_library_samples": old_family_info.num_samples}})
+            updated_count = old_family_info.num_samples if update_information["is_library"] else 0
+            self._database.families.update_one({"family_id": family_id}, {"$set": {"num_library_samples": updated_count}})
             self._updateDbState()
         if "family_name" in update_information:
             old_family_info = self.getFamily(family_id)
@@ -478,13 +481,14 @@ class MongoDbStorage(StorageInterface):
         return True
 
     def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
-        family_document = self._database.families.find_one({"family_id": family_id})
-        if family_document is None:
+        family_entry = self.getFamily(family_id)
+        if family_entry is None:
             return False
         sample_entries = self.getSamplesByFamilyId(family_id)
         if keep_samples:
             self._database.samples.update_many({"family_id": family_id}, {"$set": {"family_id": 0, "family": ""}})
             self._database.functions.update_many({"family_id": family_id}, {"$set": {"family_id": 0}})
+            self._updateFamilyStats(0, family_entry.num_samples, family_entry.num_functions, family_entry.num_library_samples)
         else:
             for sample_entry in sample_entries:
                 self.deleteSample(sample_entry.sample_id)
@@ -748,7 +752,7 @@ class MongoDbStorage(StorageInterface):
                     if method == "push":
                         update_command = {"$push": {"function_ids": {"$each": function_ids}}}
                     else:
-                        update_command = {"$pull": {"function_ids": function_ids}}
+                        update_command = {"$pull": {"function_ids": {"$in": function_ids}}}
                 band_updates.append(UpdateOne({"band_hash": band_hash}, update_command, upsert=True))
             self._database["band_%d" % band_number].bulk_write(band_updates, ordered=False)
             num_band_updates += len(band_updates)

@@ -57,7 +57,7 @@ class FamilyResource:
                 information_update["is_library"] = True
             elif information_update["is_library"] in ["False", "false", "0", 0]:
                 information_update["is_library"] = False
-        successful = self.index.modifyFamily(family_id, information_update)
+        successful = self.index.modifyFamily(family_id, information_update, force_recalculation=True)
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Family modified."}})
             resp.status = falcon.HTTP_202
@@ -80,9 +80,9 @@ class FamilyResource:
         if "keep_samples" in req.params:
             keep_samples = req.params["keep_samples"].lower().strip() == "true"
         LOGGER.info("FamilyResource.on_delete")
-        successful = self.index.deleteFamily(family_id, keep_samples=keep_samples)
+        successful = self.index.deleteFamily(family_id, keep_samples=keep_samples, force_recalculation=True)
         if successful:
-            resp.data = jsonify({"status": "successful", "data": {"message": "Family deleted."}})
+            resp.data = jsonify({"status": "successful", "data": successful})
             resp.status = falcon.HTTP_202
         else:
             resp.data = jsonify({"status": "failed", "data": {"message": "Failed to delete family."}})

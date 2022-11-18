@@ -111,16 +111,16 @@ class Worker(QueueRemoteCallee):
         return self._storage.modifyFamily(family_id, update_information)
 
     @Remote(progress=True)
+    def deleteFamily(self, family_id, keep_samples=False, progress_reporter=NoProgressReporter()):
+        return self._storage.deleteFamily(family_id, keep_samples=keep_samples)
+
+    @Remote(progress=True)
     def modifySample(self, sample_id, update_information, progress_reporter=NoProgressReporter()):
         return self._storage.modifySample(sample_id, update_information)
 
     @Remote(progress=True)
     def deleteSample(self, sample_id, progress_reporter=NoProgressReporter()):
         return self._storage.deleteSample(sample_id)
-
-    @Remote(progress=True)
-    def deleteFamily(self, family_id, keep_samples=False, progress_reporter=NoProgressReporter()):
-        return self._storage.deleteFamily(family_id, keep_samples=keep_samples)
 
     def _addReport(self, smda_report, calculate_hashes=True, calculate_matches=False) -> "SampleEntry":
         sample_entry = self._storage.getSampleBySha256(smda_report.sha256)

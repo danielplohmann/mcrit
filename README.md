@@ -82,6 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-11-18 v0.18.8: Harmonized handling of deletion and modifications, minor fixes.
  * 2022-11-13 v0.18.7: Drastically accelerated sample deletion.
  * 2022-11-13 v0.18.6: Added functionality to modify existing sample and family information.
  * 2022-11-11 v0.18.2: Upgrading matching procedure, should now be able to handle larger binaries more robustly and efficiently.
