@@ -495,12 +495,12 @@ class MemoryStorage(StorageInterface):
     def isPicHash(self, pichash: int) -> bool:
         return pichash in self._pichashes
 
-    def getMatchesForPicHash(self, pichash: int) -> Optional[Set[Tuple[int, int, int]]]:
+    def getMatchesForPicHash(self, pichash: int) -> Set[Tuple[int, int, int]]:
         if pichash not in self._pichashes:
             return set()
         return deepcopy(self._pichashes[pichash])
 
-    def getMatchesForPicBlockHash(self, picblockhash: int) -> Optional[Set[Tuple[int, int, int, int]]]:
+    def getMatchesForPicBlockHash(self, picblockhash: int) -> Set[Tuple[int, int, int, int]]:
         result = set()
         for function_id, function_entry in self._functions.items():
             for pbh in function_entry.picblockhashes:
