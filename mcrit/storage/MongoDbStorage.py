@@ -196,6 +196,8 @@ class MongoDbStorage(StorageInterface):
 
 
     def _dbInsertMany(self, collection: str, data: List["Dict"]):
+        if len(data) == 0:
+            return []
         try:
             insert_result = self._database[collection].insert_many([self._toBinary(document) for document in data])
             if insert_result.acknowledged:
