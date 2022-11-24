@@ -190,7 +190,7 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database insert for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc(exc).split("\n")},
+                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database insert failed.")
 
@@ -206,7 +206,7 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database insert_many for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc(exc).split("\n")},
+                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database insert failed.")
 
@@ -219,7 +219,7 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database query for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc(exc).split("\n")},
+                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database query failed.")
 
