@@ -515,7 +515,7 @@ class MongoDbStorage(StorageInterface):
         return sample_entries
 
     def clearStorage(self) -> None:
-        collections = ["samples", "families", "functions", "matches", "candidates", "counters"]
+        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions"]
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
