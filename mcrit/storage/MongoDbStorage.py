@@ -645,7 +645,7 @@ class MongoDbStorage(StorageInterface):
         return self.getPicHashMatchesByFunctionIds(function_ids)
 
     def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
-        query_result = self._database.functions.find_one({"function_id": function_id})
+        query_result = self._database.functions.find_one({"function_id": function_id}, {"_id": 0, "_pichash": 1})
         if query_result is None or not "_pichash" in query_result:
             return None
         self._decodePichash(query_result, delete_old=False)
@@ -657,7 +657,7 @@ class MongoDbStorage(StorageInterface):
         sample_and_function_ids = set(
             map(
                 lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
-                list(self._database.functions.find({"_pichash": encoded_pichash})),
+                list(self._database.functions.find({"_pichash": encoded_pichash}, {"family_id": 1, "sample_id": 1, "function_id":1, "_id": 0})),
             )
         )
 
@@ -668,6 +668,7 @@ class MongoDbStorage(StorageInterface):
         pichash_raw = self._database.functions.find({"function_id": {"$in": function_ids}}, {"_pichash": 1, "_id": 0})
         pichashes_list = list(pichash_raw)  # broken? TODO
         pichashes = {}
+        fields_to_fetch =  {"family_id": 1, "sample_id": 1, "function_id":1, "_id": 0}
         for pichash in pichashes_list:
             # TODO what happens if pichash does not exist??
             self._decodePichash(pichash, delete_old=False)
@@ -678,7 +679,7 @@ class MongoDbStorage(StorageInterface):
             pichashes[decoded_pichash] = set(
                 map(
                     lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
-                    list(self._database.functions.find({"_pichash": encoded_pichash})),
+                    list(self._database.functions.find({"_pichash": encoded_pichash}, fields_to_fetch)),
                 )
             )
         return pichashes
