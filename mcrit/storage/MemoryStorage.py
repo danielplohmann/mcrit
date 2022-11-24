@@ -13,6 +13,7 @@ from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
 
@@ -21,7 +22,6 @@ if TYPE_CHECKING: # pragma: no cover
     from mcrit.config.StorageConfig import StorageConfig
     from mcrit.config.MinHashConfig import MinHashConfig
     from mcrit.minhash.MinHash import MinHash
-    from mcrit.storage.MatchingCache import MatchingCache
     from smda.common.SmdaFunction import SmdaFunction
     from smda.common.SmdaReport import SmdaReport
 
@@ -440,9 +440,29 @@ class MemoryStorage(StorageInterface):
         for minhash in minhashes:
             self.addMinHash(minhash)
 
-    def createMatchingCache(self, function_ids: List[int]) -> "MemoryStorage":
-        """We are already memory-only and won't gain anything using a cache"""
-        return self
+    def createMatchingCache(self, function_ids: List[int]) -> MatchingCache:
+        # TODO: we might want add a flag to allow/disallow returning self
+        cache_data = self._getCacheDataForFunctionIds(function_ids)
+        return MatchingCache(cache_data)
+
+    def _getCacheDataForFunctionIds(self, function_ids: List[int]) -> Dict:
+        cache_data = {}
+        sample_ids = {}
+        sample_to_func_ids = {}
+        minhashes = {}
+        for function_id in function_ids:
+            function_entry = self._functions[function_id]
+            function_id = function_entry.function_id
+            sample_id = function_entry.sample_id
+            minhashes[function_id] = function_entry.minhash
+            sample_ids[function_id] = sample_id
+            if sample_id not in sample_to_func_ids:
+                sample_to_func_ids[sample_id] = set()
+            sample_to_func_ids[sample_id].add(function_id)
+        cache_data["func_id_to_minhash"] = minhashes
+        cache_data["func_id_to_sample_id"] = sample_ids
+        cache_data["sample_id_to_func_ids"] = sample_to_func_ids
+        return cache_data
 
     def clearMatchingCache(self) -> None:
         """no dedicated cache - no cleanup"""
