@@ -190,12 +190,14 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database insert for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc(exc).split("\n")},
+                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database insert failed.")
 
 
     def _dbInsertMany(self, collection: str, data: List["Dict"]):
+        if len(data) == 0:
+            return []
         try:
             insert_result = self._database[collection].insert_many([self._toBinary(document) for document in data])
             if insert_result.acknowledged:
@@ -204,7 +206,7 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database insert_many for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc(exc).split("\n")},
+                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database insert failed.")
 
@@ -217,7 +219,7 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database query for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc(exc).split("\n")},
+                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database query failed.")
 
@@ -513,7 +515,7 @@ class MongoDbStorage(StorageInterface):
         return sample_entries
 
     def clearStorage(self) -> None:
-        collections = ["samples", "families", "functions", "matches", "candidates", "counters"]
+        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions"]
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
