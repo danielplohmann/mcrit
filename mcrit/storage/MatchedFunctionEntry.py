@@ -58,17 +58,7 @@ class MatchedFunctionEntry(object):
 
     @classmethod
     def fromDict(cls, entry_dict):
-        matching_entry = cls(None)
-        matching_entry.function_id = entry_dict["fid"]
-        matching_entry.num_bytes = entry_dict["num_bytes"]
-        matching_entry.offset = entry_dict["offset"]
-        matching_entry.matched_family_id = entry_dict["matches"][0]
-        matching_entry.matched_sample_id = entry_dict["matches"][1]
-        matching_entry.matched_function_id = entry_dict["matches"][2]
-        matching_entry.matched_score = entry_dict["matches"][3]
-        matching_entry.match_is_minhash = True if entry_dict["matches"][4] & MatcherInterface.IS_MINHASH_FLAG else False
-        matching_entry.match_is_pichash = True if entry_dict["matches"][4] & MatcherInterface.IS_PICHASH_FLAG else False
-        matching_entry.match_is_library = True if entry_dict["matches"][4] & MatcherInterface.IS_LIBRARY_FLAG else False
+        matching_entry = cls(entry_dict["fid"], entry_dict["num_bytes"], entry_dict["offset"], entry_dict["matches"])
         return matching_entry
 
     def __str__(self):

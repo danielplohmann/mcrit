@@ -22,7 +22,7 @@ from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
 from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.minhash.MinHash import MinHash
-from mcrit.matchers.MatcherInterface import MatcherInterface
+import mcrit.matchers.MatcherInterface as MatcherInterface
 from mcrit.Worker import Worker
 
 logging.basicConfig(level=logging.INFO)

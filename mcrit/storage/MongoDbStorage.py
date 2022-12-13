@@ -761,7 +761,7 @@ class MongoDbStorage(StorageInterface):
             num_band_updates += len(band_updates)
         return num_band_updates
 
-    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"]) -> Dict[int, Set[int]]:
+    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
         candidates = {}
         target_band_hashes_per_band = {band_number: set() for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         band_hash_to_function_ids = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
@@ -781,21 +781,40 @@ class MongoDbStorage(StorageInterface):
                 reference_function_ids = band_hash_to_function_ids[band_number][hit["band_hash"]]
                 for function_id in reference_function_ids:
                     if function_id not in candidates:
-                        candidates[function_id] = set()
-                    candidates[function_id].update(hit["function_ids"])
-        return candidates
+                        candidates[function_id] = {}
+                    for hit_function_id in hit["function_ids"]:
+                        if hit_function_id not in candidates[function_id]:
+                            candidates[function_id][hit_function_id] = 0
+                        candidates[function_id][hit_function_id] += 1
+        # reduce candidates based on banding requirements
+        valid_candidates = {}
+        for function_id, hit_counters in candidates.items():
+            for other_id, count in hit_counters.items():
+                if count >= band_matches_required:
+                    if function_id not in valid_candidates:
+                        valid_candidates[function_id] = set()
+                    valid_candidates[function_id].add(other_id)
+        return valid_candidates
 
-    def getCandidatesForMinHash(self, minhash: "MinHash") -> Set[int]:
+    def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
         if not minhash.hasMinHash():
             return
-        candidates = set([])
+        candidates = {}
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
             band_hash_query = {"band_hash": band_hash}
             band_document = self._database["band_%d" % band_number].find_one(band_hash_query)
             if band_document:
-                candidates.update(band_document["function_ids"])
-        return candidates
+                for function_id in band_document["function_ids"]:
+                    if function_id not in candidates:
+                        candidates[function_id] = 0
+                    candidates[function_id] += 1
+        # reduce candidates based on banding requirements
+        valid_candidates = set([])
+        for function_id, hit_count in candidates.items():
+            if hit_count >= band_matches_required:
+                valid_candidates.add(function_id)
+        return valid_candidates
 
     def _getCacheDataForFunctionIds(self, function_ids: List[int]) -> Dict:
         cache_data = {}

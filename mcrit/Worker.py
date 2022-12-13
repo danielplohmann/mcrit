@@ -277,10 +277,19 @@ class Worker(QueueRemoteCallee):
     # Reports PROGRESS
     @Remote(progress=True, json_locations=[0])
     def getMatchesForSmdaReport(
-        self, report_json, minhash_threshold=None, pichash_size=None, progress_reporter=NoProgressReporter()
+        self, 
+        report_json, 
+        minhash_threshold=None, 
+        pichash_size=None, 
+        band_matches_required=None, 
+        progress_reporter=NoProgressReporter()
     ):
         matcher = MatcherQuery(
-            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, progress_reporter=progress_reporter
+            self, 
+            minhash_threshold=minhash_threshold, 
+            pichash_size=pichash_size, 
+            band_matches_required=band_matches_required,
+            progress_reporter=progress_reporter
         )
         smda_report = SmdaReport.fromDict(report_json)
         match_report = matcher.getMatchesForSmdaReport(smda_report)
@@ -289,14 +298,24 @@ class Worker(QueueRemoteCallee):
     # Reports PROGRESS
     @Remote(progress=True, file_locations=[0])
     def getMatchesForMappedBinary(
-        self, binary, base_address, minhash_threshold=None, pichash_size=None, progress_reporter=NoProgressReporter()
+        self, 
+        binary, 
+        base_address, 
+        minhash_threshold=None, 
+        pichash_size=None, 
+        band_matches_required=None,
+        progress_reporter=NoProgressReporter()
     ):
         config = SmdaConfig()
         SMDA_REPORT = None
         DISASSEMBLER = Disassembler(config)
         SMDA_REPORT = DISASSEMBLER.disassembleBuffer(binary, base_address)
         matcher = MatcherQuery(
-            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, progress_reporter=progress_reporter
+            self, 
+            minhash_threshold=minhash_threshold, 
+            pichash_size=pichash_size, 
+            band_matches_required=band_matches_required,
+            progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSmdaReport(SMDA_REPORT)
         return match_report
@@ -304,14 +323,23 @@ class Worker(QueueRemoteCallee):
     # Reports PROGRESS
     @Remote(progress=True, file_locations=[0])
     def getMatchesForUnmappedBinary(
-        self, binary, minhash_threshold=None, pichash_size=None, progress_reporter=NoProgressReporter()
+        self, 
+        binary, 
+        minhash_threshold=None, 
+        pichash_size=None, 
+        band_matches_required=None,
+        progress_reporter=NoProgressReporter()
     ):
         config = SmdaConfig()
         SMDA_REPORT = None
         DISASSEMBLER = Disassembler(config)
         SMDA_REPORT = DISASSEMBLER.disassembleUnmappedBuffer(binary)
         matcher = MatcherQuery(
-            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, progress_reporter=progress_reporter
+            self, 
+            minhash_threshold=minhash_threshold, 
+            pichash_size=pichash_size, 
+            band_matches_required=band_matches_required,
+            progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSmdaReport(SMDA_REPORT)
         return match_report
@@ -319,10 +347,19 @@ class Worker(QueueRemoteCallee):
     # Reports PROGRESS
     @Remote(progress=True)
     def getMatchesForSample(
-        self, sample_id, minhash_threshold=None, pichash_size=None, progress_reporter=NoProgressReporter()
+        self, 
+        sample_id, 
+        minhash_threshold=None, 
+        pichash_size=None, 
+        band_matches_required=None,
+        progress_reporter=NoProgressReporter()
     ):
         matcher = MatcherSample(
-            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, progress_reporter=progress_reporter
+            self, 
+            minhash_threshold=minhash_threshold, 
+            pichash_size=pichash_size, 
+            band_matches_required=band_matches_required,
+            progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSample(sample_id)
         return match_report
@@ -335,10 +372,15 @@ class Worker(QueueRemoteCallee):
         other_sample_id,
         minhash_threshold=None,
         pichash_size=None,
+        band_matches_required=None,
         progress_reporter=NoProgressReporter(),
     ):
         matcher = MatcherVs(
-            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, progress_reporter=progress_reporter
+            self, 
+            minhash_threshold=minhash_threshold, 
+            pichash_size=pichash_size, 
+            band_matches_required=band_matches_required,
+            progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSample(sample_id, other_sample_id)
         return match_report

@@ -2,7 +2,7 @@ import datetime
 import functools
 import logging
 import math
-from collections import defaultdict
+from collections import defaultdict, Counter
 from multiprocessing import Pool, cpu_count
 from timeit import default_timer as timer
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
@@ -64,7 +64,7 @@ def add_duration(func):
 
 class MatcherInterface(object):
     def __init__(
-        self, worker: "Worker", minhash_threshold=None, pichash_size=None, progress_reporter=NoProgressReporter()
+        self, worker: "Worker", minhash_threshold=None, pichash_size=None, band_matches_required=None, progress_reporter=NoProgressReporter()
     ):
         # Extended by Query, VS, Sample
         self._worker: "Worker" = worker
@@ -76,6 +76,9 @@ class MatcherInterface(object):
         self._minhash_threshold = minhash_threshold
         if pichash_size is None:
             pichash_size = self._worker.config.MINHASH_CONFIG.PICHASH_SIZE
+        if band_matches_required is None:
+            band_matches_required = self._worker.config.MINHASH_CONFIG.BAND_MATCHES_REQUIRED
+        self._band_matches_required = band_matches_required
         self._pichash_size = pichash_size
         self._additional_setup()
         self._sample_to_lib_info: Dict[int, bool]
@@ -110,7 +113,7 @@ class MatcherInterface(object):
             function_id_to_minhash[function_entry.function_id] = function_entry.getMinHash(
                 minhash_bits=self._worker._minhash_config.MINHASH_SIGNATURE_BITS
             )
-        candidate_groups = self._storage.getCandidatesForMinHashes(function_id_to_minhash)
+        candidate_groups = self._storage.getCandidatesForMinHashes(function_id_to_minhash, band_matches_required=self._band_matches_required)
 
         return candidate_groups
 
@@ -176,18 +179,25 @@ class MatcherInterface(object):
         num_packed_tuples = self._countPackedTuples(candidate_groups)
         self._progress_reporter.set_total(num_packed_tuples)
         calculation_function = functools.partial(
-            self._worker.minhasher.calculateAggregatedScoresFromPackedTuples, minhash_threshold=self._minhash_threshold
+            self._worker.minhasher.calculateScoresFromPackedTuples, ignore_threshold=True, minhash_threshold=self._minhash_threshold
         )
         packed_tuples = [p for p in packed_tuples]
+        counted_scores = Counter()
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
             with Pool(cpu_count()) as pool:
                 for pool_result in tqdm.tqdm(
                     pool.imap_unordered(calculation_function, packed_tuples),
                     total=num_packed_tuples,
                 ):
-                    for key, new_value in pool_result.items():
-                        original_value = organized_matching_results[key]
-                        organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
+                    # for key, new_value in pool_result.items():
+                    for single_result in pool_result:
+                        sample_id_a, function_id_a, sample_id_b, function_id_b, score = single_result
+                        counted_scores[score] += 1
+                        if score > self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_THRESHOLD:
+                            key = (sample_id_a, function_id_a, sample_id_b)
+                            new_value = (function_id_b, score)
+                            original_value = organized_matching_results[key]
+                            organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
                     self._progress_reporter.step()
         else:
             packed_tuple: List[Tuple[int, int, bytes, int, int, bytes]]
@@ -197,6 +207,8 @@ class MatcherInterface(object):
                     original_value = organized_matching_results[key]
                     organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
                 self._progress_reporter.step()
+        full_score_counts = sorted([(item[0]*64/100, item[1]) for item in dict(counted_scores).items()])
+        LOGGER.info("Minhash Signature Field Match Counts: " + ", ".join([f"({i[0]}: {i[1]})" for i in full_score_counts]))
         matching_results = [k+v for k, v in organized_matching_results.items()]
         self._storage.clearMatchingCache()
         return matching_results

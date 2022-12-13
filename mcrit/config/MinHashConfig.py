@@ -27,6 +27,8 @@ class MinHashConfig(ConfigInterface):
     # When using as server, Gunicorn/Falcon may have issues with multiprocessing while indexing, which can be disabled this way.
     MINHASH_POOL_INDEXING: bool = True
     MINHASH_POOL_MATCHING: bool = True
+    # The minimum number of band matches a minhash must have before being considered a candidate for matching
+    BAND_MATCHES_REQUIRED = 1
     # minimum function size for considering PicHash matching
     PICHASH_SIZE: int = 10
     # do not perform minhash matching for pichash matches, instead assume they are implied

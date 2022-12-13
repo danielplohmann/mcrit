@@ -42,7 +42,7 @@ class MatcherVs(MatcherInterface):
         candidate_groups = super()._createMinHashCandidateGroups(start, end)
 
         allowed_function_ids = set([entry.function_id for entry in self._function_entries_b])
-        # NOTE Also include function ids of entry a to allow selfmatches
+        # NOTE Also include function ids of entry a to allow self-matches
         allowed_function_ids.update([entry.function_id for entry in self._function_entries])
         for fid, candidates in candidate_groups.items():
             candidate_groups[fid] = candidates.intersection(allowed_function_ids)

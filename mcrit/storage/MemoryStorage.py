@@ -639,20 +639,28 @@ class MemoryStorage(StorageInterface):
 
     # -> Dict[function_id, Set[function_id]]
     # TODO optimize or move to interface
-    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"]) -> Dict[int, Set[int]]:
+    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
         candidates = {}
         for function_id, minhash in function_id_to_minhash.items():
-            candidates[function_id] = self.getCandidatesForMinHash(minhash)
+            candidates[function_id] = self.getCandidatesForMinHash(minhash, band_matches_required=band_matches_required)
         return candidates
 
     # -> Set[function_id]
-    def getCandidatesForMinHash(self, minhash: "MinHash") -> Set[int]:
-        candidates = set([])
+    def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
+        candidates = {}
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
             if band_hash in self._bands[band_number]:
-                candidates.update(self._bands[band_number][band_hash])
-        return candidates
+                for function_id in self._bands[band_number][band_hash]:
+                    if function_id not in candidates:
+                        candidates[function_id] = 0
+                    candidates[function_id] += 1
+        # reduce candidates based on banding requirements
+        valid_candidates = set([])
+        for function_id, hit_count in candidates.items():
+            if hit_count >= band_matches_required:
+                valid_candidates.add(function_id)
+        return valid_candidates
 
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
         result = []

@@ -58,7 +58,7 @@ class McritClient:
             self.mcrit_server = mcrit_server
 
     def _getMatchingRequestParams(
-        self, minhash_threshold, pichash_size, force_recalculation
+        self, minhash_threshold, pichash_size, force_recalculation, band_matches_required
     ):
         params = {}
         if minhash_threshold is not None:
@@ -67,6 +67,8 @@ class McritClient:
             params["pichash_size"] = pichash_size
         if force_recalculation is not None:
             params["force_recalculation"] = force_recalculation
+        if band_matches_required is not None:
+            params["band_matches_required"] = band_matches_required
         return params
 
     def respawn(self):
@@ -237,10 +239,13 @@ class McritClient:
         smda_report: SmdaReport,
         minhash_threshold=None,
         pichash_size=None,
+        band_matches_required=None,
         force_recalculation=False,
     ) -> str:
         smda_json = smda_report.toDict()
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required
+        )
         response = requests.post(f"{self.mcrit_server}/query", json=smda_json, params=params)
         return handle_response(response)
 
@@ -250,6 +255,7 @@ class McritClient:
         base_address: int,
         minhash_threshold=None,
         pichash_size=None,
+        band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
     ) -> str:
@@ -262,10 +268,13 @@ class McritClient:
                 smda_report,
                 minhash_threshold=minhash_threshold,
                 pichash_size=pichash_size,
+                band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
             )
 
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required
+        )
         response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, params=params)
         return handle_response(response)
 
@@ -274,6 +283,7 @@ class McritClient:
         binary: bytes,
         minhash_threshold=None,
         pichash_size=None,
+        band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
     ) -> str:
@@ -286,10 +296,13 @@ class McritClient:
                 smda_report,
                 minhash_threshold=minhash_threshold,
                 pichash_size=pichash_size,
+                band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
             )
 
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required
+        )
 
         response = requests.post(f"{self.mcrit_server}/query/binary", binary, params=params)
         return handle_response(response)
@@ -299,10 +312,11 @@ class McritClient:
         sample_id,
         minhash_threshold=None,
         pichash_size=None,
+        band_matches_required=None,
         force_recalculation=False,
     ) -> None:
         params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", params=params)
         return handle_response(response)
@@ -313,10 +327,11 @@ class McritClient:
         other_sample_id,
         minhash_threshold=None,
         pichash_size=None,
+        band_matches_required=None,
         force_recalculation=False,
     ) -> str:
         params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}",params=params)
         return handle_response(response)
@@ -326,10 +341,11 @@ class McritClient:
         sample_ids,
         minhash_threshold=None,
         pichash_size=None,
+        band_matches_required=None,
         force_recalculation=False,
     ) -> None:
         params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
         response = requests.get(
             f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}",
