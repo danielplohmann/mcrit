@@ -42,11 +42,11 @@ class MatchResource:
         resp.data = jsonify({"status": "successful", "data": cross_matches})
 
     @timing
-    def on_get_sample_vs(self, req, resp, sample_id=None, sample_id_2=None):
+    def on_get_sample_vs(self, req, resp, sample_id=None, sample_id_b=None):
         # NOTE: We don't need to check if the kw parameters are None. The routing ensures that they are always set.
         LOGGER.info("SampleResource.on_get_matches_vs")
         parameters = getMatchingParams(req.params)
-        if not self.index.isSampleId(sample_id) or not self.index.isSampleId(sample_id_2):
+        if not self.index.isSampleId(sample_id) or not self.index.isSampleId(sample_id_b):
             resp.data = jsonify(
                 {
                     "status": "failed",
@@ -55,7 +55,7 @@ class MatchResource:
             )
             resp.status = falcon.HTTP_404
             return
-        sample_matches = self.index.getMatchesForSampleVs(sample_id, sample_id_2, **parameters)
+        sample_matches = self.index.getMatchesForSampleVs(sample_id, sample_id_b, **parameters)
         resp.data = jsonify({"status": "successful", "data": sample_matches})
 
     @timing
@@ -64,6 +64,16 @@ class MatchResource:
         return
 
     @timing
-    def on_get_function_vs(self, req, resp, function_id=None, function_id_2=None):
-        resp.status = falcon.HTTP_NOT_IMPLEMENTED
-        return
+    def on_get_function_vs(self, req, resp, function_id=None, function_id_b=None):
+        LOGGER.info("SampleResource.on_get_function_vs")
+        if not self.index.isFunctionId(function_id) or not self.index.isFunctionId(function_id_b):
+            resp.data = jsonify(
+                {
+                    "status": "failed",
+                    "data": {"message": "We don't have a sample with that id."},
+                }
+            )
+            resp.status = falcon.HTTP_404
+            return
+        function_match = self.index.getMatchesFunctionVs(function_id, function_id_b)
+        resp.data = jsonify({"status": "successful", "data": function_match})

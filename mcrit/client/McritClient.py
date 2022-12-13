@@ -337,6 +337,14 @@ class McritClient:
         )
         return handle_response(response)
 
+    def getMatchFunctionVs(
+        self,
+        function_id_a:int,
+        function_id_b:int
+    ) -> None:
+        response = requests.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}")
+        return handle_response(response)
+
     def getMatchesForPicHash(self, pichash, summary=False):
         summary_string = "/summary" if summary else ""
         response = requests.get(f"{self.mcrit_server}/query/pichash/{pichash:016x}{summary_string}")

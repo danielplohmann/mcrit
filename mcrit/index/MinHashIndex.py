@@ -19,8 +19,10 @@ from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller, NoProgressReporter
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
+from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
 from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.minhash.MinHash import MinHash
+from mcrit.matchers.MatcherInterface import MatcherInterface
 from mcrit.Worker import Worker
 
 logging.basicConfig(level=logging.INFO)
@@ -279,6 +281,40 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, **params)
             sample_to_job_id[id] = job_id
         return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation)
+
+    def getMatchesFunctionVs(self, function_id_a:int, function_id_b:int):
+        function_entry_a = self._storage.getFunctionById(function_id_a, with_xcfg=True)
+        function_entry_b = self._storage.getFunctionById(function_id_b, with_xcfg=True)
+        if function_entry_a is None or function_entry_b is None:
+            return
+        sample_entry_a = self._storage.getSampleById(function_entry_a.sample_id)
+        sample_entry_b = self._storage.getSampleById(function_entry_b.sample_id)
+        minhash_a = function_entry_a.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
+        minhash_b = function_entry_b.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
+
+        score = None
+        if minhash_a.minhash and minhash_b.minhash:
+            score = MinHash.calculateMinHashScore(
+                    minhash_a.minhash, minhash_b.minhash, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS
+                )
+        match_flags = 0
+        match_flags += MatcherInterface.IS_MINHASH_FLAG if score is not None and score >= self._minhash_config.MINHASH_MATCHING_THRESHOLD else 0
+        match_flags += MatcherInterface.IS_PICHASH_FLAG if function_entry_a.pichash == function_entry_b.pichash else 0
+        match_flags += MatcherInterface.IS_LIBRARY_FLAG if sample_entry_b.is_library else 0
+        match_tuple = [
+            function_entry_b.family_id, 
+            function_entry_b.sample_id, 
+            function_entry_b.function_id, 
+            score, 
+            match_flags]
+        result = {
+            "function_entry_a": function_entry_a.toDict(),
+            "function_entry_b": function_entry_b.toDict(),
+            "sample_entry_a": sample_entry_a.toDict(),
+            "sample_entry_b": sample_entry_b.toDict(),
+            "match_entry": MatchedFunctionEntry(function_id_a, function_entry_a.binweight, function_entry_a.offset, match_tuple).toDict()
+        }
+        return result
 
     #### SIMPLE LOOKUPS ####
     def getFamily(self, family_id):

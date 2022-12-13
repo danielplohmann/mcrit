@@ -91,8 +91,8 @@ def get_app():
 
     _app.add_route("/matches/sample/{sample_id:int}", match_resource, suffix="sample")
     _app.add_route("/matches/sample/cross/{sample_ids}", match_resource, suffix="sample_cross")
-    _app.add_route("/matches/sample/{sample_id:int}/{sample_id_2:int}", match_resource, suffix="sample_vs")
-    _app.add_route("/matches/function/{function_id:int}/{function_id_2:int}", match_resource, suffix="function_vs")
+    _app.add_route("/matches/sample/{sample_id:int}/{sample_id_b:int}", match_resource, suffix="sample_vs")
+    _app.add_route("/matches/function/{function_id:int}/{function_id_b:int}", match_resource, suffix="function_vs")
     _app.add_route("/matches/function/{function_id:int}", match_resource, suffix="function")
 
     _app.add_route("/uniqueblocks/samples/{comma_separated_sample_ids}", block_resource, suffix="unique_blocks_for_samples")

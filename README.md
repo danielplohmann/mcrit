@@ -1,4 +1,4 @@
-# MinHash-based Code Recognition & Investigation Toolkit (MCRIT)
+# MinHash-based Code Relationship & Investigation Toolkit (MCRIT)
 [![Test](https://github.com/danielplohmann/mcrit/actions/workflows/test.yml/badge.svg)](https://github.com/danielplohmann/mcrit/actions/workflows/test.yml)
 
 MCRIT is a framework created to simplify the application of the MinHash algorithm in the context of code similarity.
@@ -82,6 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2022-11-25 v0.18.10: Enable matching of arbitrary function_ids.
  * 2022-11-25 v0.18.9: Accelerated Query matching.
  * 2022-11-18 v0.18.8: Harmonized handling of deletion and modifications, minor fixes.
  * 2022-11-13 v0.18.7: Drastically accelerated sample deletion.
@@ -127,7 +128,7 @@ Pull requests welcome! :)
 
 ## License
 ```
-    MinHash-based Code Recognition & Investigation Toolkit (MCRIT)
+    MinHash-based Code Relationship & Investigation Toolkit (MCRIT)
     Copyright (C) 2022  Daniel Plohmann, Manuel Blatt
 
     This program is free software: you can redistribute it and/or modify

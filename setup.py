@@ -23,7 +23,7 @@ requirements = [
 
 setup(
     name='mcrit',
-    version="0.18.9",
+    version="0.18.10",
     description='MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity.',
     long_description_content_type="text/markdown",
     long_description=README,
