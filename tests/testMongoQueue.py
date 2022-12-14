@@ -16,10 +16,10 @@ logging.disable(logging.CRITICAL)
 
 
 ### Added mongo attribute
-from nose.plugins.attrib import attr
+import pytest
 
 
-@attr("mongo")
+@pytest.mark.mongo
 class MongoQueueTest(TestCase):
     def setUp(self):
         self.client = pymongo.MongoClient(os.environ.get("TEST_MONGODB"))

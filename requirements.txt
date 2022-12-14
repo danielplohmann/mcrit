@@ -5,8 +5,9 @@ fastcluster
 picblocks>=1.1.2
 pymongo
 pyparsing
+pytest
+pytest-cov
 mmh3>=2.5.1
-nose
 numpy
 requests
 scipy
