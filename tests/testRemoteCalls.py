@@ -17,7 +17,8 @@ from mcrit.queue.QueueRemoteCalls import (
     get_descriptor,
     upload_file_params,
 )
-from nose.plugins.attrib import attr
+#For test marks
+import pytest
 
 from .context import config
 
@@ -104,14 +105,14 @@ class LocalQueueRemoteCallTest(TestCase):
         self.queue.clean_interval = 1e100
 
     # TODO do a real test here
-    @attr("sleep")
+    @pytest.mark.sleep
     def test_progress(self):
         id = self.caller.test_progress()
         time.sleep(0.2)
         job = self.queue.get_job(id)
         self.assertGreater(job._data["progress"], 0)
 
-    @attr("sleep")
+    @pytest.mark.sleep
     def test_termination(self):
         id = self.caller.test_progress()
         job = self.queue.get_job(id)
@@ -134,7 +135,7 @@ class LocalQueueRemoteCallTest(TestCase):
                 self.assertEqual(str(self.queue._grid_to_meta(result_id)["job"]), job_id)
         self.queue.clear()
 
-    @attr("sleep")
+    @pytest.mark.sleep
     def test_clean_period(self):
         old_cache_time = self.queue.cache_time
         old_clean_interval = self.queue.clean_interval
@@ -275,7 +276,7 @@ class LocalQueueRemoteCallTest(TestCase):
         meta = self.queue._grid_to_meta(file)
         self.assertEqual(1, meta["tmp_lock"])
 
-    @attr("sleep")
+    @pytest.mark.sleep
     def test_queue_clean(self):
         self.queue.cache_time = 0.1
         self.queue.clean_interval = 1e100
@@ -337,7 +338,7 @@ class LocalQueueRemoteCallTest(TestCase):
 
 
 ### Added mongo attribute
-@attr("mongo")
+@pytest.mark.mongo
 class MongoQueueRemoteCallTest(LocalQueueRemoteCallTest):
     def setUp(self):
         self.client = pymongo.MongoClient(os.environ.get("TEST_MONGODB"))
@@ -350,7 +351,7 @@ class MongoQueueRemoteCallTest(LocalQueueRemoteCallTest):
         self.worker_thread = Thread(target=self.worker.run)
         self.worker_thread.start()
 
-    @attr("sleep")
+    @pytest.mark.sleep
     def test_termination(self):
         id = self.caller.test_progress()
         job = self.queue.get_job(id)

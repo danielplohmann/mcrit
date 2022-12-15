@@ -294,10 +294,10 @@ class MemoryStorageTest(TestCase):
 
 
 ### Added mongo attribute
-from nose.plugins.attrib import attr
+import pytest
 
 
-@attr("mongo")
+@pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
     def setUp(self):
         self._storage_config = StorageConfig(

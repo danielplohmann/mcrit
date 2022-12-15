@@ -8,13 +8,13 @@ publish:
 pylint:
 	python3 -m pylint --rcfile=.pylintrc mcrit
 test:
-	python3 -m nose
+	python3 -m pytest 
 test-nomongo:
-	python3 -m nose -a '!mongo'
+	python3 -m pytest -m 'not mongo'
 test-nosleep:
-	python3 -m nose -a '!sleep'
+	python3 -m pytest -m 'not sleep'
 test-coverage:
-	python3 -m nose --with-coverage --cover-erase --cover-html-dir=./coverage-html --cover-html --cover-package=mcrit
+	python3 -m pytest --cov=mcrit --cov-report html:./coverage-html --cov-config=.coveragerc
 clean:
 	rm -rf env
 	rm -rf coverage-html
