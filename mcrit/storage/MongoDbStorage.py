@@ -757,7 +757,8 @@ class MongoDbStorage(StorageInterface):
                     else:
                         update_command = {"$pull": {"function_ids": {"$in": function_ids}}}
                 band_updates.append(UpdateOne({"band_hash": band_hash}, update_command, upsert=True))
-            self._database["band_%d" % band_number].bulk_write(band_updates, ordered=False)
+            if band_updates:
+                self._database["band_%d" % band_number].bulk_write(band_updates, ordered=False)
             num_band_updates += len(band_updates)
         return num_band_updates
 
