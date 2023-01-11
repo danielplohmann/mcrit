@@ -10,7 +10,7 @@ from .StorageConfig import StorageConfig
 class McritConfig(object):
 
     # NOTE to self: always change this in setup.py as well!
-    VERSION = "0.19.1"
+    VERSION = "0.19.2"
     CONFIG_FILE_PATH = str(os.path.abspath(__file__))
     PROJECT_ROOT = str(os.path.abspath(os.sep.join([CONFIG_FILE_PATH, "..", ".."])))
 
