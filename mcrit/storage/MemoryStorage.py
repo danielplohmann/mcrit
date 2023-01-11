@@ -342,7 +342,7 @@ class MemoryStorage(StorageInterface):
                 self._sample_id_to_function_ids[sample_entry.sample_id] = function_ids
                 self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             else:
-                LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
+                LOGGER.warning("Sample %s already existed, skipping.", smda_report.sha256)
         return sample_entry
 
     def importSampleEntry(self, sample_entry: "SampleEntry") -> Optional["SampleEntry"]:
@@ -353,7 +353,7 @@ class MemoryStorage(StorageInterface):
             self._sample_by_sha256[sample_entry.sha256] = sample_id
             self._updateFamilyStats(sample_entry.family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
         else:
-            LOGGER.warn("Sample %s already existed, skipping.", sample_entry.sha256)
+            LOGGER.warning("Sample %s already existed, skipping.", sample_entry.sha256)
         return sample_entry
 
     def importFunctionEntry(self, function_entry: "FunctionEntry") -> Optional["FunctionEntry"]:

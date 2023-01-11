@@ -26,7 +26,7 @@ def getMatchingParams(req_params):
                 band_matches_required = max(0, band_matches_required)
                 parameters["band_matches_required"] = band_matches_required
         except:
-            LOGGER.warn(f"Failed to handle request parameter: {key}: {value}")
+            LOGGER.warning(f"Failed to handle request parameter: {key}: {value}")
     return parameters
 
 

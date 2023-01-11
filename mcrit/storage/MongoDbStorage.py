@@ -14,7 +14,7 @@ try:
     from pymongo import InsertOne, MongoClient, UpdateOne
     from pymongo.collection import ReturnDocument
 except:
-    LOGGER.warn("pymongo package import failed - MongoDB backend will not be available.")
+    LOGGER.warning("pymongo package import failed - MongoDB backend will not be available.")
 
 from picblocks.blockhasher import BlockHasher
 
@@ -557,7 +557,7 @@ class MongoDbStorage(StorageInterface):
                 self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
                 self._updateDbState()
             else:
-                LOGGER.warn("Sample %s already existed, skipping.", smda_report.sha256)
+                LOGGER.warning("Sample %s already existed, skipping.", smda_report.sha256)
         return sample_entry
 
     def importSampleEntry(self, sample_entry: "SampleEntry") -> Optional["SampleEntry"]:
@@ -568,7 +568,7 @@ class MongoDbStorage(StorageInterface):
             self._updateFamilyStats(sample_entry.family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             self._updateDbState()
         else:
-            LOGGER.warn("Sample %s already existed, skipping.", sample_entry.sha256)
+            LOGGER.warning("Sample %s already existed, skipping.", sample_entry.sha256)
         return sample_entry
 
     def importFunctionEntry(self, function_entry: "FunctionEntry") -> Optional["FunctionEntry"]:

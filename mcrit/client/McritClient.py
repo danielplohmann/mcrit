@@ -40,7 +40,7 @@ def isJobFinishedTerminatedOrFailed(job):
 def handle_response(response):
     data = None
     if response.status_code in [500, 501]:
-        LOGGER.warn("McritClient received status code 500 from MCRIT.")
+        LOGGER.warning("McritClient received status code 500 from MCRIT.")
     elif response.status_code in [400, 404, 410]:
         # nothing to here as of now
         pass

@@ -489,7 +489,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 if self._storage.isFamilyId(term_as_int):
                     id_match = self._storage.getFamily(term_as_int).toDict()
             else:
-                LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+                LOGGER.warning("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
         except Exception:
             pass
 
@@ -525,7 +525,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 if self._storage.isFunctionId(term_as_int):
                     id_match = self._storage.getFunctionById(term_as_int).toDict()
             else:
-                LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+                LOGGER.warning("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
         except Exception:
             pass
 
@@ -564,7 +564,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 if self._storage.isSampleId(term_as_int):
                     id_match = self._storage.getSampleById(term_as_int).toDict()
             else:
-                LOGGER.warn("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
+                LOGGER.warning("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
         except Exception:
             pass
 
