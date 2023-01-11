@@ -21,9 +21,13 @@ class MatchingResult(object):
     function_matches: List["MatchedFunctionEntry"]
     # function_id -> [(family_id, sample_id), ...]
     library_matches: Dict
+    unique_family_scores_per_sample: Dict
     is_family_filtered: bool
     is_sample_filtered: bool
     is_function_filtered: bool
+    is_score_filtered: bool
+    is_sample_count_filtered: bool
+    is_family_count_filtered: bool
 
     def __init__(self, sample_entry: "SampleEntry") -> None:
         self.reference_sample_entry = sample_entry
@@ -41,6 +45,41 @@ class MatchingResult(object):
             return None
         else:
             return self.sample_matches[0]
+
+    def excludeLibraryMatches(self):
+        """ reduce contained matches to those where none of the matches is with a library (transitive library identification) """
+        library_samples = set([item[1] for item in [matches for matches in self.library_matches.values()]])
+        library_matched_functions = [key for key in self.library_matches if self.library_matches[key]]
+        self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id not in library_samples]
+        self.function_matches = [function_match for function_match in self.function_matches if function_match.function_id not in library_matched_functions]
+        self.is_library_filtered = True
+
+    def filterToSampleCount(self, max_sample_count):
+        """ reduce contained matches to those with a maximum of <max_sample_count> matched samples """
+        matched_samples_by_function_id = {}
+        for function_match in self.function_matches:
+            if not function_match.function_id in matched_samples_by_function_id:
+                matched_samples_by_function_id[function_match.function_id] = []
+            if not function_match.matched_sample_id in matched_samples_by_function_id[function_match.function_id]:
+                matched_samples_by_function_id[function_match.function_id].append(function_match.matched_family_id)
+        self.function_matches = [function_match for function_match in self.function_matches if matched_samples_by_function_id[function_match.function_id] <= max_sample_count]
+        self.is_sample_count_filtered = True
+
+    def filterToFamilyCount(self, max_family_count):
+        """ reduce contained matches to those with a maximum of <max_family_count> matched families """
+        matched_families_by_function_id = {}
+        for function_match in self.function_matches:
+            if not function_match.function_id in matched_families_by_function_id:
+                matched_families_by_function_id[function_match.function_id] = []
+            if not function_match.matched_family_id in matched_families_by_function_id[function_match.function_id]:
+                matched_families_by_function_id[function_match.function_id].append(function_match.matched_family_id)
+        self.function_matches = [function_match for function_match in self.function_matches if matched_families_by_function_id[function_match.function_id] <= max_family_count]
+        self.is_family_count_filtered = True
+
+    def filterToScore(self, threshold):
+        """ reduce contained matches to those with a minimum score of <threshold> """
+        self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_score >= threshold]
+        self.is_score_filtered = True
 
     def filterToFamilyId(self, family_id):
         """ reduce contained matches to chosen family_id by deleting the other sample and function matches """
@@ -79,6 +118,29 @@ class MatchingResult(object):
         if limit is not None:
             result_list = result_list[:limit]
         return result_list
+
+    def getUniqueFamilyMatchInfoForSample(self, sample_id):
+        if self.unique_family_scores_per_sample is None:
+            self.unique_family_scores_per_sample = {entry.sample_id: {"functions_matched": 0, "bytes_matched": 0, "unique_score": 0} for entry in self.sample_matches}
+            families_matched_by_function_id = {}
+            samples_matched_by_function_id = {}
+            bytes_per_function_id = {}
+            for function_match_summary in self.function_matches:
+                if function_match_summary.function_id not in families_matched_by_function_id:
+                    families_matched_by_function_id[function_match_summary.function_id] = set()
+                    samples_matched_by_function_id[function_match_summary.function_id] = set()
+                    bytes_per_function_id[function_match_summary.function_id] = 0
+                families_matched_by_function_id[function_match_summary.function_id].add(function_match_summary.matched_family_id)
+                samples_matched_by_function_id[function_match_summary.function_id].add(function_match_summary.matched_sample_id)
+                bytes_per_function_id[function_match_summary.function_id] = function_match_summary.num_bytes
+            for function_id in families_matched_by_function_id:
+                if len(families_matched_by_function_id[function_id]) == 1:
+                    for sample_id in samples_matched_by_function_id[function_id]:
+                        self.unique_family_scores_per_sample[sample_id]["functions_matched"] += 1
+                        self.unique_family_scores_per_sample[sample_id]["bytes_matched"] += bytes_per_function_id[function_id]
+            for sample_id in self.unique_family_scores_per_sample:
+                self.unique_family_scores_per_sample[sample_id]["unique_score"] = 100.0 * self.unique_family_scores_per_sample[sample_id]["bytes_matched"] / self.reference_sample_entry.binweight
+        return self.unique_family_scores_per_sample[sample_id]
 
     def getSampleMatches(self, start=None, limit=None):
         by_sample_id = {}
@@ -178,6 +240,7 @@ class MatchingResult(object):
         # expand function matches into individual entries
         list_of_function_matches = []
         matching_entry.library_matches = {entry["fid"]: [] for entry in entry_dict["matches"]["functions"]}
+        matching_entry.unique_family_scores_per_sample = None
         for function_match_summary in entry_dict["matches"]["functions"]:
             num_bytes = function_match_summary["num_bytes"]
             offset = function_match_summary["offset"]
