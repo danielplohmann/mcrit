@@ -2,19 +2,19 @@ init:
 	pip install -r requirements.txt
 package:
 	rm -rf dist/*
-	python3 setup.py sdist
+	python setup.py sdist
 publish:
-	python3 -m twine upload dist/*
+	python -m twine upload dist/*
 pylint:
-	python3 -m pylint --rcfile=.pylintrc mcrit
+	python -m pylint --rcfile=.pylintrc mcrit
 test:
-	python3 -m pytest 
+	python -m pytest 
 test-nomongo:
-	python3 -m pytest -m 'not mongo'
+	python -m pytest -m 'not mongo'
 test-nosleep:
-	python3 -m pytest -m 'not sleep'
+	python -m pytest -m 'not sleep'
 test-coverage:
-	python3 -m pytest --cov=mcrit --cov-report html:./coverage-html --cov-config=.coveragerc
+	python -m pytest --cov=mcrit --cov-report html:./coverage-html --cov-config=.coveragerc
 clean:
 	rm -rf env
 	rm -rf coverage-html
