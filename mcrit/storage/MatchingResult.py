@@ -62,7 +62,7 @@ class MatchingResult(object):
                 matched_samples_by_function_id[function_match.function_id] = []
             if not function_match.matched_sample_id in matched_samples_by_function_id[function_match.function_id]:
                 matched_samples_by_function_id[function_match.function_id].append(function_match.matched_family_id)
-        self.function_matches = [function_match for function_match in self.function_matches if matched_samples_by_function_id[function_match.function_id] <= max_sample_count]
+        self.function_matches = [function_match for function_match in self.function_matches if len(matched_samples_by_function_id[function_match.function_id]) <= max_sample_count]
         self.is_sample_count_filtered = True
 
     def filterToFamilyCount(self, max_family_count):
@@ -73,7 +73,7 @@ class MatchingResult(object):
                 matched_families_by_function_id[function_match.function_id] = []
             if not function_match.matched_family_id in matched_families_by_function_id[function_match.function_id]:
                 matched_families_by_function_id[function_match.function_id].append(function_match.matched_family_id)
-        self.function_matches = [function_match for function_match in self.function_matches if matched_families_by_function_id[function_match.function_id] <= max_family_count]
+        self.function_matches = [function_match for function_match in self.function_matches if len(matched_families_by_function_id[function_match.function_id]) <= max_family_count]
         self.is_family_count_filtered = True
 
     def filterToScore(self, threshold):
