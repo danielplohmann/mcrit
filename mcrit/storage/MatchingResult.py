@@ -48,7 +48,9 @@ class MatchingResult(object):
 
     def excludeLibraryMatches(self):
         """ reduce contained matches to those where none of the matches is with a library (transitive library identification) """
-        library_samples = set([item[1] for item in [matches for matches in self.library_matches.values()]])
+        library_matches = [matches for matches in self.library_matches.values() if matches]
+        print(library_matches)
+        library_samples = set([match[1] for match_list in library_matches for match in match_list])
         library_matched_functions = [key for key in self.library_matches if self.library_matches[key]]
         self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id not in library_samples]
         self.function_matches = [function_match for function_match in self.function_matches if function_match.function_id not in library_matched_functions]

@@ -4,12 +4,14 @@ import json
 import logging
 import os
 import unittest
+from copy import deepcopy
 
 from smda.common.SmdaReport import SmdaReport
 
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
+from mcrit.storage.MatchingResult import MatchingResult
 
 from .context import config
 
@@ -53,6 +55,33 @@ class MinHashingTestSuite(unittest.TestCase):
         as_dict = sample_entry.toDict()
         as_entry = SampleEntry.fromDict(as_dict)
         self.assertEqual(as_entry.sample_id, sample_entry.sample_id)
+
+    def testMatchingResult(self):
+        THIS_FILE_PATH = str(os.path.abspath(__file__))
+        PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
+        example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_matching_report.json"])
+        with open(example_file_path, "r") as fjson:
+            match_json = json.load(fjson)
+        matching_result = MatchingResult.fromDict(match_json)
+        assert len(matching_result.sample_matches) == 2
+        assert len(matching_result.function_matches) == 719
+        assert len(set([match.function_id for match in matching_result.function_matches])) == 515
+        ### test filtering
+        # test filtering by family and sample counts
+        filtered_result = deepcopy(matching_result)
+        filtered_result.filterToFamilyCount(1)
+        assert len(filtered_result.function_matches) == 414
+        filtered_result = deepcopy(matching_result)
+        filtered_result.filterToSampleCount(1)
+        assert len(filtered_result.function_matches) == 340
+        # filter by score / library
+        filtered_result = deepcopy(matching_result)
+        filtered_result.filterToScore(95)
+        assert len(filtered_result.function_matches) == 581
+        filtered_result = deepcopy(matching_result)
+        filtered_result.excludeLibraryMatches()
+        assert len(filtered_result.function_matches) == 715
+        assert len(set([match.function_id for match in filtered_result.function_matches])) == 513
 
 
 if __name__ == "__main__":
