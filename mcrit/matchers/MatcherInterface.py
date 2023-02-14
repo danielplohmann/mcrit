@@ -442,6 +442,7 @@ class MatcherInterface(object):
                 "filename": sample_info.filename,
                 "sample_id": foreign_sample_id,
                 "num_bytes": sample_info.binweight,
+                "is_library": sample_info.is_library,
                 "num_functions": sample_info.statistics["num_functions"],
                 "matched": {
                     "functions": {

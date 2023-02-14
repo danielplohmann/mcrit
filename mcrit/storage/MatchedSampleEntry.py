@@ -20,6 +20,7 @@ class MatchedSampleEntry(object):
     sample_id: int
     num_bytes: int
     num_functions: int
+    is_library: bool
     # related to matching
     matched_functions_minhash: int
     matched_functions_pichash: int
@@ -105,6 +106,7 @@ class MatchedSampleEntry(object):
         matching_entry.sample_id = entry_dict["sample_id"]
         matching_entry.num_bytes = entry_dict["num_bytes"]
         matching_entry.num_functions = entry_dict["num_functions"]
+        matching_entry.is_library = entry_dict["is_library"] if "is_library" in entry_dict else False
 
         matching_entry.matched_functions_minhash = entry_dict["matched"]["functions"]["minhashes"]
         matching_entry.matched_functions_pichash = entry_dict["matched"]["functions"]["pichashes"]
