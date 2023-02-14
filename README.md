@@ -82,6 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2023-02-14 v0.20.0: Overhauled console client to simplify shell-based interactions with the backend.
  * 2023-01-12 v0.19.4: Additional filtering capabilities for MatchingResults.
  * 2022-12-13 v0.19.1: It is now possible to require specific (higher) amounts of band matches for candidates (i.e. reduce fuzziness of matching).
  * 2022-12-13 v0.18.x: Enable matching of arbitrary function IDs.

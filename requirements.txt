@@ -11,6 +11,6 @@ mmh3>=2.5.1
 numpy
 requests
 scipy
-smda>=1.3.0
+smda>=1.11.0
 tqdm
 waitress
