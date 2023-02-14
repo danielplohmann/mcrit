@@ -215,6 +215,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 6158.0,
         "num_functions": 9,
+        'is_library': False,
         "matched": {
             "functions": {
                 "combined": 7,
@@ -251,6 +252,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 351.0,
         "num_functions": 9,
+        'is_library': False,
         "matched": {
             "functions": {
                 "combined": 1,
@@ -287,6 +289,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 6158.0,
         "num_functions": 9,
+        'is_library': False,
         "matched": {
             "functions": {
                 "combined": 7,
@@ -323,6 +326,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 1158.0,
         "num_functions": 3,
+        'is_library': True,
         "matched": {
             "functions": {
                 "combined": 3,
