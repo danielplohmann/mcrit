@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import hashlib
 import argparse
 
 from smda.Disassembler import Disassembler
@@ -34,6 +35,10 @@ def get_base_addr(input_path):
     if baddr_match:
         base_addr = int(baddr_match.group("base_addr"), 16)
     return base_addr
+
+
+def sha256(content):
+    return hashlib.sha256(content).hexdigest()
 
 
 def readFileContent(file_path):
@@ -226,6 +231,12 @@ class McritConsole(object):
 
     def _handle_submit_file(self, args):
         client = McritClient()
+        mcrit_samples = client.getSamples()
+        mcrit_samples_by_sha256 = {}
+        for sample_id, sample in mcrit_samples.items():
+            mcrit_samples_by_sha256[sample.sha256] = sample
+        if sha256(readFileContent(args.filepath)) in mcrit_samples_by_sha256:
+            print(f"SKIPPING: {args.filepath} - already in MCRIT.")
         smda_report = getSmdaReportFromFilepath(args, args.filepath)
         if smda_report:
             print(smda_report)
@@ -233,9 +244,17 @@ class McritConsole(object):
 
     def _handle_submit_dir(self, args):
         client = McritClient()
+        mcrit_samples = client.getSamples()
+        mcrit_samples_by_sha256 = {}
+        for sample_id, sample in mcrit_samples.items():
+            mcrit_samples_by_sha256[sample.sha256] = sample
         for filename in os.listdir(args.filepath):
             filepath = os.sep.join([args.filepath, filename])
             if os.path.isfile(filepath):
+                if os.path.isfile(filepath):
+                    if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
+                        print(f"SKIPPING: {filepath} - already in MCRIT.")
+                        continue
                 smda_report = getSmdaReportFromFilepath(args, filepath)
                 if smda_report:
                     print(smda_report)
@@ -243,15 +262,23 @@ class McritConsole(object):
 
     def _handle_submit_recursive(self, args):
         client = McritClient()
+        mcrit_samples = client.getSamples()
+        mcrit_samples_by_sha256 = {}
+        for sample_id, sample in mcrit_samples.items():
+            mcrit_samples_by_sha256[sample.sha256] = sample
         for root, subdir, files in sorted(os.walk(args.filepath)):
             folder_relative_path = getFolderFilePath(args.filepath, root)
             for filename in files:
                 filepath = os.sep.join([root, filename])
                 if os.path.isfile(filepath):
+                    if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
+                        print(f"SKIPPING: {filepath} - already in MCRIT.")
+                        continue
                     smda_report = getSmdaReportFromFilepath(args, filepath)
                     if smda_report:
                         smda_report.family = getFamilyName(folder_relative_path)
                         smda_report.version = getSampleVersion(folder_relative_path, smda_report.family)
+                        print(filepath)
                         print(smda_report)
                         client.addReport(smda_report)
 
@@ -260,7 +287,7 @@ class McritConsole(object):
         # get current status of all samples in MCRIT
         mcrit_samples = client.getSamples()
         mcrit_samples_by_filename = {}
-        for sample in mcrit_samples:
+        for sample_id, sample in mcrit_samples.items():
             # verify that filename has malpedia format (starts with sha256 and _unpacked/_dump)
             if sample.filename in mcrit_samples_by_filename:
                 print(f"WARNING: filename {sample.filename} appears to exist more than once in your MCRIT instance, now using SHA256 {sample.sha256[:8]}.")
@@ -278,7 +305,7 @@ class McritConsole(object):
                 # warn about files were family/version mismatches.
                 if (malpedia_family != mcrit_family or
                         malpedia_version != mcrit_version):
-                    print(f"WARNING: Family/Version information for {filename} differs: ")
+                    print(f"WARNING: Sample {mcrit_samples_by_filename[filename].sample_id} with filename {filename} has different family/version information: ")
                     print(f"* Malpedia: {malpedia_family}|{malpedia_version}")
                     print(f"* MCRIT: {mcrit_family}|{mcrit_version}")
             # directly add all files in Malpedia but missing in MCRIT
@@ -287,20 +314,20 @@ class McritConsole(object):
                 if smda_report:
                     smda_report.family = malpedia_family
                     smda_report.version = malpedia_version
+                    print(malpedia_filepath)
                     print(smda_report)
                     client.addReport(smda_report)
         # warn about files that appear deleted because not present in Malpedia but in MCRIT (based on name schea)
         for filename, mcrit_sample in mcrit_samples_by_filename.items():
-            if filename not in malpedia_samples_by_filename:
-                print(f"WARNING: filename {filename} ({mcrit_sample.family|mcrit_sample.version}) present in MCRIT but not in Malpedia?")
+            if self._isMalpediaFilename(filename) and filename not in malpedia_samples_by_filename:
+                print(f"WARNING: Sample {mcrit_sample.sample_id} with filename {filename} ({mcrit_sample.family}|{mcrit_sample.version}) present in MCRIT but not in Malpedia?")
 
     def _getMalpediaSamplesByFilename(self, malpedia_root):
         malpedia_samples_by_filename = {}
-        malpedia_file_pattern = re.compile("^[0-9a-f]{64}(_unpacked|dump7?_0x[0-9a-fA-F]{8,16})")
         for root, subdir, files in sorted(os.walk(malpedia_root)):
             folder_relative_path = getFolderFilePath(malpedia_root, root)
             for filename in sorted(files):
-                if re.search(malpedia_file_pattern, filename):
+                if self._isMalpediaFilename(filename):
                     filepath = root + os.sep + filename
                     sample_family = getFamilyName(folder_relative_path)
                     malpedia_samples_by_filename[filename] = {
@@ -310,3 +337,7 @@ class McritConsole(object):
                         "version": getSampleVersion(folder_relative_path, sample_family)
                     }
         return malpedia_samples_by_filename
+    
+    def _isMalpediaFilename(self, filename):
+        malpedia_file_pattern = re.compile("^[0-9a-f]{64}(_unpacked|dump7?_0x[0-9a-fA-F]{8,16})")
+        return re.search(malpedia_file_pattern, filename)
