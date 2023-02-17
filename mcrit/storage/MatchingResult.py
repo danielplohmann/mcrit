@@ -19,6 +19,8 @@ class MatchingResult(object):
     match_aggregation: Dict
     sample_matches: List["MatchedSampleEntry"]
     function_matches: List["MatchedFunctionEntry"]
+    num_original_function_matches: int
+    num_original_sample_matches: int
     # function_id -> [(family_id, sample_id), ...]
     library_matches: Dict
     unique_family_scores_per_sample: Dict
@@ -31,11 +33,19 @@ class MatchingResult(object):
     is_family_count_filtered: bool
     is_library_filtered: bool
     is_pic_filtered: bool
+    filter_values: Dict
 
     def __init__(self, sample_entry: "SampleEntry") -> None:
         self.reference_sample_entry = sample_entry
         self.unique_family_scores_per_sample = None
         self.family_id_to_name_map = None
+        self.filter_values = {}
+
+    def setFilterValues(self, filter_dict):
+        self.filter_values = filter_dict
+
+    def getFilterValue(self, filter_name):
+        return self.filter_values[filter_name] if filter_name in self.filter_values else 0
 
     def getFamilyNameByFamilyId(self, family_id):
         if self.family_id_to_name_map is None:
@@ -265,6 +275,8 @@ class MatchingResult(object):
         list_of_function_matches = []
         matching_entry.library_matches = {entry["fid"]: [] for entry in entry_dict["matches"]["functions"]}
         matching_entry.unique_family_scores_per_sample = None
+        matching_entry.num_original_function_matches = len(entry_dict["matches"]["functions"])
+        matching_entry.num_original_sample_matches = len(matching_entry.sample_matches)
         for function_match_summary in entry_dict["matches"]["functions"]:
             num_bytes = function_match_summary["num_bytes"]
             offset = function_match_summary["offset"]
