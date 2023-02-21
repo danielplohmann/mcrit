@@ -33,12 +33,14 @@ class MatchingResult(object):
     is_family_count_filtered: bool
     is_library_filtered: bool
     is_pic_filtered: bool
+    is_query: bool
     filter_values: Dict
 
     def __init__(self, sample_entry: "SampleEntry") -> None:
         self.reference_sample_entry = sample_entry
         self.unique_family_scores_per_sample = None
         self.family_id_to_name_map = None
+        self.is_query = False
         self.filter_values = {}
 
     def setFilterValues(self, filter_dict):
@@ -121,6 +123,9 @@ class MatchingResult(object):
         # self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id == sample_id]
         self.function_matches = [function_match for function_match in self.function_matches if function_match.function_id == function_id]
         self.is_function_filtered = True
+
+    def hasLibraryMatch(self, function_id):
+        return function_id in self.library_matches and self.library_matches[function_id]
 
     def getBestSampleMatchesPerFamily(self, start=None, limit=None, library_only=False, malware_only=False):
         by_family = {}
@@ -273,7 +278,7 @@ class MatchingResult(object):
         matching_entry.sample_matches = [MatchedSampleEntry.fromDict(entry) for entry in entry_dict["matches"]["samples"]]
         # expand function matches into individual entries
         list_of_function_matches = []
-        matching_entry.library_matches = {entry["fid"]: [] for entry in entry_dict["matches"]["functions"]}
+        matching_entry.library_matches = {abs(entry["fid"]): [] for entry in entry_dict["matches"]["functions"]}
         matching_entry.unique_family_scores_per_sample = None
         matching_entry.num_original_function_matches = len(entry_dict["matches"]["functions"])
         matching_entry.num_original_sample_matches = len(matching_entry.sample_matches)
@@ -281,12 +286,15 @@ class MatchingResult(object):
             num_bytes = function_match_summary["num_bytes"]
             offset = function_match_summary["offset"]
             function_id = function_match_summary["fid"]
+            # ensure that we have all function_ids in increasing order, regardless of whether they come from a query or regular match.
+            matching_entry.is_query = True if function_id < 0 else False
+            function_id = abs(function_id)
             for match_tuple in function_match_summary["matches"]:
                 list_of_function_matches.append(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
                 if match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG:
                     if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
                         matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
-        matching_entry.function_matches = list_of_function_matches
+        matching_entry.function_matches = sorted(list_of_function_matches, key=lambda x: x.function_id)
         return matching_entry
 
     def __str__(self):

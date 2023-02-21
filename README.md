@@ -82,6 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2023-02-21 v0.20.3: Supporting frontend capabilities with result presentation.
  * 2023-02-17 v0.20.2: Extended match report object to support frontend improvements.
  * 2023-02-14 v0.20.0: Overhauled console client to simplify shell-based interactions with the backend.
  * 2023-01-12 v0.19.4: Additional filtering capabilities for MatchingResults.
