@@ -172,8 +172,11 @@ class MatchingResult(object):
                         self.unique_family_scores_per_sample[sid]["bytes_matched"] += bytes_per_function_id[function_id]
             for sid in self.unique_family_scores_per_sample:
                 self.unique_family_scores_per_sample[sid]["unique_score"] = 100.0 * self.unique_family_scores_per_sample[sid]["bytes_matched"] / self.reference_sample_entry.binweight
-        if sample_id:
+        if sample_id in self.unique_family_scores_per_sample:
             return self.unique_family_scores_per_sample[sample_id]
+        else:
+            return {"functions_matched": 0, "bytes_matched": 0, "unique_score": 0}
+
 
     def getSampleMatches(self, start=None, limit=None, library_only=False, malware_only=False):
         by_sample_id = {}
