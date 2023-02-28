@@ -23,6 +23,8 @@ class MatchingResult(object):
     num_original_sample_matches: int
     # function_id -> [(family_id, sample_id), ...]
     library_matches: Dict
+    # function_id -> {family_id_a, family_id_b, ...}
+    function_id_to_family_ids_matched: Dict
     unique_family_scores_per_sample: Dict
     family_id_to_name_map: Dict
     is_family_filtered: bool
@@ -42,6 +44,7 @@ class MatchingResult(object):
         self.family_id_to_name_map = None
         self.is_query = False
         self.filter_values = {}
+        self.function_id_to_family_ids_matched = {}
 
     def setFilterValues(self, filter_dict):
         self.filter_values = filter_dict
@@ -55,6 +58,11 @@ class MatchingResult(object):
             for sample_match in self.sample_matches:
                 self.family_id_to_name_map[sample_match.family_id] = sample_match.family
         return self.family_id_to_name_map[family_id] if family_id in self.family_id_to_name_map else ""
+    
+    def getFamilyIdsMatchedByFunctionId(self, function_id):
+        if function_id not in self.function_id_to_family_ids_matched:
+            return 0
+        return self.function_id_to_family_ids_matched[function_id]
 
     def getFilteredSampleMatch(self):
         if not self.is_sample_filtered or not len(self.sample_matches):
@@ -231,6 +239,7 @@ class MatchingResult(object):
             by_function_id[function_match.function_id]["minhash_matches"] += 1 if function_match.match_is_minhash else 0
             by_function_id[function_match.function_id]["pichash_matches"] += 1 if function_match.match_is_pichash else 0
             by_function_id[function_match.function_id]["library_matches"] += 1 if function_match.match_is_library else 0
+            by_function_id[function_match.function_id]["is_family_unique"] = True if len(by_function_id[function_match.function_id]["family_ids_matched"]) == 1 else False
         aggregated_matched = [v for k, v in sorted(by_function_id.items())]
         if start is not None:
             aggregated_matched = aggregated_matched[start:]
@@ -292,8 +301,12 @@ class MatchingResult(object):
             # ensure that we have all function_ids in increasing order, regardless of whether they come from a query or regular match.
             matching_entry.is_query = True if function_id < 0 else False
             function_id = abs(function_id)
+            if function_id not in matching_entry.function_id_to_family_ids_matched:
+                matching_entry.function_id_to_family_ids_matched[function_id] = []
             for match_tuple in function_match_summary["matches"]:
                 list_of_function_matches.append(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
+                if match_tuple[0] not in matching_entry.function_id_to_family_ids_matched[function_id]:
+                    matching_entry.function_id_to_family_ids_matched[function_id].append(match_tuple[0])
                 if match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG:
                     if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
                         matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
