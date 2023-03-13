@@ -76,7 +76,7 @@ class MinHashingTestSuite(unittest.TestCase):
         assert len(filtered_result.function_matches) == 340
         # filter by score / library
         filtered_result = deepcopy(matching_result)
-        filtered_result.filterToScore(95)
+        filtered_result.filterToFunctionScore(95)
         assert len(filtered_result.function_matches) == 581
         filtered_result = deepcopy(matching_result)
         filtered_result.excludeLibraryMatches()
