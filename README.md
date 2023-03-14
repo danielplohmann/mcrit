@@ -82,6 +82,7 @@ $ mongo mcrit --eval "printjson(db.dropDatabase())"
 ```
 
 ## Version History
+ * 2023-03-14 v0.21.0: Backend support for more fine grained filtering.
  * 2023-03-13 v0.20.6: Backend support for filtering family/sample by score in MatchResult.
  * 2023-02-22 v0.20.4: Bugfix for calculating unique scores and accessing these results.
  * 2023-02-21 v0.20.3: Supporting frontend capabilities with result presentation.

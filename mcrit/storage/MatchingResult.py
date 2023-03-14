@@ -72,20 +72,28 @@ class MatchingResult(object):
         else:
             return self.sample_matches[0]
 
-    def filterToDirectMinScore(self, min_score):
+    def filterToDirectMinScore(self, min_score, nonlib=False):
         """ reduce aggregated sample matches to those with direct score of min_score or higher """
         filtered_sample_matches = []
         for sample_match in self.sample_matches:
-            if sample_match.matched_percent_nonlib_score_weighted >= min_score:
-                filtered_sample_matches.append(sample_match)
+            if nonlib:
+                if sample_match.matched_percent_nonlib_score_weighted >= min_score:
+                    filtered_sample_matches.append(sample_match)
+            else:
+                if sample_match.matched_percent_score_weighted >= min_score:
+                    filtered_sample_matches.append(sample_match)
         self.sample_matches = filtered_sample_matches
 
-    def filterToFrequencyMinScore(self, min_score):
+    def filterToFrequencyMinScore(self, min_score, nonlib=False):
         """ reduce aggregated sample matches to those with frequency score of min_score or higher """
         filtered_sample_matches = []
         for sample_match in self.sample_matches:
-            if sample_match.matched_percent_nonlib_frequency_weighted >= min_score:
-                filtered_sample_matches.append(sample_match)
+            if nonlib:
+                if sample_match.matched_percent_nonlib_frequency_weighted >= min_score:
+                    filtered_sample_matches.append(sample_match)
+            else:
+                if sample_match.matched_percent_frequency_weighted >= min_score:
+                    filtered_sample_matches.append(sample_match)
         self.sample_matches = filtered_sample_matches
 
     def filterToUniqueMatchesOnly(self):
