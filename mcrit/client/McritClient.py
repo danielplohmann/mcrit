@@ -52,8 +52,12 @@ def handle_response(response):
 
 
 class McritClient:
-    def __init__(self, mcrit_server=None):
+    def __init__(self, mcrit_server=None, apitoken=None, raw_responses=False):
         self.mcrit_server = "http://localhost:8000"
+        self.headers = {}
+        self.raw = True if raw_responses else False
+        if apitoken:
+            self.headers = {"apitoken": apitoken}
         if mcrit_server is not None:
             self.mcrit_server = mcrit_server
 
@@ -120,22 +124,44 @@ class McritClient:
         return handle_response(response)
 
     def getFamily(self, family_id: int, with_samples=True) -> Optional[FamilyEntry]:
+        """
+        Get a FamilyEntry by its <family_id>
+        Supported by mcritweb API pass-through
+        """
         query_params = "?with_samples=true" if with_samples else "?with_samples=false"
-        response = requests.get(f"{self.mcrit_server}/families/{family_id}{query_params}")
+        response = requests.get(f"{self.mcrit_server}/families/{family_id}{query_params}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return FamilyEntry.fromDict(data)
         return None
 
     def getFamilies(self) -> Optional[Dict[int, FamilyEntry]]:
-        response = requests.get(f"{self.mcrit_server}/families")
+        """
+        Get all FamilyEntry objects in a dict, with <family_id> as key
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/families", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return {i: FamilyEntry.fromDict(entry) for i, entry in data.items()}
         return None
 
     def isFamilyId(self, family_id) -> bool:
-        return self.getFamily(family_id, with_samples=False) is not None
+        """
+        Check if a <family_id> is valid in MCRIT
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/families/{family_id}", headers=self.headers)
+        if self.raw:
+            return response
+        data = handle_response(response)
+        if data is not None:
+            return True
+        return False
 
     def deleteFamily(self, family_id, keep_samples=False):
         query_params = "?keep_samples=true" if keep_samples else "?keep_samples=false"
@@ -147,7 +173,13 @@ class McritClient:
     ###########################################
 
     def isSampleId(self, sample_id):
-        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}")
+        """
+        Check if a <sample_id> is valid in MCRIT
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return True
@@ -176,16 +208,28 @@ class McritClient:
             return family_data.samples
 
     def getSampleById(self, sample_id):
-        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}")
+        """
+        Get a SampleEntry by its <sample_id>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return SampleEntry.fromDict(data)
 
     def getSamples(self, start=0, limit=0):
+        """
+        Get all SampleEntries, optionally from sample_id <start> and up to <limit> many
+        Supported by mcritweb API pass-through
+        """
         query_string = ""
         if (isinstance(start, int) and start >= 0) and (isinstance(limit, int) and limit >= 0):
             query_string = f"?start={start}&limit={limit}"
-        response = requests.get(f"{self.mcrit_server}/samples{query_string}")
+        response = requests.get(f"{self.mcrit_server}/samples{query_string}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return {int(k): SampleEntry.fromDict(v) for k, v in data.items()}
@@ -195,7 +239,13 @@ class McritClient:
     ###########################################
 
     def getFunctionsBySampleId(self, sample_id):
-        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/functions")
+        """
+        Get a all FunctionEntries for a given <sample_id>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/functions", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return [
@@ -204,25 +254,45 @@ class McritClient:
             ]
 
     def getFunctions(self, start=0, limit=0):
+        """
+        Get a all FunctionEntries, optionally from sample_id <start> and up to <limit> many
+        Supported by mcritweb API pass-through
+        """
         query_string = ""
         if (isinstance(start, int) and start >= 0) and (isinstance(limit, int) and limit >= 0):
             query_string = f"?start={start}&limit={limit}"
-        response = requests.get(f"{self.mcrit_server}/functions{query_string}")
+        response = requests.get(f"{self.mcrit_server}/functions{query_string}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
 
     def isFunctionId(self, function_id):
-        response = requests.get(f"{self.mcrit_server}/functions/{function_id}")
+        """
+        Check if a <function_id> is valid in MCRIT
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/functions/{function_id}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
+        if self.raw:
+            return data
         if data is not None:
             return True
         return False
 
     def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional[FunctionEntry]:
+        """
+        Get a FunctionEntry by its <function_id>
+        Supported by mcritweb API pass-through
+        """
         query_with_xcfg = "?with_xcfg=True" if with_xcfg else ""
-        response = requests.get(f"{self.mcrit_server}/functions/{function_id}{query_with_xcfg}")
+        response = requests.get(f"{self.mcrit_server}/functions/{function_id}{query_with_xcfg}", headers=self.headers)
         data = handle_response(response)
+        if self.raw:
+            return response
         if data is not None:
             return FunctionEntry.fromDict(data)
 
@@ -362,17 +432,35 @@ class McritClient:
         return handle_response(response)
 
     def getMatchesForPicHash(self, pichash, summary=False):
+        """
+        Get all matches for a given <pichash>, optionally only as <summary>
+        Supported by mcritweb API pass-through
+        """
         summary_string = "/summary" if summary else ""
-        response = requests.get(f"{self.mcrit_server}/query/pichash/{pichash:016x}{summary_string}")
+        response = requests.get(f"{self.mcrit_server}/query/pichash/{pichash:016x}{summary_string}", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def getMatchesForPicBlockHash(self, picblockhash, summary=False):
+        """
+        Get all matches for a given <picblockhash>, optionally only as <summary>
+        Supported by mcritweb API pass-through
+        """
         summary_string = "/summary" if summary else ""
-        response = requests.get(f"{self.mcrit_server}/query/picblockhash/{picblockhash:016x}{summary_string}")
+        response = requests.get(f"{self.mcrit_server}/query/picblockhash/{picblockhash:016x}{summary_string}", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def getSampleBySha256(self, sample_sha256: str):
-        response = requests.get(f"{self.mcrit_server}/samples/sha256/{sample_sha256}")
+        """
+        Get a SampleEntry by its <sha256>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/sha256/{sample_sha256}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is None:
             return None
@@ -383,11 +471,23 @@ class McritClient:
     ###########################################
 
     def getStatus(self):
-        response = requests.get(f"{self.mcrit_server}/status")
+        """
+        Get a status report of the MCRIT server with some statistics
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/status", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def getVersion(self):
-        response = requests.get(f"{self.mcrit_server}/version")
+        """
+        Get a version report of the MCRIT server
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/version", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if isinstance(data, dict) and "version" in data:
             return data["version"]
@@ -400,12 +500,18 @@ class McritClient:
                 query_string = f"?filter={filter}"
             else:
                 query_string += f"&filter={filter}"
-        response = requests.get(f"{self.mcrit_server}/jobs/{query_string}")
+        response = requests.get(f"{self.mcrit_server}/jobs{query_string}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return len(data)
 
     def getQueueData(self, start=0, limit=0, filter=None):
+        """
+        Get queue data, optionally from <start> and <limit> many
+        Supported by mcritweb API pass-through
+        """
         query_string = ""
         if isinstance(start, int) and start > 0:
             if len(query_string) == 0:
@@ -422,27 +528,53 @@ class McritClient:
                 query_string = f"?filter={filter}"
             else:
                 query_string += f"&filter={filter}"
-        response = requests.get(f"{self.mcrit_server}/jobs/{query_string}")
+        response = requests.get(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return [Job(job_data, None) for job_data in data]
 
     def getJobData(self, job_id):
-        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}")
+        """
+        Get the Job for a given <job_id>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return Job(data, None)
 
     def getResultForJob(self, job_id):
-        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}/result")
+        """
+        Get the Result for Job with a given <job_id>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}/result", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def getResult(self, result_id):
-        response = requests.get(f"{self.mcrit_server}/results/{result_id}")
+        """
+        Get the Result for a given <result_id>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/results/{result_id}", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def getJobForResult(self, result_id):
-        response = requests.get(f"{self.mcrit_server}/results/{result_id}/job")
+        """
+        Get the Job for the Result with a given <result_id>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.get(f"{self.mcrit_server}/results/{result_id}/job", headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             return Job(data, None)
