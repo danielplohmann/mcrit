@@ -19,7 +19,7 @@ class LocalInfoWidget(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.label_mcrit_activity_info = self.cc.QLabel("Activity Info: <PLACEHOLDER>")
         self.updateActivityInfo("MCRIT4IDA started.")
-        self.label_mcrit_server_info = self.cc.QLabel("MCRIT Remote server and database: <not_active>")
+        self.label_mcrit_server_info = self.cc.QLabel("MCRIT Remote server: <not_active>")
         # horizontal line
         self.hline = self.cc.QFrame()
         self.hline.setFrameShape(self.hline.HLine)
@@ -82,39 +82,38 @@ class LocalInfoWidget(QMainWindow):
 
     def _summarizeLocalReportInstructionBytes(self):
         num_bytes = 0
-        local_info = self.parent.getLocalSmdaReport()
-        if local_info:
-            for f_offset, cfg in local_info["xcfg"].items():
-                for b_offset, block in cfg["blocks"].items():
-                    for ins in block:
-                        num_bytes += len(ins[1]) / 2
+        local_smda_report = self.parent.getLocalSmdaReport()
+        if local_smda_report:
+            for smda_function in local_smda_report.getFunctions():
+                    for smda_ins in smda_function.getInstructions():
+                        num_bytes += len(smda_ins.bytes) / 2
         return num_bytes
 
     def update(self):
-        local_info = self.parent.getLocalSmdaReport()
-        self.label_architecture_value.setText(local_info["architecture"])
-        self.label_bitness_value.setText("%d bit" % local_info["bitness"])
-        self.label_image_base_value.setText("0x%x" % local_info["base_addr"])
-        self.label_functions_value.setText("%d (leaf: %d, recursive: %d)" % (local_info["statistics"]["num_functions"], local_info["statistics"]["num_leaf_functions"], local_info["statistics"]["num_recursive_functions"]))
-        self.label_instructions_value.setText("%d" % (local_info["statistics"]["num_instructions"]))
+        local_smda_report = self.parent.getLocalSmdaReport()
+        self.label_architecture_value.setText(local_smda_report.architecture)
+        self.label_bitness_value.setText("%d bit" % local_smda_report.bitness)
+        self.label_image_base_value.setText("0x%x" % local_smda_report.base_addr)
+        self.label_functions_value.setText("%d (leaf: %d, recursive: %d)" % (local_smda_report.num_functions, local_smda_report.statistics.num_leaf_functions, local_smda_report.statistics.num_recursive_functions))
+        self.label_instructions_value.setText("%d" % (local_smda_report.statistics.num_instructions))
         self.label_size_value.setText("%d bytes" % self._summarizeLocalReportInstructionBytes())
-        self.label_family_value.setText(local_info["metadata"]["family"])
-        self.label_version_value.setText(local_info["metadata"]["version"])
-        is_library = "YES" if local_info["metadata"]["is_library"] else "NO"
+        self.label_family_value.setText(local_smda_report.family)
+        self.label_version_value.setText(local_smda_report.version)
+        is_library = "YES" if local_smda_report.is_library else "NO"
         self.label_library_value.setText(is_library)
-
 
     def updateActivityInfo(self, message):
         timestamp = self._datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
         self.label_mcrit_activity_info.setText("Acitivity Info: %s - %s" % (timestamp, message))
 
-    def updateServerInfo(self, mcrit_server, mcrit_database, status=None):
-        if status:
-            num_families = status["num_families"]
+    def updateServerInfo(self, mcrit_server, version=None, statistics=None):
+        if statistics:
+            num_families = statistics["num_families"]
             fam_str = "families" if num_families != 1 else "family"
-            num_samples = status["num_samples"]
+            num_samples = statistics["num_samples"]
             sam_str = "samples" if num_samples != 1 else "sample"
-            num_functions = status["num_functions"]
+            num_functions = statistics["num_functions"]
             fun_str = "functions" if num_functions != 1 else "function"
-        status_text = "Content: %d %s with %d %s containing %d %s." % (num_families, fam_str, num_samples, sam_str, num_functions, fun_str) if status else "Status: failed"
-        self.label_mcrit_server_info.setText("Remote server: %s  --  Database: \"%s\"  --  %s" % (mcrit_server, mcrit_database, status_text))
+        version_text = version if version is not None else "No connection"
+        status_text = "Content: %d %s with %d %s containing %d %s." % (num_families, fam_str, num_samples, sam_str, num_functions, fun_str) if statistics else "No statistics"
+        self.label_mcrit_server_info.setText("Remote server: %s  -- %s -- %s." % (mcrit_server, version_text, status_text))

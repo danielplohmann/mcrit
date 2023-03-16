@@ -3,6 +3,7 @@ import os
 
 import idaapi
 import idc
+import ida_kernwin
 
 import helpers.QtShim as QtShim
 QMainWindow = QtShim.get_QMainWindow()
@@ -19,9 +20,9 @@ class MainWidget(QMainWindow):
         # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.name = "Main"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "relationship.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "mcrit.png")
         self.tabs = None
-        self.tabbed_widgets = [self.parent.sample_widget, self.parent.function_widget]
+        self.tabbed_widgets = [self.parent.function_match_widget, self.parent.sample_widget, self.parent.function_widget]
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.SmdaInfoDialog = SmdaInfoDialog
@@ -62,6 +63,8 @@ class MainWidget(QMainWindow):
         self.toolbar.addAction(self.parseSmdaAction)
         self._createExportSmdaAction()
         self.toolbar.addAction(self.exportSmdaAction)
+        self._createDownloadMcritAction()
+        self.toolbar.addAction(self.downloadMcritAction)
         self._createUploadSmdaAction()
         self.toolbar.addAction(self.uploadSmdaAction)
         self._createQueryMcritAction()
@@ -74,7 +77,7 @@ class MainWidget(QMainWindow):
         Create an action for parsing the IDB into a SMDA report.
         """
         self.parseSmdaAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "fingerprint_scan.png"), \
-            "Convert this IDB to SMDA report that can be used to query MCRIT.", self)
+            "Convert this IDB to a SMDA report which can then be used to query MCRIT.", self)
         self.parseSmdaAction.triggered.connect(self._onConvertSmdaButtonClicked)
 
 
@@ -84,6 +87,7 @@ class MainWidget(QMainWindow):
         """
         self.exportSmdaAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "export.png"), \
             "Export the SMDA report to local disk.", self)
+        self.exportSmdaAction.setEnabled(False)
         self.exportSmdaAction.triggered.connect(self._onExportSmdaButtonClicked)
 
     def _createUploadSmdaAction(self):
@@ -91,9 +95,19 @@ class MainWidget(QMainWindow):
         Create an action for uploading the parsed SMDA report to the server.
         TODO: will require addition of some more meta data.
         """
-        self.uploadSmdaAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "upload.png"), \
+        self.uploadSmdaAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "cloud-upload.png"), \
             "Upload the parsed SMDA report to the MCRIT server.", self)
+        self.uploadSmdaAction.setEnabled(False)
         self.uploadSmdaAction.triggered.connect(self._onUploadSmdaButtonClicked)
+
+
+    def _createDownloadMcritAction(self):
+        """
+        Create an action for downloading meta data from the MCRIT server.
+        """
+        self.downloadMcritAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "cloud-download.png"), \
+            "Upload the parsed SMDA report to the MCRIT server.", self)
+        self.downloadMcritAction.triggered.connect(self._onDownloadMcritButtonClicked)
 
     def _createQueryMcritAction(self):
         """
@@ -101,6 +115,7 @@ class MainWidget(QMainWindow):
         """
         self.queryMcritAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "satellite_dish.png"), \
             "Query MCRIT with the parsed SDMA report.", self)
+        self.queryMcritAction.setEnabled(False)
         self.queryMcritAction.triggered.connect(self._onQueryMcritButtonClicked)
 
     def _createModifySettingsAction(self):
@@ -114,12 +129,30 @@ class MainWidget(QMainWindow):
     def _onNopButtonClicked(self):
         return
 
+    def _onConvertSmdaButtonClicked(self):
+        self.parent.local_smda_report = self.parent.mcrit_interface.convertIdbToSmda()
+        dialog = self.SmdaInfoDialog(self)
+        dialog.exec_()
+        smda_info = dialog.getSmdaInfo()
+        if self.parent.local_smda_report:
+            self.exportSmdaAction.setEnabled(True)
+            self.uploadSmdaAction.setEnabled(True)
+            self.queryMcritAction.setEnabled(True)
+            self.parent.local_smda_report.filename = self.os_path.basename(idaapi.get_root_filename())
+            self.parent.local_smda_report.sha256 = idaapi.retrieve_input_file_sha256().hex()
+            self.parent.local_smda_report.buffer_size = idaapi.retrieve_input_file_size()
+            self.parent.local_smda_report.family = smda_info["family"]
+            self.parent.local_smda_report.version = smda_info["version"]
+            self.parent.local_smda_report.is_library = smda_info["is_library"]
+            self.parent.local_smda_report.smda_version = "MCRIT4IDA v%s via SMDA %s" % (self.parent.config.VERSION, self.parent.local_smda_report.smda_version)
+        self.parent.local_widget.update()
+
     def _onExportSmdaButtonClicked(self):
         if self.parent.local_smda_report:
-            filepath = idc.AskFile(1, self.parent.local_smda_report["filename"] + ".smda", 'Export SMDA report to file...')
+            filepath = ida_kernwin.ask_file(1, self.parent.local_smda_report.filename + ".smda", 'Export SMDA report to file...')
             if filepath:
                 with open(filepath, "w") as fout:
-                    json.dump(self.parent.local_smda_report, fout, indent=1, sort_keys=True)
+                    json.dump(self.parent.local_smda_report.toDict(), fout, indent=1, sort_keys=True)
                 self.parent.local_widget.updateActivityInfo("IDB exported to: \"%s\"." % filepath)
             else:
                 self.parent.local_widget.updateActivityInfo("Export aborted.")
@@ -132,26 +165,21 @@ class MainWidget(QMainWindow):
         else:
             self.parent.local_widget.updateActivityInfo("IDB is not converted to SMDA report yet, can't upload.")
 
-    def _onConvertSmdaButtonClicked(self):
-        self.parent.local_smda_report = self.parent.mcrit_interface.convertIdbToSmda()
-        dialog = self.SmdaInfoDialog(self)
-        dialog.exec_()
-        smda_info = dialog.getSmdaInfo()
-        if self.parent.local_smda_report:
-            self.parent.local_smda_report["filename"] = self.os_path.basename(idaapi.get_root_filename())
-            self.parent.local_smda_report["sha256"] = idaapi.retrieve_input_file_sha256().hex()
-            self.parent.local_smda_report["buffer_size"] = idaapi.retrieve_input_file_size()
-            self.parent.local_smda_report["metadata"]["family"] = smda_info["family"]
-            self.parent.local_smda_report["metadata"]["version"] = smda_info["version"]
-            self.parent.local_smda_report["metadata"]["is_library"] = smda_info["is_library"]
-            self.parent.local_smda_report["metadata"]["source"] = "MCRIT4IDA v%s" % self.parent.config.VERSION
-        self.parent.local_widget.update()
+    def _onDownloadMcritButtonClicked(self):
+        time_before = self.parent.cc.time.time()
+        print("[/] starting download of meta data from MCRIT...")
+        self.parent.mcrit_interface.queryAllFamilyEntries()
+        print("[|] downloaded FamilyEntries!")
+        self.parent.mcrit_interface.queryAllSampleEntries()
+        print("[|] downloaded SampleEntries!")
+        print("[\\] this took %3.2f seconds.\n" % (self.parent.cc.time.time() - time_before))
+        self.parent.local_widget.updateActivityInfo("Downloaded all family/sample information from MCRIT")
 
     def _onQueryMcritButtonClicked(self):
         if self.parent.remote_sample_id is not None:
             self.parent.mcrit_interface.queryMatchReport(self.parent.remote_sample_id)
-            self.parent.mcrit_interface.querySampleInfos()
-            self.parent.mcrit_interface.queryFunctionInfos(self.parent.remote_sample_id)
+            self.parent.mcrit_interface.queryAllSampleEntries()
+            self.parent.mcrit_interface.queryFunctionEntriesBySampleId(self.parent.remote_sample_id)
             self.parent.sample_widget.populateBestMatchTable()
             self.parent.function_widget.populateLocalFunctionTable()
         else:

@@ -10,6 +10,7 @@ from helpers.ClassCollection import ClassCollection
 from helpers.McritInterface import McritInterface
 from widgets.MainWidget import MainWidget
 from widgets.LocalInfoWidget import LocalInfoWidget
+from widgets.FunctionMatchWidget import FunctionMatchWidget
 from widgets.SampleInfoWidget import SampleInfoWidget
 from widgets.FunctionInfoWidget import FunctionInfoWidget
 
@@ -32,6 +33,31 @@ HOTKEYS = None
 MCRIT4IDA = None
 NAME = "MCRIT4IDA v%s" % config.VERSION
 
+G_FORM = None
+
+
+class IdaViewHooks(idaapi.View_Hooks):
+    """
+    Courtesy of Alex Hanel's FunctionTrapperKeeper
+    https://github.com/alexander-hanel/FunctionTrapperKeeper/blob/main/function_trapper_keeper.py
+    """
+    def view_curpos(self, view):
+        self.refresh_widget(view)
+
+    def view_dblclick(self, view, event):
+        self.refresh_widget(view)
+
+    def view_click(self, view, event):
+        self.refresh_widget(view)
+
+    def view_loc_changed(self, view, now, was):
+        self.refresh_widget(view)
+
+    def refresh_widget(self, view):
+        global G_FORM
+        for widget in G_FORM.hook_subscribed_widgets:
+            widget.hook_refresh(view)
+
 
 class Mcrit4IdaForm(PluginForm):
     """
@@ -47,13 +73,21 @@ class Mcrit4IdaForm(PluginForm):
         self.tabs = None
         self.parent = None
         self.config = config
-        self.local_smda_report = {}
+        # local state used to fill widgets with information
+        self.local_smda_report = None
         self.matching_report = {}
         self.sample_infos = {}
+        self.family_infos = {}
+        self.pichash_matches = {}
+        self.pichash_match_summaries = {}
+        self.current_function = None
+        self.picblockhash_matches = {}
         self.remote_function_mapping = {}
         self.remote_sample_id = None
+        # some more setup
         self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
         self.mcrit_interface = McritInterface(self)
+        self.hook_subscribed_widgets = []
 
     def getMatchingReport(self):
         return self.matching_report
@@ -74,9 +108,11 @@ class Mcrit4IdaForm(PluginForm):
         time_before = self.cc.time.time()
         print("[/] setting up widgets...")
         self.local_widget = LocalInfoWidget(self)
+        self.function_match_widget = FunctionMatchWidget(self)
         self.sample_widget = SampleInfoWidget(self)
         self.function_widget = FunctionInfoWidget(self)
         self.main_widget = MainWidget(self)
+        self.hook_subscribed_widgets.append(self.function_match_widget)
         # produce layout and render
         layout = self.cc.QVBoxLayout()
         layout.addWidget(self.main_widget)
@@ -89,6 +125,8 @@ class Mcrit4IdaForm(PluginForm):
         """
         print ("[+] Loading MCRIT4IDA")
         # compatibility with IDA < 6.9
+        self.ViewHook = IdaViewHooks()
+        self.ViewHook.hook()
         try:
             self.parent = self.FormToPySideWidget(form)
         except Exception as exc:
@@ -156,6 +194,8 @@ class Mcrit4IdaPlugin(plugin_t):
     def run(self, arg=0):
         # Create form
         f = Mcrit4IdaForm()
+        global G_FORM
+        G_FORM = f
         # Show the form
         f.Show()
         return
@@ -181,6 +221,8 @@ def main():
     if config.MCRIT4IDA_PLUGIN_ONLY:
         print("MCRIT4IDA: configured as plugin-only mode, ignoring main function of script.")
     else:
+        global G_FORM
+        G_FORM = MCRIT4IDA
         MCRIT4IDA.Show()
 
 
