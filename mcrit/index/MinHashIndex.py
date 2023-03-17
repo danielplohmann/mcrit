@@ -22,7 +22,10 @@ from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
 from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.minhash.MinHash import MinHash
+from mcrit.minhash.MinHasher import MinHasher
+from mcrit.matchers.MatcherQueryFunction import MatcherQueryFunction
 import mcrit.matchers.MatcherInterface as MatcherInterface
+
 from mcrit.Worker import Worker
 
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +66,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         self._minhash_config = config.MINHASH_CONFIG
         self._shingler_config = config.SHINGLER_CONFIG
         self._queue_config = config.QUEUE_CONFIG
+        self.minhasher = MinHasher(self._minhash_config, self._shingler_config)
         self._storage = StorageFactory.getStorage(config)
         # config.QUEUE_CONFIG.QUEUE_METHOD = QueueFactory.QUEUE_METHOD_FAKE
         queue = QueueFactory().getQueue(config, storage=self._storage, consumer_id="index")
@@ -281,6 +285,21 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, **params)
             sample_to_job_id[id] = job_id
         return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation)
+
+    def getMatchesForSmdaFunction(self, smda_report_with_function:SmdaReport):
+        # convert function to FunctionEntry
+        smda_report = SmdaReport.fromDict(smda_report_with_function)
+        function_offset = None
+        if len(smda_report.xcfg) != 1:
+            raise ValueError("SmdaReport has to contain exactly one function.")
+        function_offset = int([k for k in smda_report.xcfg.keys()][0])
+        matcher = MatcherQueryFunction(self)
+        # run Matcher for a single function
+        match_report = matcher.getMatchesForSmdaFunction(smda_report)
+        function_identifier = f"{smda_report.sha256[:8]}@0x{function_offset:x}"
+        match_report["info"]["job"]["parameters"] = f"getMatchesForSmdaFunction({function_identifier})"
+        # return completed MatchingReport
+        return match_report
 
     def getMatchesFunctionVs(self, function_id_a:int, function_id_b:int):
         function_entry_a = self._storage.getFunctionById(function_id_a, with_xcfg=True)

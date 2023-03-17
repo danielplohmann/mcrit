@@ -431,6 +431,18 @@ class McritClient:
         response = requests.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}")
         return handle_response(response)
 
+
+    def getMatchesForSmdaFunction(self, smda_report):
+        """
+        Get all matches for a SmdaReport with a single SmdaFunction
+        Supported by mcritweb API pass-through
+        """
+        # TODO add the same parameter possibilities that are used for regular full matching jobs
+        response = requests.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+
     def getMatchesForPicHash(self, pichash, summary=False):
         """
         Get all matches for a given <pichash>, optionally only as <summary>

@@ -58,7 +58,6 @@ class SampleEntry(object):
             return self.filename[:size_visible] + "..." + self.filename[-size_visible:]
         return self.filename
 
-
     def toDict(self):
         sample_entry = {
             "architecture": self.architecture,

@@ -105,6 +105,7 @@ def get_app():
         query_resource,
         suffix="query_binary_mapped",
     )
+    _app.add_route("/query/function", query_resource, suffix="query_smda_function")
     _app.add_route("/query/pichash/{pichash}", query_resource, suffix="query_pichash")
     _app.add_route("/query/pichash/{pichash}/summary", query_resource, suffix="query_pichash_summary")
     _app.add_route("/query/picblockhash/{picblockhash}", query_resource, suffix="query_picblockhash")
