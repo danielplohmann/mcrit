@@ -67,6 +67,23 @@ class QueryResource:
         resp.data = jsonify({"status": "successful", "data": summary})
 
     @timing
+    def on_post_query_smda_function(self, req, resp):
+        LOGGER.info("QueryResource.on_post_query_smda_function")
+        parameters = getMatchingParams(req.params)
+        if not req.content_length:
+            resp.data = jsonify(
+                {
+                    "status": "failed",
+                    "data": {"message": "POST request without body can't be processed."},
+                }
+            )
+            resp.status = falcon.HTTP_400
+            return
+        smda_function = req.media
+        summary = self.index.getMatchesForSmdaFunction(smda_function, **parameters)
+        resp.data = jsonify({"status": "successful", "data": summary})
+
+    @timing
     def on_get_query_pichash(self, req, resp, pichash):
         LOGGER.info("QueryResource.on_get_query_pichash")
         pichash_pattern = "[a-fA-F0-9]{16}"
