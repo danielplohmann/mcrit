@@ -61,14 +61,14 @@ class MainWidget(QMainWindow):
         self.toolbar = self.addToolBar('MCRIT4IDA Toobar')
         self._createParseSmdaAction()
         self.toolbar.addAction(self.parseSmdaAction)
-        self._createExportSmdaAction()
-        self.toolbar.addAction(self.exportSmdaAction)
-        self._createDownloadMcritAction()
-        self.toolbar.addAction(self.downloadMcritAction)
         self._createUploadSmdaAction()
         self.toolbar.addAction(self.uploadSmdaAction)
         self._createQueryMcritAction()
         self.toolbar.addAction(self.queryMcritAction)
+        self._createDownloadMcritAction()
+        self.toolbar.addAction(self.downloadMcritAction)
+        self._createExportSmdaAction()
+        self.toolbar.addAction(self.exportSmdaAction)
         self._createModifySettingsAction()
         self.toolbar.addAction(self.modifySettingsAction)
 
@@ -145,6 +145,8 @@ class MainWidget(QMainWindow):
             self.parent.local_smda_report.version = smda_info["version"]
             self.parent.local_smda_report.is_library = smda_info["is_library"]
             self.parent.local_smda_report.smda_version = "MCRIT4IDA v%s via SMDA %s" % (self.parent.config.VERSION, self.parent.local_smda_report.smda_version)
+            self.parent.mcrit_interface.querySampleSha256(self.parent.local_smda_report.sha256)
+            self.parent.function_match_widget.enable()
         self.parent.local_widget.update()
 
     def _onExportSmdaButtonClicked(self):

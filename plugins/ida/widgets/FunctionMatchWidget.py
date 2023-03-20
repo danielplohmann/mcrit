@@ -2,6 +2,8 @@ import idaapi
 import ida_funcs
 import ida_kernwin
 
+from mcrit.storage.MatchingResult import MatchingResult
+
 import helpers.QtShim as QtShim
 QMainWindow = QtShim.get_QMainWindow()
 from widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
@@ -15,27 +17,30 @@ class FunctionMatchWidget(QMainWindow):
         print("[|] loading FunctionMatchWidget")
         # enable access to shared MCRIT4IDA modules
         self.parent = parent
-        self.name = "Function Match Overview"
+        self.name = "Function Matches"
         self.last_family_selected = None
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "flag-triangle.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.label_current_pichash_matches = self.cc.QLabel("PicHash Matches for Function: <function_offset>")
         self.cb_filter_library = self.cc.QCheckBox("Filter out Library Matches")
+        self.cb_filter_library.setEnabled(False)
         self.cb_filter_library.setChecked(False)
+        self.cb_filter_library.clicked.connect(self._onCbFilterLibraryClicked)
         self.cb_activate_live_tracking = self.cc.QCheckBox("Active Live PicHash Queries")
-        self.cb_activate_live_tracking.setChecked(True)
+        self.cb_activate_live_tracking.setEnabled(False)
+        self.cb_activate_live_tracking.setChecked(False)
         ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
         self.hline.setFrameShape(self.hline.HLine)
         self.hline.setFrameShadow(self.hline.Sunken)
         # upper table
-        self.label_pichash_matches = self.cc.QLabel("PicHashMatches")
-        self.table_pichash_matches = self.cc.QTableWidget()
+        self.label_function_matches = self.cc.QLabel("Function Matches")
+        self.table_function_matches = self.cc.QTableWidget()
         # lower table
-        self.label_picblockhash_matches = self.cc.QLabel("PicBlockHashMatches")
-        self.table_picblockhash_matches = self.cc.QTableWidget()
+        self.label_function_names = self.cc.QLabel("Names from Matched Functions")
+        self.table_function_names = self.cc.QTableWidget()
         ### self.table_picblockhash_matches.doubleClicked.connect(self._onTablePicBlockHashDoubleClicked)
         # static links to objects to help IDA
         self.NumberQTableWidgetItem = NumberQTableWidgetItem
@@ -52,17 +57,30 @@ class FunctionMatchWidget(QMainWindow):
         sample_info_layout.addWidget(self.cb_filter_library)
         sample_info_layout.addWidget(self.cb_activate_live_tracking)
         sample_info_layout.addWidget(self.hline)
-        sample_info_layout.addWidget(self.label_pichash_matches)
-        sample_info_layout.addWidget(self.table_pichash_matches)
-        sample_info_layout.addWidget(self.label_picblockhash_matches)
-        sample_info_layout.addWidget(self.table_picblockhash_matches)
+        sample_info_layout.addWidget(self.label_function_matches)
+        sample_info_layout.addWidget(self.table_function_matches)
+        sample_info_layout.addWidget(self.label_function_names)
+        sample_info_layout.addWidget(self.table_function_names)
         self.central_widget.setLayout(sample_info_layout)
+
+    def _onCbFilterLibraryClicked(self, mi):
+        """
+        If the filter is altered, we refresh the table.
+        """
+        self.hook_refresh(None, use_current_function=True)
+
+    def enable(self):
+        self.cb_filter_library.setEnabled(True)
+        self.cb_activate_live_tracking.setEnabled(True)
+
 
     def locate_cursor(self, view):
         """
         Courtesy of Alex Hanel's FunctionTrapperKeeper
         https://github.com/alexander-hanel/FunctionTrapperKeeper/blob/main/function_trapper_keeper.py
         """
+        if view is None:
+            return
         widgetType = idaapi.get_widget_type(view)
         if widgetType == idaapi.BWN_DISASM:
             ea = ida_kernwin.get_screen_ea()
@@ -100,7 +118,7 @@ class FunctionMatchWidget(QMainWindow):
                             self.parent.current_function = current_f
         return self.parent.current_function
 
-    def hook_refresh(self, view):
+    def hook_refresh(self, view, use_current_function=False):
         if self.parent.local_smda_report is None:
             self.label_current_pichash_matches.setText("Cannot check for matches, need to convert IDB to SMDA report first.")
             return
@@ -108,16 +126,76 @@ class FunctionMatchWidget(QMainWindow):
             self.label_current_pichash_matches.setText("Live PicHash queries are deactivated.")
             return
         # get current function from cursor position
-        current_function = self.locate_cursor(view)
-        if current_function is None:
+        if self.locate_cursor(view) is None and not use_current_function:
             return
-        smda_function = self.parent.local_smda_report.getFunction(current_function)
-        pic_hash = smda_function.getPicHashAsLong()
+        smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
+        if smda_function.num_instructions < 10:
+            self.label_current_pichash_matches.setText("Can only query functions with 10 instructions or more.")
+            return
+        single_function_smda_report = self.parent.getLocalSmdaReportOutline()
+        single_function_smda_report.xcfg = {smda_function.offset: smda_function}
         # check if pichash match data is already available in local cache
-        if pic_hash not in self.parent.pichash_matches:
-            self.parent.mcrit_interface.queryPicHashMatches(pic_hash)
-        pic_hash_match_summary = self.parent.pichash_match_summaries.get(pic_hash, None)
-        if pic_hash_match_summary:
-            self.label_current_pichash_matches.setText("PicHash Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (current_function, pic_hash_match_summary["families"], pic_hash_match_summary["samples"], pic_hash_match_summary["functions"]))
+        if smda_function.offset not in self.parent.function_matches:
+            self.parent.mcrit_interface.querySmdaFunctionMatches(single_function_smda_report)
+        if smda_function.offset in self.parent.function_matches:
+            match_report = MatchingResult.fromDict(self.parent.function_matches[smda_function.offset])
+            self.label_current_pichash_matches.setText("Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (self.parent.current_function, match_report.num_original_family_matches, match_report.num_original_sample_matches, len(match_report.function_matches)))
         # populate tables with data
-        # set scope in block table to currently selected block
+        self.populateFunctionMatchTable(match_report)
+        # TODO fetch all labels to populate lower table as soon as we support this 
+
+    def populateFunctionMatchTable(self, match_report: MatchingResult):
+        """
+        Populate the function match table with all matches for the selected function_id
+        """
+        self.table_function_matches.setSortingEnabled(False)
+        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Min#", "Lib"]
+        self.table_function_matches.clear()
+        self.table_function_matches.setColumnCount(len(self.function_matches_header_labels))
+        self.table_function_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
+        # Identify number of table entries and prepare addresses to display
+        if self.cb_filter_library.isChecked():
+            self.table_function_matches.setRowCount(len([m for m in match_report.function_matches if not m.match_is_library]))
+        else:
+            self.table_function_matches.setRowCount(len(match_report.function_matches))
+        self.table_function_matches.resizeRowToContents(0)
+
+        sample_id_to_matched_sample = {matched_sample.sample_id: matched_sample for matched_sample in match_report.sample_matches}
+
+        row = 0
+        sorted_entries = sorted(match_report.function_matches, key=lambda x: x.matched_score + (1 if x.match_is_pichash else 0)+ (1 if x.match_is_library else 0), reverse=True)
+        for function_match_entry in sorted_entries:
+            sample_sha256 = sample_id_to_matched_sample[function_match_entry.matched_sample_id].sha256[:8]
+            family_name = match_report.getFamilyNameByFamilyId(function_match_entry.matched_family_id)
+            sample_version = sample_id_to_matched_sample[function_match_entry.matched_sample_id].version
+            if self.cb_filter_library.isChecked() and function_match_entry.match_is_library:
+                continue
+            for column, column_name in enumerate(self.function_matches_header_labels):
+                tmp_item = None
+                if column == 0:
+                    tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_function_id)
+                elif column == 1:
+                    tmp_item = self.cc.QTableWidgetItem(sample_sha256)
+                elif column == 2:
+                    tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_sample_id)
+                elif column == 3:
+                    tmp_item = self.cc.QTableWidgetItem(family_name)
+                elif column == 4:
+                    tmp_item = self.cc.QTableWidgetItem(sample_version)
+                elif column == 5:
+                    tmp_item = self.cc.QTableWidgetItem("YES" if function_match_entry.match_is_pichash else "NO")
+                elif column == 6:
+                    tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_score)
+                elif column == 7:
+                    library_value = "YES" if function_match_entry.match_is_library else "NO"
+                    tmp_item = self.cc.QTableWidgetItem("%s" % library_value)
+                tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
+                self.table_function_matches.setItem(row, column, tmp_item)
+            # self.table_function_matches.resizeRowToContents(row)
+            row += 1
+        self.table_function_matches.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
+        self.table_function_matches.resizeColumnsToContents()
+        self.table_function_matches.setSortingEnabled(True)
+        header_view = self._QtShim.get_QHeaderView()
+        header = self.table_function_matches.horizontalHeader()
+        header.setStretchLastSection(True)

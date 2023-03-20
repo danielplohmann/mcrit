@@ -5,6 +5,8 @@ code inspired by and based on IDAscope
 """
 import os
 
+from smda.common.SmdaReport import SmdaReport
+
 import config
 from helpers.ClassCollection import ClassCollection
 from helpers.McritInterface import McritInterface
@@ -75,9 +77,12 @@ class Mcrit4IdaForm(PluginForm):
         self.config = config
         # local state used to fill widgets with information
         self.local_smda_report = None
+        self.local_smda_report_outline = None
+        self.remote_sample_entry = None
         self.matching_report = {}
         self.sample_infos = {}
         self.family_infos = {}
+        self.function_matches = {}
         self.pichash_matches = {}
         self.pichash_match_summaries = {}
         self.current_function = None
@@ -100,6 +105,13 @@ class Mcrit4IdaForm(PluginForm):
 
     def getLocalSmdaReport(self):
         return self.local_smda_report
+
+    def getLocalSmdaReportOutline(self):
+        if self.local_smda_report_outline is None and self.local_smda_report:
+            report_as_dict = self.local_smda_report.toDict()
+            report_as_dict["xcfg"] = {}
+            self.local_smda_report_outline = SmdaReport.fromDict(report_as_dict)
+        return self.local_smda_report_outline
 
     def setupWidgets(self):
         """

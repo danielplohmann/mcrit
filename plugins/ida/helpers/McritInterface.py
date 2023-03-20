@@ -56,6 +56,21 @@ class McritInterface(object):
             self.parent.local_widget.updateActivityInfo("Connection check failed (unreachable).")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
+    def querySampleSha256(self, sha256):
+        self.parent.local_widget.updateActivityInfo("Querying for SHA256")
+        try:
+            sample_by_sha256 = self.mcrit_client.getSampleBySha256(sha256)
+            if sample_by_sha256:
+                self.parent.remote_sample_entry = sample_by_sha256
+                self.parent.local_widget.updateActivityInfo("Success! Received remote Sample Entry.")
+            else:
+                self.parent.local_widget.updateActivityInfo("querySampleSha256 failed")
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("querySampleSha256 failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
     def uploadReport(self, report):
         # TODO revise this workflow
         raise NotImplementedError
@@ -103,11 +118,24 @@ class McritInterface(object):
                 self.parent.family_infos = family_entries
                 self.parent.local_widget.updateActivityInfo("Success! Received all remote FamilyEntries.")
             else:
-                self.parent.local_widget.updateActivityInfo("FamilyEntry query failed")
+                self.parent.local_widget.updateActivityInfo("queryAllFamilyEntries failed")
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))
-            self.parent.local_widget.updateActivityInfo("FamilyEntry query failed, error on connection :(")
+            self.parent.local_widget.updateActivityInfo("queryAllFamilyEntries failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
+    def querySmdaFunctionMatches(self, smda_report):
+        try:
+            smda_function = [f for f in smda_report.getFunctions()][0]
+            if smda_function.offset not in self.parent.function_matches:
+                match_report = self.mcrit_client.getMatchesForSmdaFunction(smda_report)
+                if match_report:
+                    self.parent.function_matches.update({smda_function.offset: match_report})
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("querySmdaFunctionMatches failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def queryPicHashMatches(self, pichash):
@@ -122,7 +150,7 @@ class McritInterface(object):
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))
-            self.parent.local_widget.updateActivityInfo("SampleEntry query failed, error on connection :(")
+            self.parent.local_widget.updateActivityInfo("queryPicHashMatches failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def queryAllSampleEntries(self):
@@ -133,11 +161,11 @@ class McritInterface(object):
                 self.parent.sample_infos = sample_entries
                 self.parent.local_widget.updateActivityInfo("Success! Received all remote SampleEntries.")
             else:
-                self.parent.local_widget.updateActivityInfo("SampleEntry query failed")
+                self.parent.local_widget.updateActivityInfo("queryAllSampleEntries query failed")
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))
-            self.parent.local_widget.updateActivityInfo("SampleEntry query failed, error on connection :(")
+            self.parent.local_widget.updateActivityInfo("queryAllSampleEntries failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def queryFunctionEntriesBySampleId(self, sample_id):
@@ -148,9 +176,9 @@ class McritInterface(object):
                 self.parent.remote_function_mapping = {function_entry.function_id: function_entry for function_entry in functions_for_sample}
                 self.parent.local_widget.updateActivityInfo("Success! Fetched remote FunctionEntry mapping.")
             else:
-                self.parent.local_widget.updateActivityInfo("FunctionEntry query failed.")
+                self.parent.local_widget.updateActivityInfo("queryFunctionEntriesBySampleId query failed.")
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))
-            self.parent.local_widget.updateActivityInfo("FunctionEntry query failed, error on connection :(")
+            self.parent.local_widget.updateActivityInfo("queryFunctionEntriesBySampleId failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
