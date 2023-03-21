@@ -52,12 +52,14 @@ def handle_response(response):
 
 
 class McritClient:
-    def __init__(self, mcrit_server=None, apitoken=None, raw_responses=False):
+    def __init__(self, mcrit_server=None, apitoken=None, username=None, raw_responses=False):
         self.mcrit_server = "http://localhost:8000"
         self.headers = {}
         self.raw = True if raw_responses else False
         if apitoken:
-            self.headers = {"apitoken": apitoken}
+            self.headers.update({"apitoken": apitoken})
+        if username:
+            self.headers.update({"username": username})
         if mcrit_server is not None:
             self.mcrit_server = mcrit_server
 
@@ -81,7 +83,7 @@ class McritClient:
 
     def addReport(self, smda_report: SmdaReport) -> Tuple[SampleEntry, Optional[str]]:
         smda_json = smda_report.toDict()
-        response = requests.post(f"{self.mcrit_server}/samples", json=smda_json)
+        response = requests.post(f"{self.mcrit_server}/samples", json=smda_json, headers=self.headers)
         data = handle_response(response)
         if data is not None:
             if "job_id" in data:
@@ -262,6 +264,19 @@ class McritClient:
         if (isinstance(start, int) and start >= 0) and (isinstance(limit, int) and limit >= 0):
             query_string = f"?start={start}&limit={limit}"
         response = requests.get(f"{self.mcrit_server}/functions{query_string}", headers=self.headers)
+        if self.raw:
+            return response
+        data = handle_response(response)
+        if data is not None:
+            return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
+        
+    def getFunctionsByIds(self, function_ids:list):
+        """
+        Get all FunctionEntries identified by the provided list of function_ids
+        Supported by mcritweb API pass-through
+        """
+        function_id_string = ",".join(["%d" % fid for fid in function_ids])
+        response = requests.post(f"{self.mcrit_server}/functions", data=function_id_string, headers=self.headers)
         if self.raw:
             return response
         data = handle_response(response)

@@ -44,6 +44,15 @@ class StorageInterface:
         self._minhash_config = config.MINHASH_CONFIG
         self._band_projection = None
 
+    def dbLogEvent(self, event_msg: str, username: Optional[str] = None, details: Optional[dict] = None) -> None:
+        """ Log an event to the database
+
+        Args:
+            event_msg: a string describing the event
+            username: (optional) a username tied to this event
+            details: a dict with arbitrary additional information
+        """
+
     # -> Set[function_id]
     def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
         """Given a MinHash, return all candidates from all matching bands.
@@ -119,6 +128,19 @@ class StorageInterface:
 
         Returns:
             A SampleEntry corresponding to smda_report or None, if SmdaReport was already added.
+        """
+        raise NotImplementedError
+
+    def updateFunctionLabels(self, smda_report: "SmdaReport", username: str) -> Optional["SampleEntry"]:
+        """Use a given SMDA report to update all non-dummy function labels for the SampleEntry matching its SHA256
+        If no matching SampleEntry exists, no update happens.
+
+        Args:
+            smda_report: the SmdaReport to be used for updating function labels
+            username: a username that allows tracking who submitted the labels
+
+        Returns:
+            True if SampleEntry was found and potentially labels were added, False otherwise.
         """
         raise NotImplementedError
 

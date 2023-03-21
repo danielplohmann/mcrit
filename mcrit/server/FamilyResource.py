@@ -5,8 +5,7 @@ import falcon
 
 from mcrit.server.utils import timing, jsonify
 from mcrit.index.MinHashIndex import MinHashIndex
-
-LOGGER = logging.getLogger(__name__)
+from mcrit.server.utils import db_log_msg
 
 class FamilyResource:
     def __init__(self, index: MinHashIndex):
@@ -18,7 +17,6 @@ class FamilyResource:
         with_samples = True 
         if "with_samples" in req.params:
             with_samples = req.params["with_samples"].lower().strip() == "true"
-        LOGGER.info("FamilyResource.on_get")
         if self.index.getFamily(family_id) is None:
             resp.data = jsonify(
                 {
@@ -27,6 +25,7 @@ class FamilyResource:
                 }
             )
             resp.status = falcon.HTTP_404
+            db_log_msg(self.index, req, f"FamilyResource.on_get - failed - family_id {family_id} unknown")
             return
 
         family = self.index.getFamily(family_id)
@@ -37,12 +36,14 @@ class FamilyResource:
                 family.samples[sample.sample_id] = sample
         result = family.toDict()
         resp.data = jsonify({"status": "successful", "data": result})
+        db_log_msg(self.index, req, f"FamilyResource.on_get - success - family_id {family_id}")
 
     @timing
     def on_put(self, req, resp, family_id=None):
         resp.status = falcon.HTTP_400
         if not req.content_length or not isinstance(req.media, dict):
             resp.data = jsonify({"status": "failed","data": {"message": "PUT request without body can't be processed."}})
+            db_log_msg(self.index, req, "FamilyResource.on_put - failed - no body")
             return
         # sanitize sample information
         information_update = req.media
@@ -52,6 +53,7 @@ class FamilyResource:
         if "is_library" in information_update:
             if not (isinstance(information_update["is_library"], bool) or information_update["is_library"] in ["True", "False", "true", "false", "0", "1", 0, 1]):
                 resp.data = jsonify({"status": "failed","data": {"message": "is_library must be boolean."}})
+                db_log_msg(self.index, req, "FamilyResource.on_put - failed - Is_library was not boolean.")
                 return
             if information_update["is_library"] in ["True", "true", "1", 1]:
                 information_update["is_library"] = True
@@ -61,8 +63,10 @@ class FamilyResource:
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Family modified."}})
             resp.status = falcon.HTTP_202
+            db_log_msg(self.index, req, f"FamilyResource.on_put - success - family_id {family_id} modified")
         else:
             resp.data = jsonify({"status": "failed", "data": {"message": "Failed to modify family."}})
+            db_log_msg(self.index, req, f"FamilyResource.on_put - failed - family_id {family_id} not modified")
 
     @timing
     def on_delete(self, req, resp, family_id=None):
@@ -74,24 +78,26 @@ class FamilyResource:
                 }
             )
             resp.status = falcon.HTTP_404
+            db_log_msg(self.index, req, "FamilyResource.on_delete - failed - due to unknown family")
             return
         # parse optional request parameters
         keep_samples = False 
         if "keep_samples" in req.params:
             keep_samples = req.params["keep_samples"].lower().strip() == "true"
-        LOGGER.info("FamilyResource.on_delete")
         successful = self.index.deleteFamily(family_id, keep_samples=keep_samples, force_recalculation=True)
         if successful:
+            db_log_msg(self.index, req, f"FamilyResource.on_delete - success - family_id: {family_id}, keep_samples={keep_samples}")
             resp.data = jsonify({"status": "successful", "data": successful})
             resp.status = falcon.HTTP_202
         else:
+            db_log_msg(self.index, req, f"FamilyResource.on_delete - failed - family_id: {family_id}, keep_samples={keep_samples}")
             resp.data = jsonify({"status": "failed", "data": {"message": "Failed to delete family."}})
             # TODO whats the correct code?
             resp.status = falcon.HTTP_410
 
     @timing
     def on_get_collection(self, req, resp):
-        LOGGER.info("FamilyResource.on_get_collection")
+        db_log_msg(self.index, req, f"FamilyResource.on_get_collection")
         # parse optional request parameters
         start_index = 0 
         if "start" in req.params:

@@ -13,6 +13,7 @@ from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
@@ -167,6 +168,10 @@ class MemoryStorage(StorageInterface):
         family_entry.num_functions += num_functions_inc
         family_entry.num_library_samples += num_library_samples_inc
 
+    def dbLogEvent(self, event_msg, username=None, details=None):
+        """ For MemoryStorage, this is a dummy function and we do not persist logging messages """
+        logging.info(event_msg)
+
     # TODO check if this works
     def deleteSample(self, sample_id: int) -> bool:
         if not self.isSampleId(sample_id):
@@ -314,6 +319,31 @@ class MemoryStorage(StorageInterface):
                 self.deleteSample(sample_entry.sample_id)
         self._updateDbState()
         return True
+
+    def updateFunctionLabels(self, smda_report: "SmdaReport", username: str) -> Optional["SampleEntry"]:
+        sample_entry = self.getSampleBySha256(smda_report.sha256)
+        if not sample_entry:
+            return False
+        # check which functions in the SmdaReport have suitable function_names
+        extracted_labels = {}
+        for smda_function in smda_report.getFunctions():
+            function_name = smda_function.function_name
+            if function_name and not re.match("sub_[a-fA-F0-9]{1,16}", function_name):
+                extracted_labels[smda_function.offset] = function_name
+        # get the respective FunctionEntries and check if the label is novel
+        sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
+        label_updates = []
+        for label_offset, extracted_label in extracted_labels.items():
+            is_new_label = True
+            if label_offset in sample_function_entries:
+                existing_labels = sample_function_entries[label_offset].function_labels
+                for existing_label in existing_labels:
+                    if existing_label.username == username and existing_label.function_label == extracted_label:
+                        is_new_label = False
+            # match by function_id or offset and add the label if it had not existed before.
+            if is_new_label:
+                new_function_entry_label = FunctionLabelEntry(extracted_label, username)
+                self._functions[sample_function_entries[label_offset].function_id].function_labels.append(new_function_entry_label)
 
     def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
         sample_entry = None

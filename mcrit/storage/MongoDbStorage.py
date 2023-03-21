@@ -23,6 +23,7 @@ from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElemen
 from mcrit.libs.utility import generate_unique_groups
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
@@ -142,6 +143,7 @@ class MongoDbStorage(StorageInterface):
         self._database["matches"].create_index("match_id")
         self._database["candidates"].create_index("function_id")
         self._database["counters"].create_index("name")
+        self._database["logs"].create_index("username")
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             self._database["band_%d" % band_id].create_index("band_hash")
         # Add Family "" if it is not already in storage
@@ -190,7 +192,7 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database insert for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
+                details={"traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database insert failed.")
 
@@ -206,7 +208,7 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database insert_many for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
+                details={"traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database insert failed.")
 
@@ -219,22 +221,24 @@ class MongoDbStorage(StorageInterface):
         except Exception as exc:
             self._dbLogError(
                 'Database query for collection "%s" failed.' % collection,
-                {"user": "internal/mcrit", "traceback": traceback.format_exc().split("\n")},
+                details={"traceback": traceback.format_exc().split("\n")},
             )
             raise ValueError("Database query failed.")
 
-    def _dbLogEvent(self, event_msg, details=None):
+    def dbLogEvent(self, event_msg, username=None, details=None):
         if details is None:
-            details = {"user": "internal"}
-        self._dbLog("event", event_msg, details)
+            details = {}
+        self._dbLog("event", event_msg, username, details)
 
-    def _dbLogError(self, error_msg, details=None):
+    def _dbLogError(self, error_msg, username=None, details=None):
         if details is None:
-            details = {"user": "internal"}
-        self._dbLog("error", error_msg, details)
+            details = {}
+        self._dbLog("error", error_msg, username, details)
 
-    def _dbLog(self, log_type, log_msg, log_details):
-        record = {"ts": self._getCurrentTimestamp(), "%s_msg" % log_type: log_msg, "%s_details" % log_type: log_details}
+    def _dbLog(self, log_type, log_msg, log_username, log_details):
+        if log_username is None:
+            log_username = "mcrit/internal"
+        record = {"ts": self._getCurrentTimestamp(), "%s_msg" % log_type: log_msg, "username": log_username, "%s_details" % log_type: log_details}
         self._database[log_type].insert_one(self._toBinary(record))
 
     def _useCounterBulk(self, name: str, num_counts: int) -> Iterable[int]:
@@ -529,6 +533,34 @@ class MongoDbStorage(StorageInterface):
                 return None
             return SampleEntry.fromDict(report_dict)
         return None
+
+    def updateFunctionLabels(self, smda_report: "SmdaReport", username) -> Optional["SampleEntry"]:
+        sample_entry = self.getSampleBySha256(smda_report.sha256)
+        if not sample_entry:
+            return False
+        # check which functions in the SmdaReport have suitable function_names
+        extracted_labels = {}
+        for smda_function in smda_report.getFunctions():
+            function_name = smda_function.function_name
+            if function_name and not re.match("sub_[a-fA-F0-9]{1,16}", function_name):
+                extracted_labels[smda_function.offset] = function_name
+        # get the respective FunctionEntries and check if the label is novel
+        sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
+        label_updates = []
+        for label_offset, extracted_label in extracted_labels.items():
+            is_new_label = True
+            if label_offset in sample_function_entries:
+                existing_labels = sample_function_entries[label_offset].function_labels
+                for existing_label in existing_labels:
+                    if existing_label.username == username and existing_label.function_label == extracted_label:
+                        is_new_label = False
+            # match by function_id or offset and add the label if it had not existed before.
+            if is_new_label:
+                new_function_entry_label = FunctionLabelEntry(extracted_label, username)
+                update_command = {"$push": {"function_labels": new_function_entry_label.toDict()}}
+                label_updates.append(UpdateOne({"function_id": sample_function_entries[label_offset].function_id}, update_command, upsert=True))
+        if label_updates:
+            self._database["functions"].bulk_write(label_updates, ordered=False)
 
     def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
         sample_entry = None
