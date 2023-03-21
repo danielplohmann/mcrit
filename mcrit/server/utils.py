@@ -5,6 +5,14 @@ import logging
 LOGGER = logging.getLogger(__name__)
 
 
+def db_log_msg(index, req, message, level=None):
+    username = req.get_header("username", default="anonymous")
+    if level is None:
+        LOGGER.info(f"{username} - {message}")
+    index._storage.dbLogEvent(message, username=username)
+    return
+
+
 def getMatchingParams(req_params):
     parameters = {}
     for key, value in req_params.items():

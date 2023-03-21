@@ -254,14 +254,16 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     """
 
     #### NOT REDIRECTED ####
-    def addReport(self, smda_report, calculate_hashes=True, calculate_matches=False):
+    def addReport(self, smda_report, calculate_hashes=True, calculate_matches=False, username=None):
         sample_entry = self._storage.getSampleBySha256(smda_report.sha256)
         if sample_entry:
+            self._storage.updateFunctionLabels(smda_report, username)
             return {"existed": True, "sample_info": sample_entry.toDict()}
         sample_entry = self._storage.addSmdaReport(smda_report)
         if not sample_entry:
             return None
         LOGGER.info("Added %s", sample_entry)
+        self._storage.updateFunctionLabels(smda_report, username)
         function_entries = self._storage.getFunctionsBySampleId(sample_entry.sample_id)
         LOGGER.info("Added %d function entries.", len(function_entries))
         job_id = None
@@ -269,9 +271,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             job_id = self.updateMinHashesForSample(sample_entry.sample_id)
         return {"existed": False, "sample_info": sample_entry.toDict(), "job_id": job_id}
 
-    def addReportJson(self, report_json, calculate_hashes=True, calculate_matches=False):
+    def addReportJson(self, report_json, calculate_hashes=True, calculate_matches=False, username=None):
         report = SmdaReport.fromDict(report_json)
-        return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches)
+        return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches, username=username)
 
     def addReportFile(self, report_filepath, calculate_hashes=True, calculate_matches=False):
         with open(report_filepath, "r") as fin:

@@ -4,6 +4,7 @@ from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
 
 from mcrit.minhash.MinHash import MinHash
+from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.SampleEntry import SampleEntry
@@ -27,6 +28,7 @@ class FunctionEntry(object):
     architecture: str
     # smda information
     function_name: str
+    function_labels: list
     matches: Dict
     pichash: int
     picblockhashes: list
@@ -57,6 +59,7 @@ class FunctionEntry(object):
             self.function_name = smda_function.function_name
             self.pichash = smda_function.pic_hash
             self.picblockhashes = []
+        self.function_labels = []
         self.matches = {}
         empty_minhash = MinHash()
         self.minhash = minhash.getMinHash() if minhash else empty_minhash.getMinHash()
@@ -82,6 +85,7 @@ class FunctionEntry(object):
             "family_id": self.family_id,
             "function_id": self.function_id,
             "function_name": self.function_name,
+            "function_labels": [l.toDict() for l in self.function_labels],
             "matches": self.matches,
             "minhash": minhash.hex(),
             "minhash_shingle_composition": shingler_composition,
@@ -103,6 +107,9 @@ class FunctionEntry(object):
         function_entry.sample_id = entry_dict["sample_id"]
         function_entry.architecture = entry_dict["architecture"]
         function_entry.function_name = entry_dict["function_name"]
+        function_entry.function_labels = [FunctionLabelEntry.fromDict(l) for l in entry_dict["function_labels"]] if "function_labels" in entry_dict else []
+        for label in function_entry.function_labels:
+            label.setFunctionId(entry_dict["function_id"])
         function_entry.matches = entry_dict["matches"]
         function_entry.pichash = entry_dict["pichash"]
         function_entry.picblockhashes = entry_dict["picblockhashes"]
