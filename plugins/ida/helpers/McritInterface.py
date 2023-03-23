@@ -22,7 +22,9 @@ class McritInterface(object):
         self._mcrit_server = self.config.MCRIT_SERVER
         self.mcrit_client = McritClient(self.config.MCRIT_SERVER)
         if self.config.MCRITWEB_API_TOKEN:
-            self.mcrit_client = McritClient(self.config.MCRIT_SERVER, apitoken=self.config.MCRITWEB_API_TOKEN)
+            self.mcrit_client.setApitoken(self.config.MCRITWEB_API_TOKEN)
+        if self.config.MCRITWEB_USERNAME:
+            self.mcrit_client.setApitoken(self.config.MCRITWEB_USERNAME)
         #self.smda_config = SmdaConfig()
         self.smda_disassembler = Disassembler(backend="IDA")
         self.smda_ida = IdaInterface()
@@ -72,19 +74,18 @@ class McritInterface(object):
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def uploadReport(self, report):
-        # TODO revise this workflow
-        raise NotImplementedError
         self.parent.local_widget.updateActivityInfo("Sending SMDA report to server %s" % self._getMcritServerAddress())
         try:
-            response = requests.post(self._getMcritServerAddress() + "/samples", json=report)
-            if response.status_code == 200:
-                response_json = response.json()
-                response_content = response_json["data"]
-                self.parent.mcrit_interface.checkConnection()
-                self.parent.local_widget.updateActivityInfo("Upload finished, sample_id is: %d." % response_content["sample_info"]["sample_id"])
-                self.parent.remote_sample_id = response_content["sample_info"]["sample_id"]
+            sample_entry, job_id = self.mcrit_client.addReport(report)
+            if sample_entry:
+                if job_id:
+                    self.parent.local_widget.updateActivityInfo("Upload finished, remote sample_id is: %d (processing MinHashes as job_id: %s)" % (sample_entry.sample_id, job_id))
+                else:
+                    self.parent.local_widget.updateActivityInfo("Upload finished, remote sample_id is: %d." % sample_entry.sample_id)
+                self.parent.remote_sample_entry = sample_entry
+                self.parent.local_widget.update()
             else:
-                self.parent.local_widget.updateActivityInfo("Upload failed, status code: %d." % response.status_code)
+                self.parent.local_widget.updateActivityInfo("Upload failed.")
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))
@@ -129,13 +130,22 @@ class McritInterface(object):
         try:
             smda_function = [f for f in smda_report.getFunctions()][0]
             if smda_function.offset not in self.parent.function_matches:
-                match_report = self.mcrit_client.getMatchesForSmdaFunction(smda_report)
+                match_report = self.mcrit_client.getMatchesForSmdaFunction(smda_report, exclude_self_matches=False)
                 if match_report:
                     self.parent.function_matches.update({smda_function.offset: match_report})
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))
             self.parent.local_widget.updateActivityInfo("querySmdaFunctionMatches failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
+    def queryFunctionEntriesById(self, function_ids):
+        try:
+            return self.mcrit_client.getFunctionsByIds(function_ids)
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("queryFunctionEntriesById failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def queryPicHashMatches(self, pichash):

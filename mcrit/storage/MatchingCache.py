@@ -24,5 +24,5 @@ class MatchingCache(object):
             self._func_id_to_sample_id[function_entry.function_id] = function_entry.sample_id
             sample_id = function_entry.sample_id
             if sample_id not in self._sample_id_to_func_ids:
-                self._sample_id_to_func_ids[sample_id] = []
-            self._sample_id_to_func_ids[sample_id].append(function_entry.function_id)
+                self._sample_id_to_func_ids[sample_id] = set()
+            self._sample_id_to_func_ids[sample_id].add(function_entry.function_id)

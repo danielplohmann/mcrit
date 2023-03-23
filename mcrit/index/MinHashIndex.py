@@ -288,14 +288,25 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             sample_to_job_id[id] = job_id
         return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation)
 
-    def getMatchesForSmdaFunction(self, smda_report_with_function:SmdaReport):
+    def getMatchesForSmdaFunction(self, 
+            smda_report_with_function:SmdaReport,
+            minhash_threshold=None, 
+            pichash_size=None, 
+            band_matches_required=None, 
+            exclude_self_matches=False
+        ):
         # convert function to FunctionEntry
         smda_report = SmdaReport.fromDict(smda_report_with_function)
         function_offset = None
         if len(smda_report.xcfg) != 1:
             raise ValueError("SmdaReport has to contain exactly one function.")
         function_offset = int([k for k in smda_report.xcfg.keys()][0])
-        matcher = MatcherQueryFunction(self)
+        matcher = MatcherQueryFunction(self,
+            minhash_threshold=None, 
+            pichash_size=None, 
+            band_matches_required=None, 
+            exclude_self_matches=False
+        )
         # run Matcher for a single function
         match_report = matcher.getMatchesForSmdaFunction(smda_report)
         function_identifier = f"{smda_report.sha256[:8]}@0x{function_offset:x}"

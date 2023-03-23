@@ -24,6 +24,9 @@ class MatcherQueryFunction(MatcherInterface):
             raise ValueError("SmdaFunction is not MinHashable.")
         # create temporary objects similar to the stored samples/functions
         self._sample_entry = SampleEntry(smda_report)
+        existing_sample_entry = self._storage.getSampleBySha256(smda_report.sha256)
+        if existing_sample_entry and self._exclude_self_matches:
+            self._sample_entry.sample_id = existing_sample_entry.sample_id
         self._sample_id = self._sample_entry.sample_id
         self._sample_id_to_entry[self._sample_entry.sample_id] = self._sample_entry
         self._sample_info = self._sample_entry.toDict()

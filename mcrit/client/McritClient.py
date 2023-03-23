@@ -63,8 +63,14 @@ class McritClient:
         if mcrit_server is not None:
             self.mcrit_server = mcrit_server
 
+    def setApitoken(self, apitoken):
+        self.headers.update({"apitoken": apitoken})
+
+    def setUsername(self, username):
+        self.headers.update({"username": username})
+
     def _getMatchingRequestParams(
-        self, minhash_threshold, pichash_size, force_recalculation, band_matches_required
+        self, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False
     ):
         params = {}
         if minhash_threshold is not None:
@@ -75,6 +81,8 @@ class McritClient:
             params["force_recalculation"] = force_recalculation
         if band_matches_required is not None:
             params["band_matches_required"] = band_matches_required
+        if exclude_self_matches:
+            params["exclude_self_matches"] = True
         return params
 
     def respawn(self):
@@ -282,6 +290,7 @@ class McritClient:
         data = handle_response(response)
         if data is not None:
             return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
+        return {}
 
     def isFunctionId(self, function_id):
         """
@@ -447,13 +456,16 @@ class McritClient:
         return handle_response(response)
 
 
-    def getMatchesForSmdaFunction(self, smda_report):
+    def getMatchesForSmdaFunction(self, smda_report, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False):
         """
         Get all matches for a SmdaReport with a single SmdaFunction
         Supported by mcritweb API pass-through
         """
         # TODO add the same parameter possibilities that are used for regular full matching jobs
-        response = requests.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, exclude_self_matches
+        )
+        response = requests.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers, params=params)
         if self.raw:
             return response
         return handle_response(response)

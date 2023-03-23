@@ -180,6 +180,9 @@ class IdaProxy():
 
     def MakeNameEx(self, address, name, warning_level):
         return self.idc.MakeNameEx(address, name, warning_level)
+    
+    def set_name(self, address, name, warning_level):
+        return self.idc.set_name(address, name, warning_level)
 
     def MakeRptCmt(self, ea, comment):
         return self.idc.MakeRptCmt(ea, comment)
