@@ -92,6 +92,8 @@ class McritClient:
     def addReport(self, smda_report: SmdaReport) -> Tuple[SampleEntry, Optional[str]]:
         smda_json = smda_report.toDict()
         response = requests.post(f"{self.mcrit_server}/samples", json=smda_json, headers=self.headers)
+        if self.raw:
+            return response
         data = handle_response(response)
         if data is not None:
             if "job_id" in data:
