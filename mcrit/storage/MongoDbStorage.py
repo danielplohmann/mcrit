@@ -548,8 +548,10 @@ class MongoDbStorage(StorageInterface):
         sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
         label_updates = []
         for label_offset, extracted_label in extracted_labels.items():
-            is_new_label = True
+            is_new_label = False
+            # we can only ever update labels if they exist in our DB
             if label_offset in sample_function_entries:
+                is_new_label = True
                 existing_labels = sample_function_entries[label_offset].function_labels
                 for existing_label in existing_labels:
                     if existing_label.username == username and existing_label.function_label == extracted_label:
