@@ -14,6 +14,7 @@ from multiprocessing import Pool, cpu_count
 import tqdm
 
 from smda.Disassembler import Disassembler
+from smda.SmdaConfig import SmdaConfig
 
 
 def get_word(buffer, start):
@@ -210,10 +211,15 @@ def work(input_element):
             BASE_ADDR = parseBaseAddrFromArgs(INPUT_FILENAME)
             BITNESS = getBitnessFromFilename(INPUT_FILENAME)
             try:
+                smda_config = SmdaConfig()
+                if "_dump7_" in input_element['filename']:
+                    smda_config.API_COLLECTION_FILES = {"win_7": os.sep.join([smda_config.PROJECT_ROOT, "data", "apiscout_win7_prof-n_sp1.json"])}
+                elif "_dump_" in input_element['filename']:
+                    smda_config.API_COLLECTION_FILES = {"win_xp": os.sep.join([smda_config.PROJECT_ROOT, "data", "apiscout_winxp_prof_sp3.json"])}
                 REPORT = disassembler.disassembleBuffer(BUFFER, BASE_ADDR, BITNESS)
             except AttributeError:
                 logger.error("AttributeError for: " + str(INPUT_FILENAME))
-        else:
+        elif "_unpacked" in input_element['filename']:
             print("Analyzing file: {}".format(INPUT_FILEPATH))
             try:
                 REPORT = disassembler.disassembleFile(INPUT_FILEPATH)
@@ -230,7 +236,6 @@ def work(input_element):
         print("RunTimeError, we skip!")
         print("smda: " + str( INPUT_FILENAME ))
         traceback.print_exc()
-    return None
 
 
 if __name__ == "__main__":
