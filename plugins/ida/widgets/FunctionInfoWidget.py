@@ -12,9 +12,9 @@ class FunctionInfoWidget(QMainWindow):
         print("[|] loading FunctionInfoWidget")
         # enable access to shared MCRIT4IDA modules
         self.parent = parent
-        self.name = "Function Info"
+        self.name = "Function Match Summary"
         self.last_function_selected = None
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "inspection.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "relationship.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.cb_filter_library = self.cc.QCheckBox("Filter to Library Function Matches")
@@ -72,8 +72,8 @@ class FunctionInfoWidget(QMainWindow):
         self.updateFunctionsLabel()
 
     def _updateLabelLocalFunctionMatches(self, num_functions_matched):
-        local_info = self.parent.getLocalSmdaReport()
-        total_local_functions = local_info["statistics"]["num_functions"]
+        local_smda_report = self.parent.getLocalSmdaReport()
+        total_local_functions = local_smda_report.num_functions
         remote_matches = self._countRemoteMatches()
         self.label_local_functions.setText("Local Functions Matched (%d/%d), Remote Functions Matched: %d" % (num_functions_matched, total_local_functions, remote_matches))
 
@@ -82,9 +82,9 @@ class FunctionInfoWidget(QMainWindow):
         function_infos = self.parent.getFunctionInfos()
         selected_offset = 0
         selected_name = ""
-        if selected_function_id in function_infos["function_ids"]:
-            selected_offset = function_infos["function_ids"][selected_function_id]["offset"]
-            name = function_infos["function_ids"][selected_function_id]["function_name"]
+        if selected_function_id in function_infos:
+            selected_offset = function_infos[selected_function_id]["offset"]
+            name = function_infos[selected_function_id]["function_name"]
             selected_name = " (%s)" % name if name else ""
         self.label_function_matches.setText("Matches for Function ID: %s @0x%x%s" % (selected_function_id, selected_offset, selected_name))
 
@@ -118,9 +118,9 @@ class FunctionInfoWidget(QMainWindow):
                     "minhash_samples": set([]),
                     "is_library": False,
                     "function_id": int_own_function_id,
-                    "function_offset": function_infos["function_ids"][own_function_id]["offset"],
-                    "function_name": function_infos["function_ids"][own_function_id]["function_name"],
-                    "num_instructions": function_infos["function_ids"][own_function_id]["num_instructions"]
+                    "function_offset": function_infos[own_function_id]["offset"],
+                    "function_name": function_infos[own_function_id]["function_name"],
+                    "num_instructions": function_infos[own_function_id]["num_instructions"]
                 }
             for foreign_sample_id, foreign_matches in match_data["matches"].items():
                 foreign_sample_id = int(foreign_sample_id)
@@ -139,9 +139,9 @@ class FunctionInfoWidget(QMainWindow):
                     "minhash_samples": set([]),
                     "is_library": False,
                     "function_id": int_own_function_id,
-                    "function_offset": function_infos["function_ids"][own_function_id]["offset"],
-                    "function_name": function_infos["function_ids"][own_function_id]["function_name"],
-                    "num_instructions": function_infos["function_ids"][own_function_id]["num_instructions"]
+                    "function_offset": function_infos[own_function_id]["offset"],
+                    "function_name": function_infos[own_function_id]["function_name"],
+                    "num_instructions": function_infos[own_function_id]["num_instructions"]
                 }
             for foreign_sample_id, foreign_matches in match_data["matches"].items():
                 foreign_sample_id = int(foreign_sample_id)

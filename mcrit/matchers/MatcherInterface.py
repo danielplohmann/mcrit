@@ -64,7 +64,12 @@ def add_duration(func):
 
 class MatcherInterface(object):
     def __init__(
-        self, worker: "Worker", minhash_threshold=None, pichash_size=None, band_matches_required=None, progress_reporter=NoProgressReporter()
+        self, worker: "Worker", 
+        minhash_threshold=None, 
+        pichash_size=None, 
+        band_matches_required=None, 
+        exclude_self_matches=False,
+        progress_reporter=NoProgressReporter()
     ):
         # Extended by Query, VS, Sample
         self._worker: "Worker" = worker
@@ -74,6 +79,7 @@ class MatcherInterface(object):
         self._sample_id: Optional[int] = None
         self._progress_reporter = progress_reporter
         self._minhash_threshold = minhash_threshold
+        self._exclude_self_matches = exclude_self_matches
         if pichash_size is None:
             pichash_size = self._worker.config.MINHASH_CONFIG.PICHASH_SIZE
         if band_matches_required is None:

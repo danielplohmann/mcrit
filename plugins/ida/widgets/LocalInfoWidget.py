@@ -19,12 +19,15 @@ class LocalInfoWidget(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.label_mcrit_activity_info = self.cc.QLabel("Activity Info: <PLACEHOLDER>")
         self.updateActivityInfo("MCRIT4IDA started.")
-        self.label_mcrit_server_info = self.cc.QLabel("MCRIT Remote server and database: <not_active>")
+        self.label_mcrit_server_info = self.cc.QLabel("MCRIT Remote server: <not_active>")
+        self.label_remote_sample_info = self.cc.QLabel("Remote sample: <unknown>")
         # horizontal line
         self.hline = self.cc.QFrame()
         self.hline.setFrameShape(self.hline.HLine)
         self.hline.setFrameShadow(self.hline.Sunken)
         # SMDA report info fields
+        self.label_sha256 = self.cc.QLabel("SHA256: ")
+        self.label_label_sha256_value = self.cc.QLabel("no data")
         self.label_architecture = self.cc.QLabel("Architecture: ")
         self.label_architecture_value = self.cc.QLabel("no data")
         self.label_bitness = self.cc.QLabel("Bitness: ")
@@ -53,27 +56,30 @@ class LocalInfoWidget(QMainWindow):
         local_layout = self.cc.QVBoxLayout()
         local_layout.addWidget(self.label_mcrit_activity_info)
         local_layout.addWidget(self.label_mcrit_server_info)
+        local_layout.addWidget(self.label_remote_sample_info)
         local_layout.addWidget(self.hline)
         local_info_widget = self.cc.QWidget()
         grid_layout = self.cc.QGridLayout()
-        grid_layout.addWidget(self.label_architecture, 0, 0)
-        grid_layout.addWidget(self.label_architecture_value, 0, 1)
-        grid_layout.addWidget(self.label_bitness, 1, 0)
-        grid_layout.addWidget(self.label_bitness_value, 1, 1)
-        grid_layout.addWidget(self.label_image_base, 2, 0)
-        grid_layout.addWidget(self.label_image_base_value, 2, 1)
-        grid_layout.addWidget(self.label_functions, 3, 0)
-        grid_layout.addWidget(self.label_functions_value, 3, 1)
-        grid_layout.addWidget(self.label_instructions, 4, 0)
-        grid_layout.addWidget(self.label_instructions_value, 4, 1)
-        grid_layout.addWidget(self.label_size, 5, 0)
-        grid_layout.addWidget(self.label_size_value, 5, 1)
-        grid_layout.addWidget(self.label_family, 6, 0)
-        grid_layout.addWidget(self.label_family_value, 6, 1)
-        grid_layout.addWidget(self.label_version, 7, 0)
-        grid_layout.addWidget(self.label_version_value, 7, 1)
-        grid_layout.addWidget(self.label_library, 8, 0)
-        grid_layout.addWidget(self.label_library_value, 8, 1)
+        grid_layout.addWidget(self.label_sha256, 0, 0)
+        grid_layout.addWidget(self.label_label_sha256_value, 0, 1)
+        grid_layout.addWidget(self.label_architecture, 1, 0)
+        grid_layout.addWidget(self.label_architecture_value, 1, 1)
+        grid_layout.addWidget(self.label_bitness, 2, 0)
+        grid_layout.addWidget(self.label_bitness_value, 2, 1)
+        grid_layout.addWidget(self.label_image_base, 3, 0)
+        grid_layout.addWidget(self.label_image_base_value, 3, 1)
+        grid_layout.addWidget(self.label_functions, 4, 0)
+        grid_layout.addWidget(self.label_functions_value, 4, 1)
+        grid_layout.addWidget(self.label_instructions, 5, 0)
+        grid_layout.addWidget(self.label_instructions_value, 5, 1)
+        grid_layout.addWidget(self.label_size, 6, 0)
+        grid_layout.addWidget(self.label_size_value, 6, 1)
+        grid_layout.addWidget(self.label_family, 7, 0)
+        grid_layout.addWidget(self.label_family_value, 7, 1)
+        grid_layout.addWidget(self.label_version, 8, 0)
+        grid_layout.addWidget(self.label_version_value, 8, 1)
+        grid_layout.addWidget(self.label_library, 9, 0)
+        grid_layout.addWidget(self.label_library_value, 9, 1)
         grid_layout.setColumnStretch(0, 1)
         grid_layout.setColumnStretch(1, 3)
         local_info_widget.setLayout(grid_layout)
@@ -82,39 +88,41 @@ class LocalInfoWidget(QMainWindow):
 
     def _summarizeLocalReportInstructionBytes(self):
         num_bytes = 0
-        local_info = self.parent.getLocalSmdaReport()
-        if local_info:
-            for f_offset, cfg in local_info["xcfg"].items():
-                for b_offset, block in cfg["blocks"].items():
-                    for ins in block:
-                        num_bytes += len(ins[1]) / 2
+        local_smda_report = self.parent.getLocalSmdaReport()
+        if local_smda_report:
+            for smda_function in local_smda_report.getFunctions():
+                    for smda_ins in smda_function.getInstructions():
+                        num_bytes += len(smda_ins.bytes) / 2
         return num_bytes
 
     def update(self):
-        local_info = self.parent.getLocalSmdaReport()
-        self.label_architecture_value.setText(local_info["architecture"])
-        self.label_bitness_value.setText("%d bit" % local_info["bitness"])
-        self.label_image_base_value.setText("0x%x" % local_info["base_addr"])
-        self.label_functions_value.setText("%d (leaf: %d, recursive: %d)" % (local_info["statistics"]["num_functions"], local_info["statistics"]["num_leaf_functions"], local_info["statistics"]["num_recursive_functions"]))
-        self.label_instructions_value.setText("%d" % (local_info["statistics"]["num_instructions"]))
+        local_smda_report = self.parent.getLocalSmdaReport()
+        self.label_label_sha256_value.setText(local_smda_report.sha256)
+        self.label_architecture_value.setText(local_smda_report.architecture)
+        self.label_bitness_value.setText("%d bit" % local_smda_report.bitness)
+        self.label_image_base_value.setText("0x%x" % local_smda_report.base_addr)
+        self.label_functions_value.setText("%d (leaf: %d, recursive: %d)" % (local_smda_report.num_functions, local_smda_report.statistics.num_leaf_functions, local_smda_report.statistics.num_recursive_functions))
+        self.label_instructions_value.setText("%d" % (local_smda_report.statistics.num_instructions))
         self.label_size_value.setText("%d bytes" % self._summarizeLocalReportInstructionBytes())
-        self.label_family_value.setText(local_info["metadata"]["family"])
-        self.label_version_value.setText(local_info["metadata"]["version"])
-        is_library = "YES" if local_info["metadata"]["is_library"] else "NO"
+        self.label_family_value.setText(local_smda_report.family)
+        self.label_version_value.setText(local_smda_report.version)
+        is_library = "YES" if local_smda_report.is_library else "NO"
         self.label_library_value.setText(is_library)
-
+        if self.parent.remote_sample_entry:
+            self.label_remote_sample_info.setText("Remote sample: %s (%s -- %s)" % (self.parent.remote_sample_entry.sample_id, self.parent.remote_sample_entry.family, self.parent.remote_sample_entry.version))
 
     def updateActivityInfo(self, message):
         timestamp = self._datetime.datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%SZ")
-        self.label_mcrit_activity_info.setText("Acitivity Info: %s - %s" % (timestamp, message))
+        self.label_mcrit_activity_info.setText("Activity Info: %s - %s" % (timestamp, message))
 
-    def updateServerInfo(self, mcrit_server, mcrit_database, status=None):
-        if status:
-            num_families = status["num_families"]
+    def updateServerInfo(self, mcrit_server, version=None, statistics=None):
+        if statistics:
+            num_families = statistics["num_families"]
             fam_str = "families" if num_families != 1 else "family"
-            num_samples = status["num_samples"]
+            num_samples = statistics["num_samples"]
             sam_str = "samples" if num_samples != 1 else "sample"
-            num_functions = status["num_functions"]
+            num_functions = statistics["num_functions"]
             fun_str = "functions" if num_functions != 1 else "function"
-        status_text = "Content: %d %s with %d %s containing %d %s." % (num_families, fam_str, num_samples, sam_str, num_functions, fun_str) if status else "Status: failed"
-        self.label_mcrit_server_info.setText("Remote server: %s  --  Database: \"%s\"  --  %s" % (mcrit_server, mcrit_database, status_text))
+        version_text = version if version is not None else "No connection"
+        status_text = "Content: %d %s with %d %s containing %d %s." % (num_families, fam_str, num_samples, sam_str, num_functions, fun_str) if statistics else "No statistics"
+        self.label_mcrit_server_info.setText("Remote server: %s  -- %s -- %s." % (mcrit_server, version_text, status_text))

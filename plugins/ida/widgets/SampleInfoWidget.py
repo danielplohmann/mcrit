@@ -11,9 +11,9 @@ class SampleInfoWidget(QMainWindow):
         print("[|] loading SampleInfoWidget")
         # enable access to shared MCRIT4IDA modules
         self.parent = parent
-        self.name = "Sample Info"
+        self.name = "Sample Match Summary"
         self.last_family_selected = None
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "inspection.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.cb_filter_library = self.cc.QCheckBox("Filter out Library Matches")
