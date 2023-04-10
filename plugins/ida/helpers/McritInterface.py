@@ -24,7 +24,7 @@ class McritInterface(object):
         if self.config.MCRITWEB_API_TOKEN:
             self.mcrit_client.setApitoken(self.config.MCRITWEB_API_TOKEN)
         if self.config.MCRITWEB_USERNAME:
-            self.mcrit_client.setApitoken(self.config.MCRITWEB_USERNAME)
+            self.mcrit_client.setUsername(self.config.MCRITWEB_USERNAME)
         #self.smda_config = SmdaConfig()
         self.smda_disassembler = Disassembler(backend="IDA")
         self.smda_ida = IdaInterface()

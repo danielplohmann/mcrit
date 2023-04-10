@@ -17,4 +17,5 @@ if len(logging._handlerList) == 0:
 
 MCRIT4IDA_PLUGIN_ONLY = False
 MCRIT_SERVER = "http://127.0.0.1:8000/"
+MCRITWEB_USERNAME = ""
 MCRITWEB_API_TOKEN = ""

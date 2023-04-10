@@ -23,6 +23,8 @@ class MainWidget(QMainWindow):
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "mcrit.png")
         self.tabs = None
         self.tabbed_widgets = [self.parent.function_match_widget, self.parent.sample_widget, self.parent.function_widget]
+        # TODO for MCRIT 1.0.0 release, we hide the other tabs until they are properly developed
+        self.tabbed_widgets = [self.parent.function_match_widget, ]
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.SmdaInfoDialog = SmdaInfoDialog
@@ -58,19 +60,20 @@ class MainWidget(QMainWindow):
         """
         Creates the toolbar, containing buttons to control the widget.
         """
+        # TODO for MCRIT 1.0.0 release, we hide the other buttons until they are properly developed
         self.toolbar = self.addToolBar('MCRIT4IDA Toobar')
         self._createParseSmdaAction()
         self.toolbar.addAction(self.parseSmdaAction)
         self._createUploadSmdaAction()
         self.toolbar.addAction(self.uploadSmdaAction)
         self._createQueryMcritAction()
-        self.toolbar.addAction(self.queryMcritAction)
+        #self.toolbar.addAction(self.queryMcritAction)
         self._createDownloadMcritAction()
-        self.toolbar.addAction(self.downloadMcritAction)
+        #self.toolbar.addAction(self.downloadMcritAction)
         self._createExportSmdaAction()
         self.toolbar.addAction(self.exportSmdaAction)
         self._createModifySettingsAction()
-        self.toolbar.addAction(self.modifySettingsAction)
+        #self.toolbar.addAction(self.modifySettingsAction)
 
     def _createParseSmdaAction(self):
         """
@@ -106,7 +109,7 @@ class MainWidget(QMainWindow):
         Create an action for downloading meta data from the MCRIT server.
         """
         self.downloadMcritAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "cloud-download.png"), \
-            "Upload the parsed SMDA report to the MCRIT server.", self)
+            "Download the query results into IDA.", self)
         self.downloadMcritAction.triggered.connect(self._onDownloadMcritButtonClicked)
 
     def _createQueryMcritAction(self):

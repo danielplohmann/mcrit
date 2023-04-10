@@ -28,7 +28,7 @@ class FunctionMatchWidget(QMainWindow):
         self.cb_filter_library.setEnabled(False)
         self.cb_filter_library.setChecked(False)
         self.cb_filter_library.clicked.connect(self._onCbFilterLibraryClicked)
-        self.cb_activate_live_tracking = self.cc.QCheckBox("Active Live PicHash Queries")
+        self.cb_activate_live_tracking = self.cc.QCheckBox("Live Function Queries")
         self.cb_activate_live_tracking.setEnabled(False)
         self.cb_activate_live_tracking.setChecked(False)
         ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
@@ -124,7 +124,7 @@ class FunctionMatchWidget(QMainWindow):
             self.label_current_function_matches.setText("Cannot check for matches, need to convert IDB to SMDA report first.")
             return
         if not self.cb_activate_live_tracking.isChecked():
-            self.label_current_function_matches.setText("Live PicHash queries are deactivated.")
+            self.label_current_function_matches.setText("Live Function Queries are deactivated.")
             return
         # get current function from cursor position
         if self.locate_cursor(view) is None and not use_current_function:
