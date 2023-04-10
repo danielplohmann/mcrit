@@ -5,20 +5,35 @@ MCRIT is a framework created to simplify the application of the MinHash algorith
 It can be used to rapidly implement "shinglers", i.e. methods which encode properties of disassembled functions, to then be used for similarity estimation via the MinHash algorithm.
 It is tailored to work with disassembly reports emitted by [SMDA](https://github.com/danielplohmann/smda).
 
-## Installation
+## Usage
+
+### Dockerized Usage
+
+We highly recommend to use the fully packaged [docker-mcrit](https://github.com/danielplohmann/docker-mcrit) for trivial deployment and usage.  
+First and foremost, this will ensure that you have fully compatible versions across all components, including a database for persistence and a web frontend for convenient interaction.
+
+### Standalone Usage
+
+Installing MCRIT on its own will require some more steps.  
+For the following, we assume Ubuntu as host operating system.
 
 The Python installation requirements are listed in `requirements.txt` and can be installed using:
 
-By default, MongoDB 5.0 is used as backend, which is also the recommended mode of operation as it provides a persistent data storage.
-The following commands outline an example installation on Ubuntu:
 ```bash
 # install python and MCRIT dependencies
 $ sudo apt install python3 python3-pip
 $ pip install -r requirements.txt 
+```
+
+By default, MongoDB 5.0 is used as backend, which is also the recommended mode of operation as it provides a persistent data storage.
+The following commands outline an example installation on Ubuntu:
+```bash
 # fetch mongodb signing key
 $ sudo apt-get install gnupg
 $ wget -qO - https://www.mongodb.org/static/pgp/server-5.0.asc | sudo apt-key add -
-# add package repository (Ubuntu 20.04)
+# add package repository (Ubuntu 22.04)
+$ echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
+# OR add package repository (Ubuntu 20.04)
 $ echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu focal/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
 # OR add package repository (Ubuntu 18.04)
 $ echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu bionic/mongodb-org/5.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-5.0.list
@@ -31,11 +46,18 @@ $ sudo systemctl start mongod
 $ sudo systemctl enable mongod
 ```
 
+When doing the standalone installation, you possibly want to install the MCRIT module based on the cloned repository, like so:
+
+```bash
+$ pip install -e .
+```
+
 After this initial installation and if desired, MCRIT can be used without an internet connection.
 
-## Operation
 
-The MCRIT framework is generally divided into two components, a server providing an interface to work with and a set of one or more workers.
+#### Operation
+
+The MCRIT backend is generally divided into two components, a server providing an API interface to work with and one or more workers processing queued jobs.
 They can be started in seperate shells using:
 
 ```bash
@@ -48,40 +70,53 @@ and
 $ python -m mcrit worker
 ```
 
-Right now, you can only use the REST interface of the server, which is by default listening on [http://127.0.0.1:8000/](http://127.0.0.1:8000/).
-We are currently working on a WebUI and we are planning to provide a dockerized deployment and an IDA Pro plugin in later releases.
+By default, the REST API server will be listening on [http://127.0.0.1:8000/](http://127.0.0.1:8000/).
 
-### Interaction
 
-The current release is considered an preview of MCRITs still experimental but increasingly stable state.
+## Interaction
 
-As long as MCRIT is not yet available on PyPI, you can do a local package installation using:
+Regardless of your choice for installation, once running you can interact with the MCRIT backend.
 
-```bash
-$ pip install -r requirements.txt
-$ pip install -e .
-```
 
-This allows you to use the code from the provided [examples](https://github.com/danielplohmann/mcrit/tree/main/examples), which serve as a demonstration of how to use the Python client implementation, which simplifies usage and integration of MCRIT.
+### MCRIT Client
 
-The two example scripts that enable basic interaction with the server are:
+We have created a Python client module that is capable of working with all available endpoints of the server.  
+Documentation for this client module is currently in development.
 
-* ./examples/cross_compare/cross-compare.py
-* ./examples/send_reports.py
+### MCRIT CLI
 
-The script `cross_compare.py` consumes a CSV file with columns `<family>,<version>,<filepath>` and will automatically generate a full comparison of all files listed.
-It takes an optional `-c` parameter to use a hierachical clustering algorithm to group input files, otherwise the sequence as listed in the CSV file. 
-Output by default is generated into `./examples/cross_compare/reports`, but this can be controlled by using the `-o <path>` parameter.
-
-The script `send_reports.py` can be used to supply additional files to consider for matching and/or library elimination.
-
-To easily reset the MongoDB database for a new evaluation, issue a drop command via the terminal:
+There is also a CLI which is based on this client package, examples:
 
 ```bash
-$ mongo mcrit --eval "printjson(db.dropDatabase())"
+# query some stats of the data stored in the backend 
+$ python -m mcrit client status
+{'status': {'db_state': 187, 'storage_type': 'mongodb', 'num_bands': 20, 'num_samples': 137, 'num_families': 14, 'num_functions': 129110, 'num_pichashes': 25385}}
+# submit a malware sample with filename sample_unpacked, using family name "some_family"
+$ python -m mcrit client submit sample_unpacked -f some_family
+ 1.039s -> (architecture: intel.32bit, base_addr: 0x10000000): 634 functions
 ```
+
+### MCRIT IDA Plugin
+
+An IDA plugin is also currently under development.
+To use it, first create your own config.py and make required changes depending on the deployment of your MCRIT instance:
+```
+cp ./plugins/ida/template.config.py ./plugins/ida/config.py
+nano ./plugins/ida/config.py
+```
+
+Then simply run the script found at
+
+```
+./plugins/ida/ida_mcrit.py
+```
+
+in IDA.
+
 
 ## Version History
+ * 2023-04-10 v1.0.0: Milestone release for Botconf 2023.
+ * 2023-04-10 v0.25.0: IDA plugin can now do function queries for the currently viewed function.
  * 2023-03-24 v0.24.2: McritClient can forward username/apitoken, addJsonReport is now forwardable.
  * 2023-03-21 v0.24.0: FunctionEntries now can store additional FunctionLabelEntries, along submitting user/date.
  * 2023-03-17 v0.23.0: It is now possible to query matches for single SmdaFunctions (synchronously).

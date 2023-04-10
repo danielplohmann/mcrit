@@ -23,11 +23,11 @@ requirements = [
 
 setup(
     name='mcrit',
-    version="0.24.2",
+    version="1.0.0",
     description='MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity.',
     long_description_content_type="text/markdown",
     long_description=README,
-    author='Daniel Plohmann, Steffen Enders, Paul Hordiienko, Manuel Blatt',
+    author='Daniel Plohmann, Manuel Blatt, Steffen Enders, Paul Hordiienko',
     author_email='daniel.plohmann@fkie.fraunhofer.de',
     url='https://github.com/danielplohmann/mcrit',
     license="NU General Public License v3 (GPLv3)",

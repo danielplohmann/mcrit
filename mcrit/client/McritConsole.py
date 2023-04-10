@@ -8,6 +8,9 @@ from smda.Disassembler import Disassembler
 from smda.common.SmdaReport import SmdaReport
 
 from mcrit.client.McritClient import McritClient
+from mcrit.storage.FamilyEntry import FamilyEntry
+from mcrit.storage.SampleEntry import SampleEntry
+from mcrit.storage.FunctionEntry import FunctionEntry
 
 
 ### Helper functionality for submissions
@@ -186,8 +189,26 @@ class McritConsole(object):
 
     def _handle_search(self, args):
         client = McritClient()
-        result = client.search(args.search_term)
-        print(result)
+        result = client.search_families(args.search_term)
+        if result["search_results"]:
+            print("Family Search Results")
+            for family_id, entry in result["search_results"].items():
+                family_entry = FamilyEntry.fromDict(entry)
+                print(f"{family_entry}")
+            print("*" * 20)
+        result = client.search_samples(args.search_term)
+        if result["search_results"]:
+            print("Sample Search Results")
+            for sample_id, entry in result["search_results"].items():
+                sample_entry = SampleEntry.fromDict(entry)
+                print(f"{sample_entry}")
+            print("*" * 20)
+        result = client.search_functions(args.search_term)
+        if result["search_results"]:
+            print("Function Search Results")
+            for function_id, entry in result["search_results"].items():
+                function_entry = FunctionEntry.fromDict(entry)
+                print(f"{function_entry}")
 
     def _handle_queue(self, args):
         client = McritClient()
