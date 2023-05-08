@@ -539,17 +539,17 @@ class MongoDbStorage(StorageInterface):
         if not sample_entry:
             return False
         # check which functions in the SmdaReport have suitable function_names
-        extracted_labels = {}
+        submitted_labels = {}
         for smda_function in smda_report.getFunctions():
             function_name = smda_function.function_name
             if function_name and not re.match("sub_[a-fA-F0-9]{1,16}", function_name):
-                extracted_labels[smda_function.offset] = function_name
+                submitted_labels[smda_function.offset] = function_name
         # get the respective FunctionEntries and check if the label is novel
         sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
         label_updates = []
-        for label_offset, extracted_label in extracted_labels.items():
+        for label_offset, extracted_label in submitted_labels.items():
             is_new_label = False
-            # we can only ever update labels if they exist in our DB
+            # we can only ever update labels if their offset exists in our DB
             if label_offset in sample_function_entries:
                 is_new_label = True
                 existing_labels = sample_function_entries[label_offset].function_labels

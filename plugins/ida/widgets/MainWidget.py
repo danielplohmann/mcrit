@@ -9,6 +9,7 @@ import helpers.QtShim as QtShim
 QMainWindow = QtShim.get_QMainWindow()
 
 from widgets.SmdaInfoDialog import SmdaInfoDialog
+from widgets.ResultChooserDialog import ResultChooserDialog
 
 
 class MainWidget(QMainWindow):
@@ -24,10 +25,11 @@ class MainWidget(QMainWindow):
         self.tabs = None
         self.tabbed_widgets = [self.parent.function_match_widget, self.parent.sample_widget, self.parent.function_widget]
         # TODO for MCRIT 1.0.0 release, we hide the other tabs until they are properly developed
-        self.tabbed_widgets = [self.parent.function_match_widget, ]
+        self.tabbed_widgets = [self.parent.function_match_widget, self.parent.function_widget]
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.SmdaInfoDialog = SmdaInfoDialog
+        self.ResultChooserDialog = ResultChooserDialog
         self._createGui()
         self.parent.mcrit_interface.checkConnection()
         # IDA 6.x Windows workaronud to avoid lost imports
@@ -66,8 +68,8 @@ class MainWidget(QMainWindow):
         self.toolbar.addAction(self.parseSmdaAction)
         self._createUploadSmdaAction()
         self.toolbar.addAction(self.uploadSmdaAction)
-        self._createQueryMcritAction()
-        #self.toolbar.addAction(self.queryMcritAction)
+        self._createGetMatchResultAction()
+        self.toolbar.addAction(self.getMatchResultAction)
         self._createDownloadMcritAction()
         #self.toolbar.addAction(self.downloadMcritAction)
         self._createExportSmdaAction()
@@ -83,16 +85,6 @@ class MainWidget(QMainWindow):
             "Convert this IDB to a SMDA report which can then be used to query MCRIT.", self)
         self.parseSmdaAction.triggered.connect(self._onConvertSmdaButtonClicked)
 
-
-    def _createExportSmdaAction(self):
-        """
-        Create an action for exporting the parsed SMDA report into json/smda format.
-        """
-        self.exportSmdaAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "export.png"), \
-            "Export the SMDA report to local disk.", self)
-        self.exportSmdaAction.setEnabled(False)
-        self.exportSmdaAction.triggered.connect(self._onExportSmdaButtonClicked)
-
     def _createUploadSmdaAction(self):
         """
         Create an action for uploading the parsed SMDA report to the server.
@@ -103,6 +95,14 @@ class MainWidget(QMainWindow):
         self.uploadSmdaAction.setEnabled(False)
         self.uploadSmdaAction.triggered.connect(self._onUploadSmdaButtonClicked)
 
+    def _createGetMatchResultAction(self):
+        """
+        Create an action for requesting a MatchReport for the given remote sample
+        """
+        self.getMatchResultAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "satellite_dish.png"), \
+            "Request the MatchResult for the uploaded sample.", self)
+        self.getMatchResultAction.setEnabled(False)
+        self.getMatchResultAction.triggered.connect(self._onGetMatchResultButtonClicked)
 
     def _createDownloadMcritAction(self):
         """
@@ -112,14 +112,14 @@ class MainWidget(QMainWindow):
             "Download the query results into IDA.", self)
         self.downloadMcritAction.triggered.connect(self._onDownloadMcritButtonClicked)
 
-    def _createQueryMcritAction(self):
+    def _createExportSmdaAction(self):
         """
-        Create an action for sending a matching query to the MCRIT server.
+        Create an action for exporting the parsed SMDA report into json/smda format.
         """
-        self.queryMcritAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "satellite_dish.png"), \
-            "Query MCRIT with the parsed SDMA report.", self)
-        self.queryMcritAction.setEnabled(False)
-        self.queryMcritAction.triggered.connect(self._onQueryMcritButtonClicked)
+        self.exportSmdaAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "export.png"), \
+            "Export the SMDA report to local disk.", self)
+        self.exportSmdaAction.setEnabled(False)
+        self.exportSmdaAction.triggered.connect(self._onExportSmdaButtonClicked)
 
     def _createModifySettingsAction(self):
         """
@@ -140,7 +140,6 @@ class MainWidget(QMainWindow):
         if self.parent.local_smda_report:
             self.exportSmdaAction.setEnabled(True)
             self.uploadSmdaAction.setEnabled(True)
-            self.queryMcritAction.setEnabled(True)
             self.parent.local_smda_report.filename = self.os_path.basename(idaapi.get_root_filename())
             self.parent.local_smda_report.sha256 = idaapi.retrieve_input_file_sha256().hex()
             self.parent.local_smda_report.buffer_size = idaapi.retrieve_input_file_size()
@@ -149,6 +148,9 @@ class MainWidget(QMainWindow):
             self.parent.local_smda_report.is_library = smda_info["is_library"]
             self.parent.local_smda_report.smda_version = "MCRIT4IDA v%s via SMDA %s" % (self.parent.config.VERSION, self.parent.local_smda_report.smda_version)
             self.parent.mcrit_interface.querySampleSha256(self.parent.local_smda_report.sha256)
+            # check if remote sample exists
+            if self.parent.remote_sample_id is not None:
+                self.getMatchResultAction.setEnabled(True)
             self.parent.function_match_widget.enable()
         self.parent.local_widget.update()
 
@@ -180,15 +182,29 @@ class MainWidget(QMainWindow):
         print("[\\] this took %3.2f seconds.\n" % (self.parent.cc.time.time() - time_before))
         self.parent.local_widget.updateActivityInfo("Downloaded all family/sample information from MCRIT")
 
-    def _onQueryMcritButtonClicked(self):
+    def _onGetMatchResultButtonClicked(self):
         if self.parent.remote_sample_id is not None:
+            # fetch jobs 
+            jobs = self.parent.mcrit_interface.queryJobs(sample_id=self.parent.remote_sample_id)
+            # check which job the user wants to use as reference
+            dialog = self.ResultChooserDialog(self, job_infos=jobs)
+            dialog.exec_()
+            dialog_result = dialog.getResultChosen()
+            # if user wants to request a new matching, schedule it via client
+            if dialog_result["is_requesting_matching_job"]:
+                self.parent.mcrit_interface.requestMatchingJob(self.parent.remote_sample_id)
+            # if otherwise a job was finished and a job_id selected, fetch the data
+            elif dialog_result["selected_job_id"]:
+                self.parent.mcrit_interface.getMatchingJobById(dialog_result["selected_job_id"])
+            self.parent.function_widget.update()
+            return
             self.parent.mcrit_interface.queryMatchReport(self.parent.remote_sample_id)
             self.parent.mcrit_interface.queryAllSampleEntries()
             self.parent.mcrit_interface.queryFunctionEntriesBySampleId(self.parent.remote_sample_id)
             self.parent.sample_widget.populateBestMatchTable()
             self.parent.function_widget.populateLocalFunctionTable()
         else:
-            self.parent.local_widget.updateActivityInfo("Sample not uploaded yet, can't query results.")
+            self.parent.local_widget.updateActivityInfo("No remote Sample present yet, can't request a matching or query results.")
 
     def setTabFocus(self, widget_name):
         """

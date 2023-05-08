@@ -18,12 +18,12 @@ class FunctionMatchWidget(QMainWindow):
         # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.last_viewed = None
-        self.name = "Function Matches"
+        self.name = "Function Scope"
         self.last_family_selected = None
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "flag-triangle.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
-        self.label_current_function_matches = self.cc.QLabel("Matches for Function:: <function_offset>")
+        self.label_current_function_matches = self.cc.QLabel("Matches for: <function_offset>")
         self.cb_filter_library = self.cc.QCheckBox("Filter out Library Matches")
         self.cb_filter_library.setEnabled(False)
         self.cb_filter_library.setChecked(False)
@@ -31,6 +31,9 @@ class FunctionMatchWidget(QMainWindow):
         self.cb_activate_live_tracking = self.cc.QCheckBox("Live Function Queries")
         self.cb_activate_live_tracking.setEnabled(False)
         self.cb_activate_live_tracking.setChecked(False)
+        self.b_query_single = self.cc.QPushButton("Query current function")
+        self.b_query_single.clicked.connect(self.queryCurrentFunction)
+        self.b_query_single.setEnabled(False)
         ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
@@ -58,6 +61,7 @@ class FunctionMatchWidget(QMainWindow):
         sample_info_layout.addWidget(self.label_current_function_matches)
         sample_info_layout.addWidget(self.cb_filter_library)
         sample_info_layout.addWidget(self.cb_activate_live_tracking)
+        sample_info_layout.addWidget(self.b_query_single)
         sample_info_layout.addWidget(self.hline)
         sample_info_layout.addWidget(self.label_function_matches)
         sample_info_layout.addWidget(self.table_function_matches)
@@ -74,8 +78,9 @@ class FunctionMatchWidget(QMainWindow):
     def enable(self):
         self.cb_filter_library.setEnabled(True)
         self.cb_activate_live_tracking.setEnabled(True)
+        self.b_query_single.setEnabled(True)
 
-    def locate_cursor(self, view):
+    def updateCurrentFunction(self, view):
         """
         Courtesy of Alex Hanel's FunctionTrapperKeeper
         https://github.com/alexander-hanel/FunctionTrapperKeeper/blob/main/function_trapper_keeper.py
@@ -119,21 +124,38 @@ class FunctionMatchWidget(QMainWindow):
                             self.parent.current_function = current_f
         return self.parent.current_function
 
+    def queryCurrentFunction(self):
+        self.updateViewWithCurrentFunction()
+
     def hook_refresh(self, view, use_current_function=False):
         if self.parent.local_smda_report is None:
             self.label_current_function_matches.setText("Cannot check for matches, need to convert IDB to SMDA report first.")
             return
-        if not self.cb_activate_live_tracking.isChecked():
-            self.label_current_function_matches.setText("Live Function Queries are deactivated.")
-            return
         # get current function from cursor position
-        if self.locate_cursor(view) is None and not use_current_function:
+        if self.updateCurrentFunction(view) is None and not use_current_function:
             return
         if self.parent.current_function == self.last_viewed and not use_current_function:
             return
+        if not self.cb_activate_live_tracking.isChecked():
+            self.clearTable()
+            self.label_current_function_matches.setText("Live Function Queries are deactivated.")
+            return
+        self.updateViewWithCurrentFunction()
+        
+    def clearTable(self):
+        self.table_function_matches.clear()
+        self.table_function_matches.setSortingEnabled(False)
+        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Min#", "Lib"]
+        self.table_function_matches.setColumnCount(len(self.function_matches_header_labels))
+        self.table_function_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
+        self.table_function_matches.setRowCount(0)
+        self.table_function_matches.resizeRowToContents(0)
+
+    def updateViewWithCurrentFunction(self):
         self.last_viewed = self.parent.current_function
         smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
         if smda_function.num_instructions < 10:
+            self.clearTable()
             self.label_current_function_matches.setText("Can only query functions with 10 instructions or more.")
             return
         single_function_smda_report = self.parent.getLocalSmdaReportOutline()

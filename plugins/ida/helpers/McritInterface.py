@@ -12,6 +12,7 @@ except:
 #from helpers.SmdaConfig import SmdaConfig
 
 from mcrit.client.McritClient import McritClient
+from mcrit.storage.MatchingResult import MatchingResult
 
 
 class McritInterface(object):
@@ -64,6 +65,7 @@ class McritInterface(object):
             sample_by_sha256 = self.mcrit_client.getSampleBySha256(sha256)
             if sample_by_sha256:
                 self.parent.remote_sample_entry = sample_by_sha256
+                self.parent.remote_sample_id = sample_by_sha256.sample_id
                 self.parent.local_widget.updateActivityInfo("Success! Received remote Sample Entry.")
             else:
                 self.parent.local_widget.updateActivityInfo("querySampleSha256 failed")
@@ -83,6 +85,7 @@ class McritInterface(object):
                 else:
                     self.parent.local_widget.updateActivityInfo("Upload finished, remote sample_id is: %d." % sample_entry.sample_id)
                 self.parent.remote_sample_entry = sample_entry
+                self.parent.remote_sample_id = sample_entry.sample_id
                 self.parent.local_widget.update()
             else:
                 self.parent.local_widget.updateActivityInfo("Upload failed.")
@@ -92,23 +95,58 @@ class McritInterface(object):
             self.parent.local_widget.updateActivityInfo("Upload failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
-    def queryMatchReport(self, sample_id):
-        # TODO revise this workflow
+    def queryJobs(self, sample_id=None):
+        """ Fetch all jobs regarding Matches, optionally filter to a sample_id """
+        if sample_id is not None:
+            self.parent.local_widget.updateActivityInfo("Querying jobs for sample with id: %d" % self.parent.remote_sample_id)
+        else:
+            self.parent.local_widget.updateActivityInfo("Querying jobs.")
+        try:
+            # fetch jobs
+            jobs = self.mcrit_client.getQueueData(filter="Matches")
+            # check if we already have a match report for the sample id
+            if sample_id is not None:
+                jobs = [job for job in jobs if '('+str(sample_id)+')' in job.parameters or '('+str(sample_id)+',' in job.parameters or ','+str(sample_id)+',' in job.parameters or ','+str(sample_id)+')' in job.parameters]
+            if jobs:
+                self.parent.local_widget.updateActivityInfo("Success! Fetched Jobs.")
+            else:
+                self.parent.local_widget.updateActivityInfo("No jobs available yet.")
+            return jobs
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("Job query failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
+    def requestMatchingJob(self, sample_id):
+        # For this to happen, we need to make an addition to McritClient to support the API passthrough of the request
         raise NotImplementedError
         self.parent.local_widget.updateActivityInfo("Querying matches for sample with id: %d" % self.parent.remote_sample_id)
         try:
-            response = requests.get(self._getMcritServerAddress() + "/samples/%d/matches" % sample_id)
-            if response.status_code == 200:
-                response_json = response.json()
-                response_content = response_json["data"]
-                self.parent.matching_report = response_content
-                self.parent.local_widget.updateActivityInfo("Success! Fetched matches.")
+            job_id = self.mcrit_client.requestMatchesForSample(sample_id)
+            if job_id:
+                self.parent.local_widget.updateActivityInfo("Success! MatchingJob has ID: %s." % job_id)
             else:
-                self.parent.local_widget.updateActivityInfo("Match query failed, status code: %d." % response.status_code)
+                self.parent.local_widget.updateActivityInfo("Match query failed.")
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))
             self.parent.local_widget.updateActivityInfo("Match query failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
+    def getMatchingJobById(self, job_id):
+        self.parent.local_widget.updateActivityInfo("Querying result for job with id: %s" % job_id)
+        try:
+            matching_result = self.mcrit_client.getResultForJob(job_id)
+            if job_id:
+                self.parent.matching_report = MatchingResult.fromDict(matching_result)
+                self.parent.local_widget.updateActivityInfo("Success! Downloaded MatchResult.")
+            else:
+                self.parent.local_widget.updateActivityInfo("Result query failed.")
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("Result query failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def queryAllFamilyEntries(self):

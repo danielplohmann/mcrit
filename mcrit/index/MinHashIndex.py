@@ -263,6 +263,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         if not sample_entry:
             return None
         LOGGER.info("Added %s", sample_entry)
+        # ensure that original function_names are also added as labels
         self._storage.updateFunctionLabels(smda_report, username)
         function_entries = self._storage.getFunctionsBySampleId(sample_entry.sample_id)
         LOGGER.info("Added %d function entries.", len(function_entries))

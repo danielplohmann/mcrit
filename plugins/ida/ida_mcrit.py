@@ -14,7 +14,7 @@ from widgets.MainWidget import MainWidget
 from widgets.LocalInfoWidget import LocalInfoWidget
 from widgets.FunctionMatchWidget import FunctionMatchWidget
 from widgets.SampleInfoWidget import SampleInfoWidget
-from widgets.FunctionInfoWidget import FunctionInfoWidget
+from plugins.ida.widgets.FunctionOverviewWidget import FunctionOverviewWidget
 
 import helpers.QtShim as QtShim
 QtGui = QtShim.get_QtGui()
@@ -79,7 +79,7 @@ class Mcrit4IdaForm(PluginForm):
         self.local_smda_report = None
         self.local_smda_report_outline = None
         self.remote_sample_entry = None
-        self.matching_report = {}
+        self.matching_report = None
         self.sample_infos = {}
         self.family_infos = {}
         self.function_matches = {}
@@ -122,7 +122,7 @@ class Mcrit4IdaForm(PluginForm):
         self.local_widget = LocalInfoWidget(self)
         self.function_match_widget = FunctionMatchWidget(self)
         self.sample_widget = SampleInfoWidget(self)
-        self.function_widget = FunctionInfoWidget(self)
+        self.function_widget = FunctionOverviewWidget(self)
         self.main_widget = MainWidget(self)
         self.hook_subscribed_widgets.append(self.function_match_widget)
         # produce layout and render

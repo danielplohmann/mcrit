@@ -166,6 +166,15 @@ def get_QPainter():
     else:
         import PyQt5.QtGui as QtGui
         return QtGui.QPainter 
+    
+
+def get_QPalette():
+    if idaapi.IDA_SDK_VERSION <= 680:
+        import PySide.QtGui as QtGui
+        return QtGui.QPalette
+    else:
+        import PyQt5.QtGui as QtGui
+        return QtGui.QPalette 
 
 
 def get_DescendingOrder():
@@ -211,8 +220,7 @@ def get_QTableWidget():
     else:
         import PyQt5.QtWidgets as QtWidgets
         return QtWidgets.QTableWidget
-
-
+    
 def get_QTableWidgetItem():
     if idaapi.IDA_SDK_VERSION <= 680:
         import PySide.QtGui as QtGui
@@ -220,8 +228,15 @@ def get_QTableWidgetItem():
     else:
         import PyQt5.QtWidgets as QtWidgets
         return QtWidgets.QTableWidgetItem
-
-
+    
+def get_QStyledItemDelegate():
+    if idaapi.IDA_SDK_VERSION <= 680:
+        import PySide.QtGui as QtGui
+        return QtGui.QStyledItemDelegate
+    else:
+        import PyQt5.QtWidgets as QtWidgets
+        return QtWidgets.QStyledItemDelegate
+    
 def get_QPushButton():
     if idaapi.IDA_SDK_VERSION <= 680:
         import PySide.QtGui as QtGui
