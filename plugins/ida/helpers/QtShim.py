@@ -354,6 +354,15 @@ def get_QRadioButton():
         return QtWidgets.QRadioButton
 
 
+def get_QStyledItemDelegate():
+    if idaapi.IDA_SDK_VERSION <= 680:
+        import PySide.QtGui as QtGui
+        return QtGui.QStyledItemDelegate
+    else:
+        import PyQt5.QtWidgets as QtWidgets
+        return QtWidgets.QStyledItemDelegate
+
+
 def get_QComboBox():
     if idaapi.IDA_SDK_VERSION <= 680:
         import PySide.QtGui as QtGui

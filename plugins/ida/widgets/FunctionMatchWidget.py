@@ -143,6 +143,7 @@ class FunctionMatchWidget(QMainWindow):
         self.updateViewWithCurrentFunction()
         
     def clearTable(self):
+        # upper table
         self.table_function_matches.clear()
         self.table_function_matches.setSortingEnabled(False)
         self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Min#", "Lib"]
@@ -150,6 +151,14 @@ class FunctionMatchWidget(QMainWindow):
         self.table_function_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
         self.table_function_matches.setRowCount(0)
         self.table_function_matches.resizeRowToContents(0)
+        # lower table
+        self.table_function_names.clear()
+        self.table_function_names.setSortingEnabled(False)
+        self.function_matches_header_labels = ["ID", "Score", "user", "Function Label"]
+        self.table_function_names.setColumnCount(len(self.function_matches_header_labels))
+        self.table_function_names.setHorizontalHeaderLabels(self.function_matches_header_labels)
+        self.table_function_names.setRowCount(0)
+        self.table_function_names.resizeRowToContents(0)
 
     def updateViewWithCurrentFunction(self):
         self.last_viewed = self.parent.current_function

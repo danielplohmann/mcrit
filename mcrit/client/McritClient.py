@@ -280,13 +280,14 @@ class McritClient:
         if data is not None:
             return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
         
-    def getFunctionsByIds(self, function_ids:list):
+    def getFunctionsByIds(self, function_ids:list, with_label_only=False):
         """
         Get all FunctionEntries identified by the provided list of function_ids
         Supported by mcritweb API pass-through
         """
+        query_with_label_only = "?with_label_only=True" if with_label_only else ""
         function_id_string = ",".join(["%d" % fid for fid in function_ids])
-        response = requests.post(f"{self.mcrit_server}/functions", data=function_id_string, headers=self.headers)
+        response = requests.post(f"{self.mcrit_server}/functions{query_with_label_only}", data=function_id_string, headers=self.headers)
         if self.raw:
             return response
         data = handle_response(response)
@@ -414,7 +415,9 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
-        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", params=params)
+        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def requestMatchesForSampleVs(
@@ -429,7 +432,9 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
-        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}",params=params)
+        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}", headers=self.headers, params=params)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def requestMatchesCross(
@@ -454,7 +459,9 @@ class McritClient:
         function_id_a:int,
         function_id_b:int
     ) -> None:
-        response = requests.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}")
+        response = requests.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
 

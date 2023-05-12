@@ -119,11 +119,9 @@ class McritInterface(object):
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def requestMatchingJob(self, sample_id):
-        # For this to happen, we need to make an addition to McritClient to support the API passthrough of the request
-        raise NotImplementedError
-        self.parent.local_widget.updateActivityInfo("Querying matches for sample with id: %d" % self.parent.remote_sample_id)
+        self.parent.local_widget.updateActivityInfo("Tasking matching job for sample with id: %d" % self.parent.remote_sample_id)
         try:
-            job_id = self.mcrit_client.requestMatchesForSample(sample_id)
+            job_id = self.mcrit_client.requestMatchesForSample(sample_id, band_matches_required=2)
             if job_id:
                 self.parent.local_widget.updateActivityInfo("Success! MatchingJob has ID: %s." % job_id)
             else:
@@ -177,9 +175,9 @@ class McritInterface(object):
             self.parent.local_widget.updateActivityInfo("querySmdaFunctionMatches failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
-    def queryFunctionEntriesById(self, function_ids):
+    def queryFunctionEntriesById(self, function_ids, with_label_only=False):
         try:
-            return self.mcrit_client.getFunctionsByIds(function_ids)
+            return self.mcrit_client.getFunctionsByIds(function_ids, with_label_only=with_label_only)
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))

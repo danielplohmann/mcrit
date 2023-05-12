@@ -48,6 +48,9 @@ class FunctionResource:
             resp.status = falcon.HTTP_400
             db_log_msg(self.index, req, f"FunctionResource.on_post - failed - no POST body.")
             return
+        with_label_only = False 
+        if "with_label_only" in req.params:
+            with_label_only = req.params["with_label_only"].lower().strip() == "true"
         # assume the POST body consists of comma separated function_ids
         post_body = req.stream.read()
         if re.match(b"^\d+(?:[\s]*,[\s]*\d+)*$", post_body):
@@ -56,6 +59,8 @@ class FunctionResource:
             for function_id in target_function_ids:
                 function_entry = self.index.getFunctionById(function_id, with_xcfg=False).toDict()
                 if function_entry:
+                    if with_label_only and not function_entry["function_labels"]:
+                        continue
                     function_entries[function_id] = function_entry
             resp.data = jsonify({"status": "successful", "data": function_entries})
             resp.status = falcon.HTTP_200

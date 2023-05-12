@@ -2,6 +2,29 @@ import helpers.QtShim as QtShim
 from widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
 
 QMainWindow = QtShim.get_QMainWindow()
+QStyledItemDelegate = QtShim.get_QStyledItemDelegate()
+QComboBox = QtShim.get_QComboBox()
+
+
+class DropdownDelegate(QStyledItemDelegate):
+    def __init__(self, function_name_mapping):
+        super().__init__()
+        self.function_name_mapping = function_name_mapping
+
+    def createEditor(self, parent, option, index):
+        editor = QComboBox(parent)
+        choices = self.function_name_mapping.get((index.row(), index.column()), [])
+        editor.addItems(choices)
+        return editor
+
+    def setEditorData(self, editor, index):
+        value = index.data()
+        editor.setCurrentText(value)
+
+    def setModelData(self, editor, model, index):
+        value = editor.currentText()
+        model.setData(index, value)
+
 
 
 class FunctionOverviewWidget(QMainWindow):
@@ -20,6 +43,7 @@ class FunctionOverviewWidget(QMainWindow):
         self.cb_labels_only.setChecked(False)
         self.cb_labels_only.stateChanged.connect(self.populateFunctionTable)
         self.b_import_labels = self.cc.QPushButton("Import all labels for unnamed functions")
+        # TODO implement an actual import function here
         self.b_import_labels.clicked.connect(self.populateFunctionTable)
         self.sb_minhash_threshold = self.cc.QSpinBox()
         # horizontal line
@@ -56,6 +80,9 @@ class FunctionOverviewWidget(QMainWindow):
 ################################################################################
 
     def update(self):
+        # TODO
+        # implement this in a way that we are not pulling function matches for each time we refresh,
+        # instead cache them locally, similar to the SMDA report and other results
         self.populateFunctionTable()
 
     def _updateLabelFunctionMatches(self, num_functions_matched):
@@ -86,15 +113,28 @@ class FunctionOverviewWidget(QMainWindow):
 
         match_report = self.parent.getMatchingReport()
         matched_function_ids = set()
+        global_minimum_match_value = 100
+        global_maximum_match_value = 0
+        matched_function_ids_per_function_id = {}
         for function_match in match_report.function_matches:
+            global_minimum_match_value = min(global_minimum_match_value, function_match.matched_score)
+            global_maximum_match_value = max(global_maximum_match_value, function_match.matched_score)
             matched_function_ids.add(function_match.matched_function_id)
+            if function_match.function_id not in matched_function_ids_per_function_id:
+                matched_function_ids_per_function_id[function_match.function_id] = []
+            if function_match.matched_function_id not in matched_function_ids_per_function_id[function_match.function_id]:
+                matched_function_ids_per_function_id[function_match.function_id].append(function_match.matched_function_id)
+        if match_report.function_matches:
+            self.sb_minhash_threshold.setRange(global_minimum_match_value, global_maximum_match_value)
         print("Number of matched remote functions: ", len(matched_function_ids))
-        # TODO continue here
-        # current problem: we possibly need to query a load of functions for their labels, so we likely want to simplify query this serverside
-        ####
-        # function_entries = self.parent.mcrit_interface.queryFunctionEntriesById(list(matched_function_ids))
-        # function_labels = [entry.function_labels for fid, entry in function_entries.items() if entry.function_labels]
-        # print("fetched function entries, labels:", function_labels)
+
+        function_entries_with_labels = self.parent.mcrit_interface.queryFunctionEntriesById(list(matched_function_ids), with_label_only=True)
+        function_labels = []
+        for function_id, entry in function_entries_with_labels.items():
+            for label in entry.function_labels:
+                print(label)
+                function_labels.append(label)
+        print("fetched function entries, labels:", len(function_labels))
         self.table_local_functions.setSortingEnabled(False)
         self.local_function_header_labels = ["Offset", "Families", "Samples", "Functions", "Match Score", "Lib", "Labels"]
         self.table_local_functions.clear()
@@ -103,10 +143,34 @@ class FunctionOverviewWidget(QMainWindow):
         # Identify number of table entries and prepare addresses to display
         aggregated = match_report.getAggregatedFunctionMatches()
         self.table_local_functions.setRowCount(len(aggregated))
+        # if we filter to labeled functions, we need to know how many of them have labels first
+        if self.cb_labels_only.isChecked():
+            num_functions_with_labels = 0
+            for index, function_info in enumerate(aggregated):
+                identified_names = []
+                for other_function_id in matched_function_ids_per_function_id[function_info["function_id"]]:
+                    if other_function_id in function_entries_with_labels:
+                        for function_label in function_entries_with_labels[other_function_id].function_labels:
+                            identified_names.append(function_label.function_label)
+                if identified_names:
+                    num_functions_with_labels += 1
+            self.table_local_functions.setRowCount(num_functions_with_labels)
+
         self.table_local_functions.resizeRowToContents(0)
         row = 0
         first_function = None
-        for function_info in aggregated:
+        function_name_mapping = {}
+        for index, function_info in enumerate(aggregated):
+            # TODO in any case, these function names should be sorted by their associated score
+            # continue here
+            identified_names = []
+            for other_function_id in matched_function_ids_per_function_id[function_info["function_id"]]:
+                if other_function_id in function_entries_with_labels:
+                    for function_label in function_entries_with_labels[other_function_id].function_labels:
+                        identified_names.append(function_label.function_label)
+            if self.cb_labels_only.isChecked() and not identified_names:
+                continue
+            function_name_mapping[(row, 6)] = list(set(identified_names))
             for column, column_name in enumerate(self.local_function_header_labels):
                 tmp_item = None
                 if column == 0:
@@ -123,13 +187,25 @@ class FunctionOverviewWidget(QMainWindow):
                     library_value = "YES" if function_info["library_matches"] > 0 else "NO"
                     tmp_item = self.cc.QTableWidgetItem("%s" % library_value)
                 elif column == 6:
-                    label_value = "TBD"
+                    label_value = "-"
                     tmp_item = self.cc.QTableWidgetItem("%s" % label_value)  
                 tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
                 tmp_item.setTextAlignment(qt.AlignHCenter)
                 self.table_local_functions.setItem(row, column, tmp_item)
             self.table_local_functions.resizeRowToContents(row)
             row += 1
+
+        print(function_name_mapping)
+        # Set the delegate to create dropdown menus in the second column
+        delegate = DropdownDelegate(function_name_mapping)
+        self.table_local_functions.setItemDelegateForColumn(6, delegate)
+
+        # Show the dropdown menus immediately
+        for row in range(self.table_local_functions.rowCount()):
+            item = self.table_local_functions.item(row, 6)  # Get the QTableWidgetItem for the cell
+            self.table_local_functions.openPersistentEditor(item)
+
+
         self.table_local_functions.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
         self.table_local_functions.resizeColumnsToContents()
         self.table_local_functions.setSortingEnabled(True)

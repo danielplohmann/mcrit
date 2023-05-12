@@ -169,6 +169,9 @@ class MainWidget(QMainWindow):
     def _onUploadSmdaButtonClicked(self):
         if self.parent.local_smda_report:
             self.parent.mcrit_interface.uploadReport(self.parent.local_smda_report)
+            # check if remote sample exists
+            if self.parent.remote_sample_id is not None:
+                self.getMatchResultAction.setEnabled(True)
         else:
             self.parent.local_widget.updateActivityInfo("IDB is not converted to SMDA report yet, can't upload.")
 
