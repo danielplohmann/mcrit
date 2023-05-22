@@ -304,6 +304,15 @@ class McritConsole(object):
                         client.addReport(smda_report)
 
     def _handle_submit_malpedia(self, args):
+        # verify that we have a malpedia root
+        malpedia_root = os.path.abspath(args.filepath)
+        malpedia_root = malpedia_root.rstrip("/")
+        if not malpedia_root.endswith("malpedia"):
+            print(f"Error: You pointing to a folder named differently than 'malpedia'.")
+            return
+        if not "malpedia.bib" in os.listdir(malpedia_root):
+            print(f"Error: 'malpedia.bib' is missing in that folder, are you sure you are poniting to a Malpedia repository?")
+            return
         client = McritClient()
         # get current status of all samples in MCRIT
         mcrit_samples = client.getSamples()
@@ -314,7 +323,7 @@ class McritConsole(object):
                 print(f"WARNING: filename {sample.filename} appears to exist more than once in your MCRIT instance, now using SHA256 {sample.sha256[:8]}.")
             mcrit_samples_by_filename[sample.filename] = sample
         # get all unpacked/dumped files and their family/version by crawling given Malpedia location
-        malpedia_samples_by_filename = self._getMalpediaSamplesByFilename(args.filepath)
+        malpedia_samples_by_filename = self._getMalpediaSamplesByFilename(malpedia_root)
         # use submission filenames within MCRIT to check for presence of files and verify their family/version identity
         for filename, malpedia_info in malpedia_samples_by_filename.items():
             malpedia_family = malpedia_info["family"]
