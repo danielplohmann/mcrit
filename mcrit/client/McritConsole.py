@@ -338,7 +338,7 @@ class McritConsole(object):
                     print(malpedia_filepath)
                     print(smda_report)
                     client.addReport(smda_report)
-        # warn about files that appear deleted because not present in Malpedia but in MCRIT (based on name schea)
+        # warn about files that appear deleted because not present in Malpedia but in MCRIT (based on name schema)
         for filename, mcrit_sample in mcrit_samples_by_filename.items():
             if self._isMalpediaFilename(filename) and filename not in malpedia_samples_by_filename:
                 print(f"WARNING: Sample {mcrit_sample.sample_id} with filename {filename} ({mcrit_sample.family}|{mcrit_sample.version}) present in MCRIT but not in Malpedia?")
@@ -346,6 +346,8 @@ class McritConsole(object):
     def _getMalpediaSamplesByFilename(self, malpedia_root):
         malpedia_samples_by_filename = {}
         for root, subdir, files in sorted(os.walk(malpedia_root)):
+            if not "win." in root or "elf." in root:
+                continue
             folder_relative_path = getFolderFilePath(malpedia_root, root)
             for filename in sorted(files):
                 if self._isMalpediaFilename(filename):

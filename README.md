@@ -96,6 +96,8 @@ $ python -m mcrit client submit sample_unpacked -f some_family
  1.039s -> (architecture: intel.32bit, base_addr: 0x10000000): 634 functions
 ```
 
+A more extensive documentation of the MCRIT CLI is available [here](docs/mcrit-cli.md)
+
 ### MCRIT IDA Plugin
 
 An IDA plugin is also currently under development.
