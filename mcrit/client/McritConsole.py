@@ -95,10 +95,22 @@ def getSmdaReportFromFilepath(args, filepath):
             disassembler = Disassembler()
             if get_base_addr(filename) is not None:
                 base_addr = get_base_addr(filename)
-                smda_report = disassembler.disassembleBuffer(readFileContent(filepath), base_addr)
-                smda_report.filename = filename
+                try:
+                    smda_report = disassembler.disassembleBuffer(readFileContent(filepath), base_addr)
+                    smda_report.filename = filename
+                except Exception as exc:
+                    import traceback
+                    print(f"ERROR: SMDA caused an exception while processing this file: {filepath}")
+                    print(traceback.format_exc())
+                    return None
             else:
-                smda_report = disassembler.disassembleFile(filepath)
+                try:
+                    smda_report = disassembler.disassembleFile(filepath)
+                except:
+                    import traceback
+                    print(f"ERROR: SMDA caused an exception while processing this file: {filepath}")
+                    print(traceback.format_exc())
+                    return None
     # apply any of the forced flags: family, version, library
     if smda_report:
         if args.mode in ["file", "dir"]:
