@@ -14,7 +14,7 @@ from widgets.MainWidget import MainWidget
 from widgets.LocalInfoWidget import LocalInfoWidget
 from widgets.FunctionMatchWidget import FunctionMatchWidget
 from widgets.SampleInfoWidget import SampleInfoWidget
-from plugins.ida.widgets.FunctionOverviewWidget import FunctionOverviewWidget
+from widgets.FunctionOverviewWidget import FunctionOverviewWidget
 
 import helpers.QtShim as QtShim
 QtGui = QtShim.get_QtGui()
