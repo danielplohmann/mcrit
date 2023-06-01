@@ -135,15 +135,16 @@ class ResultChooserDialog(QDialog):
 
     def _createButtons(self):
         self.button_layout = self.cc.QHBoxLayout()
-        if self.job_infos:
-            self.ok_button = self.cc.QPushButton(self.tr("Select Result"))
-        else:
-            self.ok_button = self.cc.QPushButton(self.tr("Create Matching Job"))
-        self.cancel_button = self.cc.QPushButton(self.tr("Cancel"))
-        self.ok_button.clicked.connect(self.accept)
-        self.cancel_button.clicked.connect(self.reject)
         self.button_layout.addStretch(1)
-        self.button_layout.addWidget(self.ok_button)
+        if self.job_infos:
+            self.select_button = self.cc.QPushButton(self.tr("Select Result"))
+            self.select_button.clicked.connect(self.accept_select)
+            self.button_layout.addWidget(self.select_button)
+        self.create_button = self.cc.QPushButton(self.tr("Create New Matching Job"))
+        self.create_button.clicked.connect(self.accept_create)
+        self.button_layout.addWidget(self.create_button)
+        self.cancel_button = self.cc.QPushButton(self.tr("Cancel"))
+        self.cancel_button.clicked.connect(self.reject)
         self.button_layout.addWidget(self.cancel_button)
 
     def _onTableJobRowDoubleClicked(self, mi):
@@ -155,7 +156,7 @@ class ResultChooserDialog(QDialog):
             self._selected_job_id = self.job_infos[selected_row].job_id
             self.done(1)
 
-    def accept(self):
+    def accept_select(self):
         if self.job_infos:
             self._selected_job_id = None
             # fetch the row from the table
@@ -164,7 +165,8 @@ class ResultChooserDialog(QDialog):
                 if self.job_infos[selected_row].finished_at is not None and self.job_infos[selected_row].progress == 1:
                     self._selected_job_id = self.job_infos[selected_row].job_id
                     self.done(1)
-        else:
+
+    def accept_create(self):
             self._is_requesting_matching_job = True
             self.done(1)
 

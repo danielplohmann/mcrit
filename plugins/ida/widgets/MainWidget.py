@@ -91,7 +91,7 @@ class MainWidget(QMainWindow):
         TODO: will require addition of some more meta data.
         """
         self.uploadSmdaAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "cloud-upload.png"), \
-            "Upload the parsed SMDA report to the MCRIT server.", self)
+            "Reparse and upload the SMDA report to the MCRIT server.", self)
         self.uploadSmdaAction.setEnabled(False)
         self.uploadSmdaAction.triggered.connect(self._onUploadSmdaButtonClicked)
 
@@ -131,30 +131,49 @@ class MainWidget(QMainWindow):
 
     def _onNopButtonClicked(self):
         return
+    
+    def getLocalSmdaReport(self):
+        local_report = self.parent.mcrit_interface.convertIdbToSmda()
+        if local_report is not None:
+            # some information obtained from IDA directly
+            local_report.sha256 = idaapi.retrieve_input_file_sha256().hex()
+            local_report.filename = self.os_path.basename(idaapi.get_root_filename())
+            local_report.buffer_size = idaapi.retrieve_input_file_size()
+            local_report.smda_version = "MCRIT4IDA v%s via SMDA %s" % (self.parent.config.VERSION, local_report.smda_version)
+            # if yes, use information from it
+            if self.parent.remote_sample_entry is not None:
+                local_report.family = self.parent.remote_sample_entry.family
+                local_report.version = self.parent.remote_sample_entry.version
+                local_report.is_library = self.parent.remote_sample_entry.is_library
+        return local_report
 
     def _onConvertSmdaButtonClicked(self):
-        self.parent.local_smda_report = self.parent.mcrit_interface.convertIdbToSmda()
-        dialog = self.SmdaInfoDialog(self)
-        dialog.exec_()
-        smda_info = dialog.getSmdaInfo()
-        if self.parent.local_smda_report:
+        self.parent.local_smda_report = self.getLocalSmdaReport()
+        if self.parent.local_smda_report is not None:
             self.exportSmdaAction.setEnabled(True)
             self.uploadSmdaAction.setEnabled(True)
-            self.parent.local_smda_report.filename = self.os_path.basename(idaapi.get_root_filename())
-            self.parent.local_smda_report.sha256 = idaapi.retrieve_input_file_sha256().hex()
-            self.parent.local_smda_report.buffer_size = idaapi.retrieve_input_file_size()
-            self.parent.local_smda_report.family = smda_info["family"]
-            self.parent.local_smda_report.version = smda_info["version"]
-            self.parent.local_smda_report.is_library = smda_info["is_library"]
-            self.parent.local_smda_report.smda_version = "MCRIT4IDA v%s via SMDA %s" % (self.parent.config.VERSION, self.parent.local_smda_report.smda_version)
-            self.parent.mcrit_interface.querySampleSha256(self.parent.local_smda_report.sha256)
             # check if remote sample exists
-            if self.parent.remote_sample_id is not None:
+            self.parent.mcrit_interface.querySampleSha256(self.parent.local_smda_report.sha256)
+            # if yes, enable matching and use meta data
+            if self.parent.remote_sample_entry is not None:
                 self.getMatchResultAction.setEnabled(True)
+                self.parent.local_smda_report.family = self.parent.remote_sample_entry.family
+                self.parent.local_smda_report.version = self.parent.remote_sample_entry.version
+                self.parent.local_smda_report.is_library = self.parent.remote_sample_entry.is_library
+            # else query for family, version, library instead
+            else:
+                dialog = self.SmdaInfoDialog(self)
+                dialog.exec_()
+                smda_info = dialog.getSmdaInfo()
+                self.parent.local_smda_report.family = smda_info["family"]
+                self.parent.local_smda_report.version = smda_info["version"]
+                self.parent.local_smda_report.is_library = smda_info["is_library"]
             self.parent.function_match_widget.enable()
         self.parent.local_widget.update()
 
     def _onExportSmdaButtonClicked(self):
+        # update before export, to ensure we have all most recent function label information
+        self.parent.local_smda_report = self.getLocalSmdaReport()
         if self.parent.local_smda_report:
             filepath = ida_kernwin.ask_file(1, self.parent.local_smda_report.filename + ".smda", 'Export SMDA report to file...')
             if filepath:
@@ -167,6 +186,8 @@ class MainWidget(QMainWindow):
             self.parent.local_widget.updateActivityInfo("IDB is not converted to SMDA report yet, can't export.")
 
     def _onUploadSmdaButtonClicked(self):
+        # update before export, to ensure we have all most recent function label information
+        self.parent.local_smda_report = self.getLocalSmdaReport()
         if self.parent.local_smda_report:
             self.parent.mcrit_interface.uploadReport(self.parent.local_smda_report)
             # check if remote sample exists
@@ -195,17 +216,17 @@ class MainWidget(QMainWindow):
             dialog_result = dialog.getResultChosen()
             # if user wants to request a new matching, schedule it via client
             if dialog_result["is_requesting_matching_job"]:
-                self.parent.mcrit_interface.requestMatchingJob(self.parent.remote_sample_id)
+                self.parent.mcrit_interface.requestMatchingJob(self.parent.remote_sample_id, force_update=True)
             # if otherwise a job was finished and a job_id selected, fetch the data
             elif dialog_result["selected_job_id"]:
-                self.parent.mcrit_interface.getMatchingJobById(dialog_result["selected_job_id"])
+                # we already have this matching data, so we can skip and save time
+                if self.parent.matching_job_id is not None and self.parent.matching_job_id == dialog_result["selected_job_id"]:
+                    pass
+                else:
+                    self.parent.mcrit_interface.getMatchingJobById(dialog_result["selected_job_id"])
+                self.tabs.setCurrentIndex(1)
             self.parent.function_widget.update()
             return
-            self.parent.mcrit_interface.queryMatchReport(self.parent.remote_sample_id)
-            self.parent.mcrit_interface.queryAllSampleEntries()
-            self.parent.mcrit_interface.queryFunctionEntriesBySampleId(self.parent.remote_sample_id)
-            self.parent.sample_widget.populateBestMatchTable()
-            self.parent.function_widget.populateLocalFunctionTable()
         else:
             self.parent.local_widget.updateActivityInfo("No remote Sample present yet, can't request a matching or query results.")
 

@@ -75,21 +75,27 @@ class Mcrit4IdaForm(PluginForm):
         self.tabs = None
         self.parent = None
         self.config = config
-        # local state used to fill widgets with information
-        self.local_smda_report = None
-        self.local_smda_report_outline = None
+        #### local state used to populate and exchange information across widgets
+        self.remote_sample_id = None
         self.remote_sample_entry = None
+        self.local_smda_report = None
+        # the smda_report without xcfg part
+        self.local_smda_report_outline = None
+        # after selecting a finished remote job, this is the cached data
+        self.matching_job_id = None
         self.matching_report = None
+        self.matched_function_entries = None
+        # cached function matches that result from Function Scope queries
+        self.current_function = None
+        self.function_matches = {}
+        # unused
+        self.remote_function_mapping = {}
         self.sample_infos = {}
         self.family_infos = {}
-        self.function_matches = {}
         self.pichash_matches = {}
         self.pichash_match_summaries = {}
-        self.current_function = None
         self.picblockhash_matches = {}
-        self.remote_function_mapping = {}
-        self.remote_sample_id = None
-        # some more setup
+        ##### some more setup
         self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
         self.mcrit_interface = McritInterface(self)
         self.hook_subscribed_widgets = []

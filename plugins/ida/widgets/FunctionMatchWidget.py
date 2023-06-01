@@ -163,7 +163,7 @@ class FunctionMatchWidget(QMainWindow):
     def updateViewWithCurrentFunction(self):
         self.last_viewed = self.parent.current_function
         smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
-        if smda_function.num_instructions < 10:
+        if smda_function is None or smda_function.num_instructions < 10:
             self.clearTable()
             self.label_current_function_matches.setText("Can only query functions with 10 instructions or more.")
             return
@@ -254,7 +254,10 @@ class FunctionMatchWidget(QMainWindow):
         Populate the function name table with all names for the matches we found
         """
         function_matches_by_id = {match.matched_function_id: match for match in match_report.function_matches}
-        matched_entries = self.parent.mcrit_interface.queryFunctionEntriesById([i for i in function_matches_by_id.keys()])
+        self.parent.mcrit_interface.queryFunctionEntriesById([i for i in function_matches_by_id.keys()])
+        matched_entries = {}
+        for function_id in function_matches_by_id.keys():
+            matched_entries[function_id] = self.parent.matched_function_entries[function_id]
         function_label_entries = []
         for function_id, entry in matched_entries.items():
             if self.cb_filter_library.isChecked() and function_matches_by_id[entry.function_id].match_is_library:

@@ -8,6 +8,14 @@ class SmdaInfoDialog(QDialog):
     def __init__(self, parent):
         self.cc = parent.cc
         self.cc.QDialog.__init__(self, parent)
+        self._sample_family = ""
+        self._sample_version = ""
+        self._sample_is_library = False
+        # if we already have a report, use the same meta data information to prefill fields
+        if parent.parent.local_smda_report is not None:
+            self._sample_family = parent.parent.local_smda_report.family
+            self._sample_version = parent.parent.local_smda_report.version
+            self._sample_is_library = parent.parent.local_smda_report.is_library
         # create GUI elements
         self._createInputWidget()
         self._createButtons()
@@ -17,19 +25,16 @@ class SmdaInfoDialog(QDialog):
         dialog_layout.addLayout(self.button_layout)
         self.setLayout(dialog_layout)
         self.setWindowTitle(self.tr("Provide additional information about the sample"))
-        self._sample_family = ""
-        self._sample_version = ""
-        self._sample_is_library = False
 
     def _createInputWidget(self):
         self.input_widget = self.cc.QWidget()
         # the respective fields
         self.label_family = self.cc.QLabel("Family:")
-        self.edit_family = self.cc.QLineEdit("")
+        self.edit_family = self.cc.QLineEdit(self._sample_family)
         self.label_version = self.cc.QLabel("Version:")
-        self.edit_version = self.cc.QLineEdit("")
+        self.edit_version = self.cc.QLineEdit(self._sample_version)
         self._cb_is_library = self.cc.QCheckBox("Sample is a library?")
-        self._cb_is_library.setChecked(False)
+        self._cb_is_library.setChecked(self._sample_is_library)
         # arrange in layout
         grid_layout = self.cc.QGridLayout()
         grid_layout.addWidget(self.label_family, 0, 0)

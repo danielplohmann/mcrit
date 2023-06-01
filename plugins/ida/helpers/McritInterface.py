@@ -118,10 +118,10 @@ class McritInterface(object):
             self.parent.local_widget.updateActivityInfo("Job query failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
-    def requestMatchingJob(self, sample_id):
+    def requestMatchingJob(self, sample_id, force_update=False):
         self.parent.local_widget.updateActivityInfo("Tasking matching job for sample with id: %d" % self.parent.remote_sample_id)
         try:
-            job_id = self.mcrit_client.requestMatchesForSample(sample_id, band_matches_required=2)
+            job_id = self.mcrit_client.requestMatchesForSample(sample_id, band_matches_required=2, force_recalculation=force_update)
             if job_id:
                 self.parent.local_widget.updateActivityInfo("Success! MatchingJob has ID: %s." % job_id)
             else:
@@ -137,6 +137,7 @@ class McritInterface(object):
         try:
             matching_result = self.mcrit_client.getResultForJob(job_id)
             if job_id:
+                self.parent.matching_job_id = job_id
                 self.parent.matching_report = MatchingResult.fromDict(matching_result)
                 self.parent.local_widget.updateActivityInfo("Success! Downloaded MatchResult.")
             else:
@@ -177,7 +178,11 @@ class McritInterface(object):
 
     def queryFunctionEntriesById(self, function_ids, with_label_only=False):
         try:
-            return self.mcrit_client.getFunctionsByIds(function_ids, with_label_only=with_label_only)
+            function_entries = self.mcrit_client.getFunctionsByIds(function_ids, with_label_only=with_label_only)
+            if function_entries:
+                if self.parent.matched_function_entries is None:
+                    self.parent.matched_function_entries = {}
+                self.parent.matched_function_entries.update(function_entries)
         except Exception as exc:
             import traceback
             print(traceback.format_exc(exc))

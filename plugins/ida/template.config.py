@@ -16,6 +16,6 @@ if len(logging._handlerList) == 0:
     logging.basicConfig(level=LOG_LEVEL, format=LOG_FORMAT)
 
 MCRIT4IDA_PLUGIN_ONLY = False
-MCRIT_SERVER = "http://127.0.0.1:8000/"
 MCRITWEB_USERNAME = ""
+MCRIT_SERVER = "http://127.0.0.1:8000/"
 MCRITWEB_API_TOKEN = ""
