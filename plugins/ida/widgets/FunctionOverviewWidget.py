@@ -112,6 +112,8 @@ class FunctionOverviewWidget(QMainWindow):
         qt = self._QtShim.get_Qt()
 
         match_report = self.parent.getMatchingReport()
+        if match_report is None:
+            return
         matched_function_ids = set()
         global_minimum_match_value = 100
         global_maximum_match_value = 0
