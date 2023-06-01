@@ -119,8 +119,8 @@ class FunctionOverviewWidget(QMainWindow):
         global_maximum_match_value = 0
         matched_function_ids_per_function_id = {}
         for function_match in match_report.function_matches:
-            global_minimum_match_value = min(global_minimum_match_value, function_match.matched_score)
-            global_maximum_match_value = max(global_maximum_match_value, function_match.matched_score)
+            global_minimum_match_value = int(min(global_minimum_match_value, function_match.matched_score))
+            global_maximum_match_value = int(max(global_maximum_match_value, function_match.matched_score))
             matched_function_ids.add(function_match.matched_function_id)
             if function_match.function_id not in matched_function_ids_per_function_id:
                 matched_function_ids_per_function_id[function_match.function_id] = []
