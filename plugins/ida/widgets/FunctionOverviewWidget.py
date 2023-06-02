@@ -121,6 +121,7 @@ class FunctionOverviewWidget(QMainWindow):
 
     def importSelectedLabels(self):
         # get currently selected names from all dropdowns in the table
+        num_names_applied = 0
         for row_id in range(self.table_local_functions.rowCount()):
             offset = int(self.table_local_functions.item(row_id, 0).text(), 16)
             label_via_table = self.table_local_functions.item(row_id, 5).text()
@@ -141,6 +142,11 @@ class FunctionOverviewWidget(QMainWindow):
             if re.match("sub_[0-9A-Fa-f]+$", ida_function_name):
                 # apply label
                 self.cc.ida_proxy.set_name(offset, result_label, self.cc.ida_proxy.SN_NOWARN)
+                num_names_applied += 1
+        if num_names_applied:
+            self.parent.local_widget.updateActivityInfo(f"Success! Imported {num_names_applied} function names.")
+        else:
+            self.parent.local_widget.updateActivityInfo(f"No suitable function names found to import.")
 
     def _updateLabelFunctionMatches(self, num_functions_matched):
         local_smda_report = self.parent.getLocalSmdaReport()

@@ -1,4 +1,4 @@
-from random import sample
+from copy import deepcopy
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from mcrit.storage.SampleEntry import SampleEntry
@@ -19,10 +19,9 @@ class MatchingResult(object):
     match_aggregation: Dict
     sample_matches: List["MatchedSampleEntry"]
     function_matches: List["MatchedFunctionEntry"]
-    num_original_function_matches: int
-    num_original_sample_matches: int
-    num_original_family_matches: int
-    num_original_library_matches: int
+    # filtered versions 
+    filtered_sample_matches: List["MatchedSampleEntry"]
+    filtered_function_matches: List["MatchedFunctionEntry"]
     # function_id -> [(family_id, sample_id), ...]
     library_matches: Dict
     # function_id -> {family_id_a, family_id_b, ...}
@@ -48,11 +47,65 @@ class MatchingResult(object):
         self.filter_values = {}
         self.function_id_to_family_ids_matched = {}
 
+    @property
+    def num_original_function_matches(self):
+        return len(self.function_matches)
+    @property
+    def num_original_sample_matches(self):
+        return len(self.sample_matches)
+    @property
+    def num_original_family_matches(self):
+        return len(set([sample.family_id for sample in self.sample_matches if not sample.is_library]))
+    @property
+    def num_original_library_matches(self):
+        return len(set([sample.family_id for sample in self.sample_matches if sample.is_library]))
+    @property
+    def num_function_matches(self):
+        return len(self.filtered_function_matches)
+    @property
+    def num_sample_matches(self):
+        return len(self.filtered_sample_matches)
+    @property
+    def num_family_matches(self):
+        return len(set([sample.family_id for sample in self.filtered_sample_matches if not sample.is_library]))
+    @property
+    def num_library_matches(self):
+        return len(set([sample.family_id for sample in self.filtered_sample_matches if sample.is_library]))
+
     def setFilterValues(self, filter_dict):
         self.filter_values = filter_dict
 
     def getFilterValue(self, filter_name):
         return self.filter_values[filter_name] if filter_name in self.filter_values else 0
+    
+    def applyFilterValues(self):
+        """ use the filter_values that have been set before to reduce the data """
+        # filter family/sample
+        if self.filter_values.get("filter_direct_min_score", None):
+            self.filterToDirectMinScore(self.filter_values["filter_direct_min_score"])
+        if self.filter_values.get("filter_direct_nonlib_min_score", None):
+            self.filterToDirectMinScore(self.filter_values["filter_direct_nonlib_min_score"], nonlib=True)
+        if self.filter_values.get("filter_frequency_min_score", None):
+            self.filterToFrequencyMinScore(self.filter_values["filter_frequency_min_score"])
+        if self.filter_values.get("filter_frequency_nonlib_min_score", None):
+            self.filterToFrequencyMinScore(self.filter_values["filter_frequency_nonlib_min_score"], nonlib=True)
+        if self.filter_values.get("filter_unique_only", None):
+            self.filterToUniqueMatchesOnly()
+        if self.filter_values.get("filter_exclude_own_family", None):
+            self.excludeOwnFamily()
+        # filter functions
+        if self.filter_values.get("filter_exclude_library", None):
+            self.excludeLibraryMatches()
+        if self.filter_values.get("filter_max_num_families", None):
+            self.filterToFamilyCount(self.filter_values["filter_max_num_families"])
+        if self.filter_values.get("filter_max_num_samples", None):
+            self.filterToSampleCount(self.filter_values["filter_max_num_samples"])
+        if self.filter_values.get("filter_function_min_score", None):
+            self.filterToFunctionScore(min_score=self.filter_values["filter_function_min_score"])
+        if self.filter_values.get("filter_function_max_score", None):
+            self.filterToFunctionScore(max_score=self.filter_values["filter_function_max_score"])
+        if self.filter_values.get("filter_exclude_pic", None):
+            self.excludePicMatches()
 
     def getFamilyNameByFamilyId(self, family_id):
         if self.family_id_to_name_map is None:
@@ -66,121 +119,119 @@ class MatchingResult(object):
             return 0
         return self.function_id_to_family_ids_matched[function_id]
 
-    def getFilteredSampleMatch(self):
-        if not self.is_sample_filtered or not len(self.sample_matches):
-            return None
-        else:
-            return self.sample_matches[0]
-
     def filterToDirectMinScore(self, min_score, nonlib=False):
-        """ reduce aggregated sample matches to those with direct score of min_score or higher """
+        """ reduce aggregated sample matches to those with direct score of min_score or higher, but nonlib flag is not applied to library samples """
         filtered_sample_matches = []
-        for sample_match in self.sample_matches:
+        for sample_match in self.filtered_sample_matches:
             if nonlib:
-                if sample_match.matched_percent_nonlib_score_weighted >= min_score:
+                if sample_match.is_library:
+                    filtered_sample_matches.append(sample_match)
+                elif sample_match.matched_percent_nonlib_score_weighted >= min_score:
                     filtered_sample_matches.append(sample_match)
             else:
                 if sample_match.matched_percent_score_weighted >= min_score:
                     filtered_sample_matches.append(sample_match)
-        self.sample_matches = filtered_sample_matches
+        self.filtered_sample_matches = filtered_sample_matches
 
     def filterToFrequencyMinScore(self, min_score, nonlib=False):
-        """ reduce aggregated sample matches to those with frequency score of min_score or higher """
+        """ reduce aggregated sample matches to those with frequency score of min_score or higher, but nonlib flag is not applied to library samples """
         filtered_sample_matches = []
-        for sample_match in self.sample_matches:
+        for sample_match in self.filtered_sample_matches:
             if nonlib:
-                if sample_match.matched_percent_nonlib_frequency_weighted >= min_score:
+                if sample_match.is_library:
+                    filtered_sample_matches.append(sample_match)
+                elif sample_match.matched_percent_nonlib_frequency_weighted >= min_score:
                     filtered_sample_matches.append(sample_match)
             else:
                 if sample_match.matched_percent_frequency_weighted >= min_score:
                     filtered_sample_matches.append(sample_match)
-        self.sample_matches = filtered_sample_matches
+        self.filtered_sample_matches = filtered_sample_matches
 
     def filterToUniqueMatchesOnly(self):
         """ reduce aggregated sample matches to those with unique matches only """
         filtered_sample_matches = []
-        for sample_match in self.sample_matches:
+        for sample_match in self.filtered_sample_matches:
             unique_info = self.getUniqueFamilyMatchInfoForSample(sample_match.sample_id)
             if unique_info["unique_score"] > 0 or sample_match.is_library:
                 filtered_sample_matches.append(sample_match)
-        self.sample_matches = filtered_sample_matches
+        self.filtered_sample_matches = filtered_sample_matches
 
     def excludeOwnFamily(self):
         """ remove all sample matches with the same family_id as the reference samples"""
         filtered_sample_matches = []
-        for sample_match in self.sample_matches:
+        for sample_match in self.filtered_sample_matches:
             if sample_match.family_id != self.reference_sample_entry.family_id:
                 filtered_sample_matches.append(sample_match)
-        self.sample_matches = filtered_sample_matches
+        self.filtered_sample_matches = filtered_sample_matches
 
     def excludeLibraryMatches(self):
         """ reduce contained matches to those where none of the matches is with a library (transitive library identification) """
         library_matches = [matches for matches in self.library_matches.values() if matches]
         library_samples = set([match[1] for match_list in library_matches for match in match_list])
         library_matched_functions = [key for key in self.library_matches if self.library_matches[key]]
-        self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id not in library_samples]
-        self.function_matches = [function_match for function_match in self.function_matches if function_match.function_id not in library_matched_functions]
+        self.filtered_sample_matches = [sample_match for sample_match in self.filtered_sample_matches if sample_match.sample_id not in library_samples]
+        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.function_id not in library_matched_functions]
         self.is_library_filtered = True
 
     def excludePicMatches(self):
         """ reduce contained matches to those which are not identified as quasi-identical via PIC matching """
-        self.function_matches = [function_match for function_match in self.function_matches if not function_match.match_is_pichash]
+        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if not function_match.match_is_pichash]
         self.is_pic_filtered = True
 
     def filterToSampleCount(self, max_sample_count):
         """ reduce contained matches to those with a maximum of <max_sample_count> matched samples """
         matched_samples_by_function_id = {}
-        for function_match in self.function_matches:
+        for function_match in self.filtered_function_matches:
             if not function_match.function_id in matched_samples_by_function_id:
                 matched_samples_by_function_id[function_match.function_id] = []
             if not function_match.matched_sample_id in matched_samples_by_function_id[function_match.function_id]:
                 matched_samples_by_function_id[function_match.function_id].append(function_match.matched_family_id)
-        self.function_matches = [function_match for function_match in self.function_matches if len(matched_samples_by_function_id[function_match.function_id]) <= max_sample_count]
+        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) <= max_sample_count]
         self.is_sample_count_filtered = True
 
     def filterToFamilyCount(self, max_family_count):
         """ reduce contained matches to those with a maximum of <max_family_count> matched families """
         matched_families_by_function_id = {}
-        for function_match in self.function_matches:
+        for function_match in self.filtered_function_matches:
             if not function_match.function_id in matched_families_by_function_id:
                 matched_families_by_function_id[function_match.function_id] = []
             if not function_match.matched_family_id in matched_families_by_function_id[function_match.function_id]:
                 matched_families_by_function_id[function_match.function_id].append(function_match.matched_family_id)
-        self.function_matches = [function_match for function_match in self.function_matches if len(matched_families_by_function_id[function_match.function_id]) <= max_family_count]
+        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_families_by_function_id[function_match.function_id]) <= max_family_count]
         self.is_family_count_filtered = True
 
     def filterToFunctionScore(self, min_score=None, max_score=None):
         """ reduce contained matches to those with a minimum score of <threshold> """
         if min_score is not None:
-            self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_score >= min_score]
+            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_score >= min_score]
         if max_score is not None:
-            self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_score <= max_score]
+            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_score <= max_score]
         self.is_score_filtered = True
 
     def filterToFamilyId(self, family_id):
         """ reduce contained matches to chosen family_id by deleting the other sample and function matches """
-        self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.family_id == family_id]
-        self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_family_id == family_id]
+        self.filtered_sample_matches = [sample_match for sample_match in self.filtered_sample_matches if sample_match.family_id == family_id]
+        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_family_id == family_id]
         self.is_family_filtered = True
 
     def filterToSampleId(self, sample_id):
         """ reduce contained matches to chosen sample_id by deleting the other sample and function matches """
-        self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id == sample_id]
-        self.function_matches = [function_match for function_match in self.function_matches if function_match.matched_sample_id == sample_id]
+        self.filtered_sample_matches = [sample_match for sample_match in self.filtered_sample_matches if sample_match.sample_id == sample_id]
+        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_sample_id == sample_id]
         self.is_sample_filtered = True
 
     def filterToFunctionId(self, function_id):
         """ reduce contained matches to chosen function_id by deleting the other sample and function matches """
-        # self.sample_matches = [sample_match for sample_match in self.sample_matches if sample_match.sample_id == sample_id]
-        self.function_matches = [function_match for function_match in self.function_matches if function_match.function_id == function_id]
+        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.function_id == function_id]
         self.is_function_filtered = True
 
     def hasLibraryMatch(self, function_id):
         return function_id in self.library_matches and self.library_matches[function_id]
 
-    def getBestSampleMatchesPerFamily(self, start=None, limit=None, library_only=False, malware_only=False):
+    def getBestSampleMatchesPerFamily(self, start=None, limit=None, unfiltered=False, library_only=False, malware_only=False):
         by_family = {}
-        for sample_match in self.sample_matches:
+        source_matches = self.sample_matches if unfiltered else self.filtered_sample_matches
+        for sample_match in source_matches:
             if library_only and not sample_match.is_library:
                 continue
             if malware_only and sample_match.is_library:
@@ -230,9 +281,10 @@ class MatchingResult(object):
             return {"functions_matched": 0, "bytes_matched": 0, "unique_score": 0}
 
 
-    def getSampleMatches(self, start=None, limit=None, library_only=False, malware_only=False):
+    def getSampleMatches(self, start=None, limit=None, unfiltered=False, library_only=False, malware_only=False):
         by_sample_id = {}
-        for sample_match in self.sample_matches:
+        source_matches = self.sample_matches if unfiltered else self.filtered_sample_matches
+        for sample_match in source_matches:
             if library_only and not sample_match.is_library:
                 continue
             if malware_only and sample_match.is_library:
@@ -249,10 +301,20 @@ class MatchingResult(object):
         if limit is not None:
             result_list = result_list[:limit]
         return result_list
+    
+    def getFunctionMatches(self, start=None, limit=None, unfiltered=False):
+        source_matches = self.function_matches if unfiltered else self.filtered_function_matches
+        result_list = source_matches
+        if start is not None:
+            result_list = result_list[start:]
+        if limit is not None:
+            result_list = result_list[:limit]
+        return result_list
 
-    def getAggregatedFunctionMatches(self, start=None, limit=None):
+    def getAggregatedFunctionMatches(self, start=None, limit=None, unfiltered=False):
         by_function_id = {}
-        for function_match in self.function_matches:
+        source_matches = self.function_matches if unfiltered else self.filtered_function_matches
+        for function_match in source_matches:
             if function_match.function_id not in by_function_id:
                 by_function_id[function_match.function_id] = {
                     "function_id": function_match.function_id,
@@ -291,8 +353,8 @@ class MatchingResult(object):
             aggregated_matched = aggregated_matched[:limit]
         return aggregated_matched
 
-    def getFunctionsSlice(self, start, limit):
-        return self.function_matches[start:start+limit]
+    def getFunctionsSlice(self, start, limit, unfiltered=False):
+        return self.filtered_function_matches[start:start+limit]
 
     def toDict(self):
         # we need to aggregate by function_id here
@@ -336,10 +398,6 @@ class MatchingResult(object):
         list_of_function_matches = []
         matching_entry.library_matches = {abs(entry["fid"]): [] for entry in entry_dict["matches"]["functions"]}
         matching_entry.unique_family_scores_per_sample = None
-        matching_entry.num_original_function_matches = len(entry_dict["matches"]["functions"])
-        matching_entry.num_original_sample_matches = len(matching_entry.sample_matches)
-        matching_entry.num_original_family_matches = len(set([sample.family_id for sample in matching_entry.sample_matches if not sample.is_library]))
-        matching_entry.num_original_library_matches = len(set([sample.family_id for sample in matching_entry.sample_matches if sample.is_library]))
         for function_match_summary in entry_dict["matches"]["functions"]:
             num_bytes = function_match_summary["num_bytes"]
             offset = function_match_summary["offset"]
@@ -357,10 +415,15 @@ class MatchingResult(object):
                     if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
                         matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
         matching_entry.function_matches = sorted(list_of_function_matches, key=lambda x: x.function_id)
+        # create deep copies for filtering
+        matching_entry.filtered_function_matches = deepcopy(matching_entry.function_matches)
+        matching_entry.filtered_sample_matches = deepcopy(matching_entry.sample_matches)
         return matching_entry
 
     def __str__(self):
-        return "Matched: Samples: {} Functions: {}".format(
+        return "Matched: Samples: {} (unfiltered: {}) Functions: {} (unfiltered: {})".format(
+            len(self.filtered_sample_matches),
             len(self.sample_matches),
+            len(self.filtered_function_matches),
             len(self.function_matches),
         )
