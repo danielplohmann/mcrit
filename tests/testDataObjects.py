@@ -64,24 +64,25 @@ class MinHashingTestSuite(unittest.TestCase):
             match_json = json.load(fjson)
         matching_result = MatchingResult.fromDict(match_json)
         assert len(matching_result.sample_matches) == 2
-        assert len(matching_result.function_matches) == 719
-        assert len(set([match.function_id for match in matching_result.function_matches])) == 515
+        assert len(matching_result.getFunctionMatches()) == 719
+        assert len(set([match.function_id for match in matching_result.getFunctionMatches()])) == 515
         ### test filtering
         # test filtering by family and sample counts
         filtered_result = deepcopy(matching_result)
         filtered_result.filterToFamilyCount(1)
-        assert len(filtered_result.function_matches) == 414
+        assert len(filtered_result.getFunctionMatches()) == 414
+        assert len(filtered_result.getFunctionMatches(unfiltered=True)) == 719
         filtered_result = deepcopy(matching_result)
         filtered_result.filterToSampleCount(1)
-        assert len(filtered_result.function_matches) == 340
+        assert len(filtered_result.getFunctionMatches()) == 340
         # filter by score / library
         filtered_result = deepcopy(matching_result)
         filtered_result.filterToFunctionScore(95)
-        assert len(filtered_result.function_matches) == 581
+        assert len(filtered_result.getFunctionMatches()) == 581
         filtered_result = deepcopy(matching_result)
         filtered_result.excludeLibraryMatches()
-        assert len(filtered_result.function_matches) == 715
-        assert len(set([match.function_id for match in filtered_result.function_matches])) == 513
+        assert len(filtered_result.getFunctionMatches()) == 715
+        assert len(set([match.function_id for match in filtered_result.getFunctionMatches()])) == 513
 
 
 if __name__ == "__main__":
