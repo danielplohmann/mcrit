@@ -93,6 +93,8 @@ class MatchingResult(object):
             self.filterToUniqueMatchesOnly()
         if self.filter_values.get("filter_exclude_own_family", None):
             self.excludeOwnFamily()
+        if self.filter_values.get("filter_family_name", None):
+            self.filterByFamilyName(self.filter_values["filter_family_name"])
         # filter functions
         if self.filter_values.get("filter_exclude_library", None):
             self.excludeLibraryMatches()
@@ -104,8 +106,12 @@ class MatchingResult(object):
             self.filterToFunctionScore(min_score=self.filter_values["filter_function_min_score"])
         if self.filter_values.get("filter_function_max_score", None):
             self.filterToFunctionScore(max_score=self.filter_values["filter_function_max_score"])
+        if self.filter_values.get("filter_function_offset", None):
+            self.filterToFunctionOffset(self.filter_values["filter_function_offset"])
         if self.filter_values.get("filter_exclude_pic", None):
             self.excludePicMatches()
+        if self.filter_values.get("filter_func_unique", None):
+            self.filterToUniqueFunctionMatchesOnly()
 
     def getFamilyNameByFamilyId(self, family_id):
         if self.family_id_to_name_map is None:
@@ -118,6 +124,14 @@ class MatchingResult(object):
         if function_id not in self.function_id_to_family_ids_matched:
             return 0
         return self.function_id_to_family_ids_matched[function_id]
+
+    def filterByFamilyName(self, filter_term):
+        """ reduce families and samples to those where family_name is part of the family_name """
+        filtered_sample_matches = []
+        for sample_match in self.filtered_sample_matches:
+            if filter_term in sample_match.family:
+                filtered_sample_matches.append(sample_match)
+        self.filtered_sample_matches = filtered_sample_matches
 
     def filterToDirectMinScore(self, min_score, nonlib=False):
         """ reduce aggregated sample matches to those with direct score of min_score or higher, but nonlib flag is not applied to library samples """
@@ -155,6 +169,24 @@ class MatchingResult(object):
             if unique_info["unique_score"] > 0 or sample_match.is_library:
                 filtered_sample_matches.append(sample_match)
         self.filtered_sample_matches = filtered_sample_matches
+
+    def filterToUniqueFunctionMatchesOnly(self):
+        """ reduce function matches to those with unique matches (with respect to the family) only """
+        aggregated = self.getAggregatedFunctionMatches()
+        filtered_function_matches = []
+        unique_info_by_function_id = {entry["function_id"]: entry["num_families_matched"] == 1 for entry in aggregated}
+        for function_match in self.filtered_function_matches:
+            if unique_info_by_function_id[function_match.function_id]:
+                filtered_function_matches.append(function_match)
+        self.filtered_function_matches = filtered_function_matches
+
+    def filterToFunctionOffset(self, offset):
+        """ reduce function matches to those that match a specific offset """
+        filtered_function_matches = []
+        for function_match in self.filtered_function_matches:
+            if function_match.offset == offset:
+                filtered_function_matches.append(function_match)
+        self.filtered_function_matches = filtered_function_matches
 
     def excludeOwnFamily(self):
         """ remove all sample matches with the same family_id as the reference samples"""

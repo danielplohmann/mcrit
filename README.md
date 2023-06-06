@@ -117,6 +117,7 @@ in IDA.
 
 
 ## Version History
+ * 2023-06-06 v1.0.7: Extended filtering capabilities on MatchingResult.
  * 2023-06-02 v1.0.6: IDA plugin can now task matching jobs, show their results and batch import labels. Harmonization of MatchingResult.
  * 2023-05-22 v1.0.3: More robustness for path verification when using MCRIT CLI on Malpedia repo folder.
  * 2023-05-12 v1.0.1: Some progress on label import for the IDA plugin. Reflected API extension of MCRITweb in McritClient.
