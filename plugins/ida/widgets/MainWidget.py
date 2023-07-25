@@ -25,7 +25,7 @@ class MainWidget(QMainWindow):
         self.tabs = None
         self.tabbed_widgets = [self.parent.function_match_widget, self.parent.sample_widget, self.parent.function_widget]
         # TODO for MCRIT 1.0.0 release, we hide the other tabs until they are properly developed
-        self.tabbed_widgets = [self.parent.function_match_widget, self.parent.function_widget]
+        self.tabbed_widgets = [self.parent.block_match_widget, self.parent.function_match_widget, self.parent.function_widget]
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.SmdaInfoDialog = SmdaInfoDialog
@@ -168,6 +168,7 @@ class MainWidget(QMainWindow):
                 self.parent.local_smda_report.family = smda_info["family"]
                 self.parent.local_smda_report.version = smda_info["version"]
                 self.parent.local_smda_report.is_library = smda_info["is_library"]
+            self.parent.block_match_widget.enable()
             self.parent.function_match_widget.enable()
         self.parent.local_widget.update()
 
@@ -224,7 +225,7 @@ class MainWidget(QMainWindow):
                     pass
                 else:
                     self.parent.mcrit_interface.getMatchingJobById(dialog_result["selected_job_id"])
-                self.tabs.setCurrentIndex(1)
+                self.tabs.setCurrentIndex(2)
             self.parent.function_widget.update()
             return
         else:

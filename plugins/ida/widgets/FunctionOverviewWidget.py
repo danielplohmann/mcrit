@@ -303,8 +303,12 @@ class FunctionOverviewWidget(QMainWindow):
 ################################################################################
 
     def _onTableFunctionsSelectionChanged(self, selected, deselected):
-        selected_row = self.table_local_functions.selectedItems()[0].row()
-        function_offset = int(self.table_local_functions.item(selected_row, 0).text(), 16)
+        try:
+            selected_row = self.table_local_functions.selectedItems()[0].row()
+            function_offset = int(self.table_local_functions.item(selected_row, 0).text(), 16)
+        except IndexError:
+            # we can ignore this, as it may happen when a popup window is closed
+            pass
 
     def _onTableFunctionsClicked(self, mi):
         """
@@ -321,7 +325,7 @@ class FunctionOverviewWidget(QMainWindow):
             print("double clicked_function_address", clicked_function_address)
             self.cc.ida_proxy.Jump(int(clicked_function_address, 16))
             # change to function scope tab
-            self.parent.main_widget.tabs.setCurrentIndex(0)
+            self.parent.main_widget.tabs.setCurrentIndex(1)
             self.parent.function_match_widget.queryCurrentFunction()
         elif mi.column() == 6:
             print("possibly apply name to function")

@@ -13,6 +13,7 @@ from helpers.McritInterface import McritInterface
 from widgets.MainWidget import MainWidget
 from widgets.LocalInfoWidget import LocalInfoWidget
 from widgets.FunctionMatchWidget import FunctionMatchWidget
+from widgets.BlockMatchWidget import BlockMatchWidget
 from widgets.SampleInfoWidget import SampleInfoWidget
 from widgets.FunctionOverviewWidget import FunctionOverviewWidget
 
@@ -86,12 +87,14 @@ class Mcrit4IdaForm(PluginForm):
         self.matching_report = None
         self.matched_function_entries = None
         # cached function matches that result from Function Scope queries
+        self.current_block = None
         self.current_function = None
         self.function_matches = {}
+        self.block_matches = {}
         # unused
         self.remote_function_mapping = {}
         self.sample_infos = {}
-        self.family_infos = {}
+        self.family_infos = None
         self.pichash_matches = {}
         self.pichash_match_summaries = {}
         self.picblockhash_matches = {}
@@ -126,11 +129,13 @@ class Mcrit4IdaForm(PluginForm):
         time_before = self.cc.time.time()
         print("[/] setting up widgets...")
         self.local_widget = LocalInfoWidget(self)
+        self.block_match_widget = BlockMatchWidget(self)
         self.function_match_widget = FunctionMatchWidget(self)
         self.sample_widget = SampleInfoWidget(self)
         self.function_widget = FunctionOverviewWidget(self)
         self.main_widget = MainWidget(self)
         self.hook_subscribed_widgets.append(self.function_match_widget)
+        self.hook_subscribed_widgets.append(self.block_match_widget)
         # produce layout and render
         layout = self.cc.QVBoxLayout()
         layout.addWidget(self.main_widget)

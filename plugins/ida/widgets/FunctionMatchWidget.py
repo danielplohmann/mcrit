@@ -3,10 +3,12 @@ import ida_funcs
 import ida_kernwin
 
 from mcrit.storage.MatchingResult import MatchingResult
+from mcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
 
 import helpers.QtShim as QtShim
 QMainWindow = QtShim.get_QMainWindow()
 from widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
+from widgets.SmdaGraphViewer import SmdaGraphViewer
 
 
 class FunctionMatchWidget(QMainWindow):
@@ -23,6 +25,7 @@ class FunctionMatchWidget(QMainWindow):
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "flag-triangle.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
+        self.current_function_offset = None
         self.label_current_function_matches = self.cc.QLabel("Matches for: <function_offset>")
         self.cb_filter_library = self.cc.QCheckBox("Filter out Library Matches")
         self.cb_filter_library.setEnabled(False)
@@ -42,6 +45,7 @@ class FunctionMatchWidget(QMainWindow):
         # upper table
         self.label_function_matches = self.cc.QLabel("Function Matches")
         self.table_function_matches = self.cc.QTableWidget()
+        self.table_function_matches.doubleClicked.connect(self._onTableFunctionMatchDoubleClicked)
         # lower table
         self.label_function_names = self.cc.QLabel("Names from Matched Functions")
         self.table_function_names = self.cc.QTableWidget()
@@ -180,6 +184,7 @@ class FunctionMatchWidget(QMainWindow):
                 self.label_current_function_matches.setText("Matches for Function: 0x%x -- %d families, %d samples, %d functions (%d filtered)." % (self.parent.current_function, match_report.num_original_family_matches, match_report.num_original_sample_matches, num_functions, num_all_functions - num_functions))
             else:
                 self.label_current_function_matches.setText("Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (self.parent.current_function, match_report.num_original_family_matches, match_report.num_original_sample_matches, num_all_functions))
+                self.current_function_offset = self.parent.current_function
         # populate tables with data
         self.populateFunctionMatchTable(match_report)
         # TODO fetch all labels to populate lower table as soon as we support this 
@@ -241,14 +246,6 @@ class FunctionMatchWidget(QMainWindow):
         header = self.table_function_matches.horizontalHeader()
         header.setStretchLastSection(True)
 
-    def _onTableFunctionNameDoubleClicked(self, mi):
-        """
-        Use the row with that was double clicked to import the function_name to the current function
-        """
-        function_name = self.table_function_names.item(mi.row(), 3).text()
-        print(function_name)
-        self.cc.ida_proxy.set_name(self.last_viewed, function_name, self.cc.ida_proxy.SN_NOWARN)
-
     def populateFunctionNameTable(self, match_report: MatchingResult):
         """
         Populate the function name table with all names for the matches we found
@@ -299,3 +296,27 @@ class FunctionMatchWidget(QMainWindow):
         header_view = self._QtShim.get_QHeaderView()
         header = self.table_function_names.horizontalHeader()
         header.setStretchLastSection(True)
+
+    def _onTableFunctionMatchDoubleClicked(self, mi):
+        """
+        Use the row with that was double clicked to import the function_name to the current function
+        """
+        smda_function_a = self.parent.local_smda_report.getFunction(self.current_function_offset)
+        smda_report_a = self.parent.local_smda_report
+        remote_function_id = int(self.table_function_matches.item(mi.row(), 0).text())
+        function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(remote_function_id)
+        smda_function_b = function_entry_b.toSmdaFunction()
+        sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
+        fcm = FunctionCfgMatcher(smda_report_a, smda_function_a, sample_entry_b, smda_function_b)
+        coloring = fcm.getColoredMatches()
+        coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
+        g = SmdaGraphViewer(self, sample_entry_b, function_entry_b, smda_function_b, coloring)
+        g.Show()
+
+    def _onTableFunctionNameDoubleClicked(self, mi):
+        """
+        Use the row with that was double clicked to import the function_name to the current function
+        """
+        function_name = self.table_function_names.item(mi.row(), 3).text()
+        print(function_name)
+        self.cc.ida_proxy.set_name(self.last_viewed, function_name, self.cc.ida_proxy.SN_NOWARN)

@@ -153,7 +153,7 @@ class McritInterface(object):
         try:
             family_entries = self.mcrit_client.getFamilies()
             if family_entries:
-                self.parent.family_infos = family_entries
+                self.parent.family_infos = {int(k): v for k, v in family_entries.items()}
                 self.parent.local_widget.updateActivityInfo("Success! Received all remote FamilyEntries.")
             else:
                 self.parent.local_widget.updateActivityInfo("queryAllFamilyEntries failed")
@@ -232,4 +232,32 @@ class McritInterface(object):
             import traceback
             print(traceback.format_exc(exc))
             self.parent.local_widget.updateActivityInfo("queryFunctionEntriesBySampleId failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
+    def queryFunctionEntryById(self, function_id):
+        try:
+            return self.mcrit_client.getFunctionById(function_id, with_xcfg=True)
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("queryFunctionEntryById failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
+    def querySampleEntryById(self, sample_id):
+        try:
+            return self.mcrit_client.getSampleById(sample_id)
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("querySampleEntryById failed, error on connection :(")
+            self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+
+
+    def getMatchesForPicBlockHash(self, picblockhash):
+        try:
+            return self.mcrit_client.getMatchesForPicBlockHash(picblockhash)
+        except Exception as exc:
+            import traceback
+            print(traceback.format_exc(exc))
+            self.parent.local_widget.updateActivityInfo("querySampleEntryById failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())

@@ -19,6 +19,7 @@ requirements = [
     "smda>=1.3.0",
     "tqdm",
     "waitress",
+    "rapidfuzz"
 ]
 
 setup(
