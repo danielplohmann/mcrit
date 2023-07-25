@@ -115,6 +115,10 @@ Then simply run the script found at
 
 in IDA.
 
+### Reference Data 
+
+In July 2023, we started populating a [Github repository](https://github.com/danielplohmann/mcrit-data) which contains ready-to-use reference data for common compilers and libraries.
+
 
 ## Version History
  * 2023-06-06 v1.0.7: Extended filtering capabilities on MatchingResult.
