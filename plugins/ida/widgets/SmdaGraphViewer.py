@@ -79,14 +79,18 @@ class SmdaGraphViewer(GraphViewer):
                     rendered_ins.append(f'{smda_ins.offset:x}: {smda_ins.mnemonic} {printable_api}')
                 else:
                     rendered_ins.append(f'{smda_ins.offset:x}: {smda_ins.mnemonic} {smda_ins.operands}')
-        # IDA uses BBGGRR instead of RRGGBB
-        remapped_color = (
-            (self._offset_to_color[self._node_id_to_offset[node_id]] // (256*256)) + 
-            (self._offset_to_color[self._node_id_to_offset[node_id]] & 0x00FF00) + 
-            ((self._offset_to_color[self._node_id_to_offset[node_id]] & 0x0000FF) * 256*256)
-        )
-        return ("\n".join(rendered_ins), remapped_color)
-    
+        if self._node_id_to_offset[node_id] in self._offset_to_color:
+            # IDA uses BBGGRR instead of RRGGBB
+            remapped_color = (
+                (self._offset_to_color[self._node_id_to_offset[node_id]] // (256*256)) + 
+                (self._offset_to_color[self._node_id_to_offset[node_id]] & 0x00FF00) + 
+                ((self._offset_to_color[self._node_id_to_offset[node_id]] & 0x0000FF) * 256*256)
+            )
+            return ("\n".join(rendered_ins), remapped_color)
+        else:
+            return ("\n".join(rendered_ins))
+
+
     def OnHint(self, node_id):
         if self.smda_function is None:
             return

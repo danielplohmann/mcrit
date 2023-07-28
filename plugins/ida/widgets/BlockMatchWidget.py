@@ -21,6 +21,7 @@ class BlockMatchWidget(QMainWindow):
         self.parent = parent
         self.last_viewed_function = None
         self.last_viewed_block = None
+        self._last_block_matches = None
         self.name = "Block Scope"
         self.last_family_selected = None
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
@@ -45,6 +46,7 @@ class BlockMatchWidget(QMainWindow):
         # upper table
         self.label_block_summary = self.cc.QLabel("Blocks Summary")
         self.table_block_summary = self.cc.QTableWidget()
+        self.table_block_summary.clicked.connect(self._onTableBlockSummaryClicked)
         self.table_block_summary.doubleClicked.connect(self._onTableBlockSummaryDoubleClicked)
         # lower table
         self.label_block_matches = self.cc.QLabel("Block Matches for <block_offset>")
@@ -156,7 +158,7 @@ class BlockMatchWidget(QMainWindow):
         # upper table
         self.table_block_summary.clear()
         self.table_block_summary.setSortingEnabled(False)
-        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Families", "Samples", "Functions", "Lib"]
+        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Length", "Families", "Samples", "Functions", "Lib"]
         self.table_block_summary.setColumnCount(len(self.function_matches_header_labels))
         self.table_block_summary.setHorizontalHeaderLabels(self.function_matches_header_labels)
         self.table_block_summary.setRowCount(0)
@@ -243,6 +245,7 @@ class BlockMatchWidget(QMainWindow):
             else:
                 self.label_current_function_matches.setText("Block Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (self.parent.current_function, len(set_families), len(set_samples), len(set_all_functions)))
                 self.current_block_offset = self.parent.current_function
+        self._last_block_matches = block_matches_by_offset
         # populate tables with data
         self.populateBlockSummaryTable(block_matches_by_offset)
         # TODO pre-select the row for our current block
@@ -253,7 +256,7 @@ class BlockMatchWidget(QMainWindow):
         Populate the function match table with all matches for the selected function_id
         """
         self.table_block_summary.setSortingEnabled(False)
-        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Families", "Samples", "Functions", "Lib"]
+        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Length", "Families", "Samples", "Functions", "Lib"]
         self.table_block_summary.clear()
         self.table_block_summary.setColumnCount(len(self.function_matches_header_labels))
         self.table_block_summary.setHorizontalHeaderLabels(self.function_matches_header_labels)
@@ -270,12 +273,14 @@ class BlockMatchWidget(QMainWindow):
                 elif column == 1:
                     tmp_item = self.cc.QTableWidgetItem("0x%x" % block_entry["picblockhash"]["hash"])
                 elif column == 2:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["families"])
+                    tmp_item = self.cc.QTableWidgetItem("%d" % block_entry["picblockhash"]["size"])
                 elif column == 3:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["samples"])
+                    tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["families"])
                 elif column == 4:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["functions"])
+                    tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["samples"])
                 elif column == 5:
+                    tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["functions"])
+                elif column == 6:
                     tmp_item = self.cc.QTableWidgetItem("YES" if block_entry["has_library_matches"] else "NO")
                 tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
                 self.table_block_summary.setItem(row, column, tmp_item)
@@ -326,6 +331,15 @@ class BlockMatchWidget(QMainWindow):
         header = self.table_block_matches.horizontalHeader()
         header.setStretchLastSection(True)
 
+    def _onTableBlockSummaryClicked(self, mi):
+        """
+        Use the row with that was double clicked to import the function_name to the current function
+        """
+        clicked_block_address = self.table_block_summary.item(mi.row(), 0).text()
+        print("clicked_block_address", clicked_block_address)
+        self.parent.current_block = int(clicked_block_address, 16)
+        self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
+
     def _onTableBlockSummaryDoubleClicked(self, mi):
         """
         Use the row with that was double clicked to import the function_name to the current function
@@ -335,12 +349,19 @@ class BlockMatchWidget(QMainWindow):
             print("double clicked_block_address", clicked_block_address)
             self.cc.ida_proxy.Jump(int(clicked_block_address, 16))
             self.parent.current_block = int(clicked_block_address, 16)
-            self.updateViewWithCurrentBlock()
+            self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
 
     def _onTableBlockMatchesDoubleClicked(self, mi):
         """
         Use the row with that was double clicked to import the function_name to the current function
         """
-        function_id = self.table_block_matches.item(mi.row(), 2).text()
-        print("double clicked row for function_id", function_id)
+        block_offset_b = int(self.table_block_matches.item(mi.row(), 4).text(), 16)
+        function_id_b = int(self.table_block_matches.item(mi.row(), 3).text())
+        print("double clicked row for function_id", function_id_b)
+        function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(function_id_b)
+        smda_function_b = function_entry_b.toSmdaFunction()
+        sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
+        coloring = {block_offset_b: 0xFFDD00}
+        g = SmdaGraphViewer(self, sample_entry_b, function_entry_b, smda_function_b, coloring)
+        g.Show()
 
