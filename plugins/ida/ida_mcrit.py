@@ -90,7 +90,10 @@ class Mcrit4IdaForm(PluginForm):
         self.current_block = None
         self.current_function = None
         self.function_matches = {}
-        self.block_matches = {}
+        # offset to PicBlockHash
+        self.block_to_hash = {}
+        # PicBlockHash to matches from remote server
+        self.blockhash_matches = {}
         # unused
         self.remote_function_mapping = {}
         self.sample_infos = {}

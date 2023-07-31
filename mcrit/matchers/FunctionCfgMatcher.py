@@ -31,15 +31,16 @@ class FunctionCfgMatcher(object):
         }
 
     @staticmethod
-    def getPicBlockHashesForFunction(sample_entry, smda_function):
+    def getPicBlockHashesForFunction(sample_entry, smda_function, min_size=0):
         pic_block_hashes = []
         for block in smda_function.getBlocks():
-            escaped_binary_seq = []
-            for instruction in block.getInstructions():
-                escaped_binary_seq.append(instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=sample_entry.base_addr, upper_addr=sample_entry.base_addr + sample_entry.binary_size))
-            as_bytes = bytes([ord(c) for c in "".join(escaped_binary_seq)])
-            hashed = struct.unpack("Q", hashlib.sha256(as_bytes).digest()[:8])[0]
-            pic_block_hashes.append({"offset": block.offset, "hash": hashed, "size": block.length})
+            if block.length >= min_size:
+                escaped_binary_seq = []
+                for instruction in block.getInstructions():
+                    escaped_binary_seq.append(instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=sample_entry.base_addr, upper_addr=sample_entry.base_addr + sample_entry.binary_size))
+                as_bytes = bytes([ord(c) for c in "".join(escaped_binary_seq)])
+                hashed = struct.unpack("Q", hashlib.sha256(as_bytes).digest()[:8])[0]
+                pic_block_hashes.append({"offset": block.offset, "hash": hashed, "size": block.length})
         return pic_block_hashes
 
     def getAllPicblockMatches(self):

@@ -35,6 +35,13 @@ class BlockMatchWidget(QMainWindow):
         self.cb_activate_live_tracking = self.cc.QCheckBox("Live Block Queries")
         self.cb_activate_live_tracking.setEnabled(False)
         self.cb_activate_live_tracking.setChecked(False)
+        # filter wheel
+        self.sb_blocksize_threshold = self.cc.QSpinBox()
+        self.sb_blocksize_threshold.setRange(4, 20)
+        self.sb_blocksize_threshold.setValue(4)
+        self.sb_blocksize_threshold.valueChanged.connect(self.handleSpinThresholdChange)
+        self.label_sb_threshold = self.cc.QLabel("Min. Block Size: ")
+        # query button
         self.b_query_single = self.cc.QPushButton("Query current basic block")
         self.b_query_single.clicked.connect(self.queryCurrentBlock)
         self.b_query_single.setEnabled(False)
@@ -67,6 +74,12 @@ class BlockMatchWidget(QMainWindow):
         sample_info_layout.addWidget(self.label_current_function_matches)
         sample_info_layout.addWidget(self.cb_filter_library)
         sample_info_layout.addWidget(self.cb_activate_live_tracking)
+        self.threshold_widget = self.cc.QWidget()
+        threshold_layout = self.cc.QVBoxLayout()
+        threshold_layout.addWidget(self.label_sb_threshold)
+        threshold_layout.addWidget(self.sb_blocksize_threshold)
+        self.threshold_widget.setLayout(threshold_layout)
+        sample_info_layout.addWidget(self.threshold_widget)
         sample_info_layout.addWidget(self.b_query_single)
         sample_info_layout.addWidget(self.hline)
         sample_info_layout.addWidget(self.label_block_summary)
@@ -136,6 +149,9 @@ class BlockMatchWidget(QMainWindow):
                             self.parent.current_block = temp_current_block.offset
         return self.parent.current_function
 
+    def handleSpinThresholdChange(self):
+        self.updateViewWithCurrentBlock()
+
     def queryCurrentBlock(self):
         self.updateViewWithCurrentBlock()
 
@@ -153,7 +169,7 @@ class BlockMatchWidget(QMainWindow):
             self.label_current_function_matches.setText("Live Function Queries are deactivated.")
             return
         self.updateViewWithCurrentBlock()
-        
+
     def clearTable(self):
         # upper table
         self.table_block_summary.clear()
@@ -183,31 +199,28 @@ class BlockMatchWidget(QMainWindow):
             self.label_current_function_matches.setText("Can only query functions with 4 instructions or more.")
             return
         # calculate all block pichashes
-        pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(self.parent.local_smda_report, smda_function)
-        print(smda_function)
+        pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(self.parent.local_smda_report, smda_function, min_size=4)
         block_matches_by_offset = {}
         for entry in pbh:
-            if entry["size"] >= 4:
-                # cache this so we only query once per block
-                if entry["offset"] not in self.parent.block_matches:
-                    pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(entry["hash"])
-                    self.parent.block_matches[entry["offset"]] = pichash_matches
-                pichash_matches = self.parent.block_matches[entry["offset"]]
-                summary = {
-                    "families": len(set([e[0] for e in pichash_matches])),
-                    "samples": len(set([e[1] for e in pichash_matches])),
-                    "functions": len(set([e[2] for e in pichash_matches])),
-                    "offsets" : len(pichash_matches)
-                }
-                block_matches_by_offset[entry["offset"]] = {
-                    "picblockhash": entry,
-                    "matches": self.parent.block_matches[entry["offset"]],
-                    "summary": summary,
-                    "has_library_matches": False
-                }
-                print(block_matches_by_offset[entry["offset"]])
-                print("*" * 80)
-
+            if entry["hash"] not in self.parent.blockhash_matches:
+                pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(entry["hash"])
+                self.parent.blockhash_matches[entry["hash"]] = pichash_matches
+            pichash_matches = self.parent.blockhash_matches[entry["hash"]]
+            # cache this so we only query once per block
+            if entry["offset"] not in self.parent.block_to_hash:
+                self.parent.block_to_hash[entry["offset"]] = entry["hash"]
+            summary = {
+                "families": len(set([e[0] for e in pichash_matches])),
+                "samples": len(set([e[1] for e in pichash_matches])),
+                "functions": len(set([e[2] for e in pichash_matches])),
+                "offsets" : len(pichash_matches)
+            }
+            block_matches_by_offset[entry["offset"]] = {
+                "picblockhash": entry,
+                "matches": pichash_matches,
+                "summary": summary,
+                "has_library_matches": False
+            }
         if block_matches_by_offset:
             # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
             set_families = set([])
@@ -218,13 +231,21 @@ class BlockMatchWidget(QMainWindow):
             for k, v in self.parent.family_infos.items():
                 if v.num_samples and v.num_library_samples == v.num_samples:
                     library_families.append(k)
-            offsets_to_drop = []
+            min_block_size = self.sb_blocksize_threshold.value()
+            print("filtering with block size", min_block_size)
+            offsets_to_drop = {
+                "by_size": set([]),
+                "by_lib": set([])
+            }
             for offset, data in block_matches_by_offset.items():
                 set_all_functions.update([entry[2] for entry in data["matches"]])
                 filtered_matches = [entry for entry in data["matches"] if entry[0] not in library_families]
+                if data["picblockhash"]["size"] < min_block_size:
+                     offsets_to_drop["by_size"].add(offset)
+                     print("dropping because of size", offset)
                 if len(filtered_matches) < len(data["matches"]):
                     block_matches_by_offset[offset]["has_library_matches"] = True
-                    offsets_to_drop.append(offset)
+                    offsets_to_drop["by_lib"].add(offset)
                 # reduce matches if we actually have matched some blocks against libraries
                 if self.cb_filter_library.isChecked() and block_matches_by_offset[offset]["has_library_matches"]:
                     block_matches_by_offset[offset]["matches"] = filtered_matches
@@ -238,9 +259,11 @@ class BlockMatchWidget(QMainWindow):
                 set_families.update([entry[0] for entry in filtered_matches])
                 set_samples.update([entry[1] for entry in filtered_matches])
                 set_functions.update([entry[2] for entry in filtered_matches])
+            for offset in offsets_to_drop["by_size"]:
+                block_matches_by_offset.pop(offset, None)
             if self.cb_filter_library.isChecked():
-                for offset in offsets_to_drop:
-                    block_matches_by_offset.pop(offset)
+                for offset in offsets_to_drop["by_lib"]:
+                    block_matches_by_offset.pop(offset, None)
                 self.label_current_function_matches.setText("Block Matches for Function: 0x%x -- %d families, %d samples, %d functions (%d filtered)." % (self.parent.current_function, len(set_families), len(set_samples), len(set_functions), len(set_all_functions) - len(set_functions)))
             else:
                 self.label_current_function_matches.setText("Block Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (self.parent.current_function, len(set_families), len(set_samples), len(set_all_functions)))
@@ -248,7 +271,6 @@ class BlockMatchWidget(QMainWindow):
         self._last_block_matches = block_matches_by_offset
         # populate tables with data
         self.populateBlockSummaryTable(block_matches_by_offset)
-        # TODO pre-select the row for our current block
         self.populateBlockMatchTable(block_matches_by_offset, self.last_viewed_block)
 
     def populateBlockSummaryTable(self, block_matches):
@@ -265,7 +287,6 @@ class BlockMatchWidget(QMainWindow):
         self.table_block_summary.resizeRowToContents(0)
         row = 0
         for block_offset, block_entry in sorted(block_matches.items(), key=lambda x: x[0]):
-            has_library_sample_block = False
             for column, column_name in enumerate(self.function_matches_header_labels):
                 tmp_item = None
                 if column == 0:
@@ -302,13 +323,19 @@ class BlockMatchWidget(QMainWindow):
         self.table_block_matches.clear()
         self.table_block_matches.setColumnCount(len(self.function_matches_header_labels))
         self.table_block_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
+        self.table_block_matches.setRowCount(0)
+        if block_offset not in block_matches:
+            return
         # Identify number of table entries and prepare addresses to display
         self.table_block_matches.setRowCount(len(block_matches[block_offset]["matches"]))
         self.table_block_matches.resizeRowToContents(0)
 
+        preselect_row = 0
         row = 0
         for match_entry in sorted(block_matches[block_offset]["matches"], key=lambda x: (x[0], x[1], x[2])):
             for column, column_name in enumerate(self.function_matches_header_labels):
+                if block_offset == match_entry[3]:
+                    preselect_row = row
                 tmp_item = None
                 if column == 0:
                     tmp_item = self.NumberQTableWidgetItem(self.parent.family_infos[match_entry[0]].family_name)
@@ -324,6 +351,7 @@ class BlockMatchWidget(QMainWindow):
                 self.table_block_matches.setItem(row, column, tmp_item)
             # self.table_function_matches.resizeRowToContents(row)
             row += 1
+        self.table_block_matches.selectRow(preselect_row)
         self.table_block_matches.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
         self.table_block_matches.resizeColumnsToContents()
         self.table_block_matches.setSortingEnabled(True)
