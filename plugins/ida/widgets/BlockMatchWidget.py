@@ -177,6 +177,8 @@ class BlockMatchWidget(QMainWindow):
             self.parent.mcrit_interface.queryAllFamilyEntries()
         self.last_viewed_function = self.parent.current_function
         self.last_viewed_block = self.parent.current_block
+        if self.parent.current_block:
+            self.label_block_matches.setText("No Block Matches for: 0x%x" % self.parent.current_block)
         smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
         if smda_function is None or smda_function.num_instructions < 4:
             self.clearTable()
@@ -184,7 +186,6 @@ class BlockMatchWidget(QMainWindow):
             return
         # calculate all block pichashes
         pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(self.parent.local_smda_report, smda_function)
-        print(smda_function)
         block_matches_by_offset = {}
         for entry in pbh:
             if entry["size"] >= 4:
@@ -205,8 +206,6 @@ class BlockMatchWidget(QMainWindow):
                     "summary": summary,
                     "has_library_matches": False
                 }
-                print(block_matches_by_offset[entry["offset"]])
-                print("*" * 80)
 
         if block_matches_by_offset:
             # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
@@ -245,6 +244,9 @@ class BlockMatchWidget(QMainWindow):
             else:
                 self.label_current_function_matches.setText("Block Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (self.parent.current_function, len(set_families), len(set_samples), len(set_all_functions)))
                 self.current_block_offset = self.parent.current_function
+        else:
+            self.label_current_function_matches.setText("No Block Matches for Function: 0x%x" % self.parent.current_function)
+            self.label_block_matches.setText("No Block Matches for: 0x%x" % self.parent.current_block)
         self._last_block_matches = block_matches_by_offset
         # populate tables with data
         self.populateBlockSummaryTable(block_matches_by_offset)
@@ -273,7 +275,7 @@ class BlockMatchWidget(QMainWindow):
                 elif column == 1:
                     tmp_item = self.cc.QTableWidgetItem("0x%x" % block_entry["picblockhash"]["hash"])
                 elif column == 2:
-                    tmp_item = self.cc.QTableWidgetItem("%d" % block_entry["picblockhash"]["size"])
+                    tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["picblockhash"]["size"])
                 elif column == 3:
                     tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["families"])
                 elif column == 4:
@@ -297,12 +299,16 @@ class BlockMatchWidget(QMainWindow):
         """
         Populate the function name table with all names for the matches we found
         """
+        self.label_block_matches.setText("Block Matches for: 0x%x" % self.parent.current_block)
         self.table_block_matches.setSortingEnabled(False)
         self.function_matches_header_labels = ["Family", "Family ID", "Sample ID", "Function ID", "Offset"]
         self.table_block_matches.clear()
         self.table_block_matches.setColumnCount(len(self.function_matches_header_labels))
         self.table_block_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
         # Identify number of table entries and prepare addresses to display
+        if block_offset not in block_matches:
+            self.table_block_matches.setRowCount(0)
+            return
         self.table_block_matches.setRowCount(len(block_matches[block_offset]["matches"]))
         self.table_block_matches.resizeRowToContents(0)
 
@@ -336,7 +342,7 @@ class BlockMatchWidget(QMainWindow):
         Use the row with that was double clicked to import the function_name to the current function
         """
         clicked_block_address = self.table_block_summary.item(mi.row(), 0).text()
-        print("clicked_block_address", clicked_block_address)
+        # print("clicked_block_address", clicked_block_address)
         self.parent.current_block = int(clicked_block_address, 16)
         self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
 
@@ -346,7 +352,7 @@ class BlockMatchWidget(QMainWindow):
         """
         if mi.column() == 0:
             clicked_block_address = self.table_block_summary.item(mi.row(), 0).text()
-            print("double clicked_block_address", clicked_block_address)
+            # print("double clicked_block_address", clicked_block_address)
             self.cc.ida_proxy.Jump(int(clicked_block_address, 16))
             self.parent.current_block = int(clicked_block_address, 16)
             self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
@@ -357,7 +363,7 @@ class BlockMatchWidget(QMainWindow):
         """
         block_offset_b = int(self.table_block_matches.item(mi.row(), 4).text(), 16)
         function_id_b = int(self.table_block_matches.item(mi.row(), 3).text())
-        print("double clicked row for function_id", function_id_b)
+        # print("double clicked row for function_id", function_id_b)
         function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(function_id_b)
         smda_function_b = function_entry_b.toSmdaFunction()
         sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)

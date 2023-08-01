@@ -318,5 +318,5 @@ class FunctionMatchWidget(QMainWindow):
         Use the row with that was double clicked to import the function_name to the current function
         """
         function_name = self.table_function_names.item(mi.row(), 3).text()
-        print(function_name)
+        # print(function_name)
         self.cc.ida_proxy.set_name(self.last_viewed, function_name, self.cc.ida_proxy.SN_NOWARN)

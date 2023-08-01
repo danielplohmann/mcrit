@@ -161,6 +161,8 @@ class Mcrit4IdaForm(PluginForm):
         """
         Perform cleanup.
         """
+        global G_FORM
+        G_FORM.hook_subscribed_widgets = []
         global MCRIT4IDA
         del MCRIT4IDA
 
