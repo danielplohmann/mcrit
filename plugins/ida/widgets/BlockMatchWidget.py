@@ -201,30 +201,6 @@ class BlockMatchWidget(QMainWindow):
             self.label_current_function_matches.setText("Can only query functions with 4 instructions or more.")
             return
         # calculate all block pichashes
-<<<<<<< HEAD
-        pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(self.parent.local_smda_report, smda_function)
-        block_matches_by_offset = {}
-        for entry in pbh:
-            if entry["size"] >= 4:
-                # cache this so we only query once per block
-                if entry["offset"] not in self.parent.block_matches:
-                    pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(entry["hash"])
-                    self.parent.block_matches[entry["offset"]] = pichash_matches
-                pichash_matches = self.parent.block_matches[entry["offset"]]
-                summary = {
-                    "families": len(set([e[0] for e in pichash_matches])),
-                    "samples": len(set([e[1] for e in pichash_matches])),
-                    "functions": len(set([e[2] for e in pichash_matches])),
-                    "offsets" : len(pichash_matches)
-                }
-                block_matches_by_offset[entry["offset"]] = {
-                    "picblockhash": entry,
-                    "matches": self.parent.block_matches[entry["offset"]],
-                    "summary": summary,
-                    "has_library_matches": False
-                }
-
-=======
         pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(self.parent.local_smda_report, smda_function, min_size=4)
         block_matches_by_offset = {}
         for entry in pbh:
@@ -247,7 +223,6 @@ class BlockMatchWidget(QMainWindow):
                 "summary": summary,
                 "has_library_matches": False
             }
->>>>>>> ad7647a8abf1945fe8285ef74427ffb27ac8db2e
         if block_matches_by_offset:
             # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
             set_families = set([])
