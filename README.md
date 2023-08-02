@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-08-02 v1.0.9: IDA plugin can now filter by block size and minhash score, optimized layout and user experience (THX for the feedback to @r0ny123!!)
  * 2023-07-28 v1.0.8: IDA plugin can now display colored graphs for remote functions and do queries for PicBlockHashes (for basic blocks) for the currently viewed function.
  * 2023-06-06 v1.0.7: Extended filtering capabilities on MatchingResult.
  * 2023-06-02 v1.0.6: IDA plugin can now task matching jobs, show their results and batch import labels. Harmonization of MatchingResult.
