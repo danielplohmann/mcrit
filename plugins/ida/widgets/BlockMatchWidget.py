@@ -35,6 +35,7 @@ class BlockMatchWidget(QMainWindow):
         self.cb_activate_live_tracking = self.cc.QCheckBox("Live Block Queries")
         self.cb_activate_live_tracking.setEnabled(False)
         self.cb_activate_live_tracking.setChecked(False)
+        self.cb_activate_live_tracking.clicked.connect(self._onCbLiveClicked)
         # filter wheel
         self.sb_blocksize_threshold = self.cc.QSpinBox()
         self.sb_blocksize_threshold.setRange(4, 20)
@@ -70,23 +71,40 @@ class BlockMatchWidget(QMainWindow):
         Setup function for the full GUI of this widget.
         """
         # layout and fill the widget
-        sample_info_layout = self.cc.QVBoxLayout()
-        sample_info_layout.addWidget(self.label_current_function_matches)
-        sample_info_layout.addWidget(self.cb_filter_library)
-        sample_info_layout.addWidget(self.cb_activate_live_tracking)
+        block_info_layout = self.cc.QVBoxLayout()
+        self.controls_widget = self.cc.QWidget()
+        controls_layout = self.cc.QHBoxLayout()
+        # checkboxes
+        self.checkbox_widget = self.cc.QWidget()
+        checkbox_layout = self.cc.QVBoxLayout()
+        checkbox_layout.addWidget(self.cb_filter_library)
+        checkbox_layout.addWidget(self.cb_activate_live_tracking)
+        self.checkbox_widget.setLayout(checkbox_layout)
+        # threshold spinbox and label
         self.threshold_widget = self.cc.QWidget()
         threshold_layout = self.cc.QVBoxLayout()
         threshold_layout.addWidget(self.label_sb_threshold)
         threshold_layout.addWidget(self.sb_blocksize_threshold)
         self.threshold_widget.setLayout(threshold_layout)
-        sample_info_layout.addWidget(self.threshold_widget)
-        sample_info_layout.addWidget(self.b_query_single)
-        sample_info_layout.addWidget(self.hline)
-        sample_info_layout.addWidget(self.label_block_summary)
-        sample_info_layout.addWidget(self.table_block_summary)
-        sample_info_layout.addWidget(self.label_block_matches)
-        sample_info_layout.addWidget(self.table_block_matches)
-        self.central_widget.setLayout(sample_info_layout)
+        # glue controls
+        controls_layout.addWidget(self.checkbox_widget)
+        controls_layout.addWidget(self.threshold_widget)
+        self.controls_widget.setLayout(controls_layout)
+        # glue all together
+        block_info_layout.addWidget(self.label_current_function_matches)
+        block_info_layout.addWidget(self.controls_widget)
+        block_info_layout.addWidget(self.b_query_single)
+        block_info_layout.addWidget(self.hline)
+        block_info_layout.addWidget(self.label_block_summary)
+        block_info_layout.addWidget(self.table_block_summary)
+        block_info_layout.addWidget(self.label_block_matches)
+        block_info_layout.addWidget(self.table_block_matches)
+        self.central_widget.setLayout(block_info_layout)
+
+
+    def _onCbLiveClicked(self, mi):
+        if self.cb_activate_live_tracking.isChecked():
+            self.queryCurrentBlock()
 
     def _onCbFilterLibraryClicked(self, mi):
         """
@@ -153,6 +171,7 @@ class BlockMatchWidget(QMainWindow):
         self.updateViewWithCurrentBlock()
 
     def queryCurrentBlock(self):
+        self.parent.main_widget.hideLocalWidget()
         self.updateViewWithCurrentBlock()
 
     def hook_refresh(self, view, use_current_block=False):
@@ -174,7 +193,7 @@ class BlockMatchWidget(QMainWindow):
         # upper table
         self.table_block_summary.clear()
         self.table_block_summary.setSortingEnabled(False)
-        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Length", "Families", "Samples", "Functions", "Lib"]
+        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Size", "Families", "Samples", "Functions", "Lib"]
         self.table_block_summary.setColumnCount(len(self.function_matches_header_labels))
         self.table_block_summary.setHorizontalHeaderLabels(self.function_matches_header_labels)
         self.table_block_summary.setRowCount(0)
@@ -234,7 +253,6 @@ class BlockMatchWidget(QMainWindow):
                 if v.num_samples and v.num_library_samples == v.num_samples:
                     library_families.append(k)
             min_block_size = self.sb_blocksize_threshold.value()
-            print("filtering with block size", min_block_size)
             offsets_to_drop = {
                 "by_size": set([]),
                 "by_lib": set([])
@@ -283,7 +301,7 @@ class BlockMatchWidget(QMainWindow):
         Populate the function match table with all matches for the selected function_id
         """
         self.table_block_summary.setSortingEnabled(False)
-        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Length", "Families", "Samples", "Functions", "Lib"]
+        self.function_matches_header_labels = ["Offset", "PicBlockHash", "Size", "Families", "Samples", "Functions", "Lib"]
         self.table_block_summary.clear()
         self.table_block_summary.setColumnCount(len(self.function_matches_header_labels))
         self.table_block_summary.setHorizontalHeaderLabels(self.function_matches_header_labels)

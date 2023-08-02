@@ -34,6 +34,13 @@ class FunctionMatchWidget(QMainWindow):
         self.cb_activate_live_tracking = self.cc.QCheckBox("Live Function Queries")
         self.cb_activate_live_tracking.setEnabled(False)
         self.cb_activate_live_tracking.setChecked(False)
+        self.cb_activate_live_tracking.clicked.connect(self._onCbLiveClicked)
+        # filter wheel
+        self.sb_score_threshold = self.cc.QSpinBox()
+        self.sb_score_threshold.setRange(50, 100)
+        self.sb_score_threshold.setValue(50)
+        self.sb_score_threshold.valueChanged.connect(self.handleSpinThresholdChange)
+        self.label_sb_threshold = self.cc.QLabel("Min. Score: ")
         self.b_query_single = self.cc.QPushButton("Query current function")
         self.b_query_single.clicked.connect(self.queryCurrentFunction)
         self.b_query_single.setEnabled(False)
@@ -62,9 +69,27 @@ class FunctionMatchWidget(QMainWindow):
         """
         # layout and fill the widget
         sample_info_layout = self.cc.QVBoxLayout()
+        self.controls_widget = self.cc.QWidget()
+        controls_layout = self.cc.QHBoxLayout()
+        # checkboxes
+        self.checkbox_widget = self.cc.QWidget()
+        checkbox_layout = self.cc.QVBoxLayout()
+        checkbox_layout.addWidget(self.cb_filter_library)
+        checkbox_layout.addWidget(self.cb_activate_live_tracking)
+        self.checkbox_widget.setLayout(checkbox_layout)
+        # threshold spinbox and label
+        self.threshold_widget = self.cc.QWidget()
+        threshold_layout = self.cc.QVBoxLayout()
+        threshold_layout.addWidget(self.label_sb_threshold)
+        threshold_layout.addWidget(self.sb_score_threshold)
+        self.threshold_widget.setLayout(threshold_layout)
+        # glue controls
+        controls_layout.addWidget(self.checkbox_widget)
+        controls_layout.addWidget(self.threshold_widget)
+        self.controls_widget.setLayout(controls_layout)
+        # glue all together
         sample_info_layout.addWidget(self.label_current_function_matches)
-        sample_info_layout.addWidget(self.cb_filter_library)
-        sample_info_layout.addWidget(self.cb_activate_live_tracking)
+        sample_info_layout.addWidget(self.controls_widget)
         sample_info_layout.addWidget(self.b_query_single)
         sample_info_layout.addWidget(self.hline)
         sample_info_layout.addWidget(self.label_function_matches)
@@ -78,6 +103,14 @@ class FunctionMatchWidget(QMainWindow):
         If the filter is altered, we refresh the table.
         """
         self.hook_refresh(None, use_current_function=True)
+
+    def _onCbLiveClicked(self, mi):
+        if self.cb_activate_live_tracking.isChecked():
+            self.parent.main_widget.hideLocalWidget()
+            self.updateViewWithCurrentFunction()
+
+    def handleSpinThresholdChange(self):
+        self.updateViewWithCurrentFunction()
 
     def enable(self):
         self.cb_filter_library.setEnabled(True)
@@ -129,6 +162,7 @@ class FunctionMatchWidget(QMainWindow):
         return self.parent.current_function
 
     def queryCurrentFunction(self):
+        self.parent.main_widget.hideLocalWidget()
         self.updateViewWithCurrentFunction()
 
     def hook_refresh(self, view, use_current_function=False):
@@ -150,7 +184,7 @@ class FunctionMatchWidget(QMainWindow):
         # upper table
         self.table_function_matches.clear()
         self.table_function_matches.setSortingEnabled(False)
-        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Min#", "Lib"]
+        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Score", "Lib"]
         self.table_function_matches.setColumnCount(len(self.function_matches_header_labels))
         self.table_function_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
         self.table_function_matches.setRowCount(0)
@@ -178,10 +212,14 @@ class FunctionMatchWidget(QMainWindow):
             self.parent.mcrit_interface.querySmdaFunctionMatches(single_function_smda_report)
         if smda_function.offset in self.parent.function_matches:
             match_report = MatchingResult.fromDict(self.parent.function_matches[smda_function.offset])
+            match_report.filterToFunctionScore(int(self.sb_score_threshold.value()))
             num_all_functions = len(match_report.function_matches)
             if self.cb_filter_library.isChecked():
-                num_functions = len([m for m in match_report.function_matches if not m.match_is_library])
+                num_functions = len([m for m in match_report.filtered_function_matches if not m.match_is_library])
                 self.label_current_function_matches.setText("Matches for Function: 0x%x -- %d families, %d samples, %d functions (%d filtered)." % (self.parent.current_function, match_report.num_original_family_matches, match_report.num_original_sample_matches, num_functions, num_all_functions - num_functions))
+            elif len(match_report.filtered_function_matches) < len(match_report.function_matches):
+                self.label_current_function_matches.setText("Matches for Function: 0x%x -- %d families, %d samples, %d functions (%d filtered)." % (self.parent.current_function, match_report.num_original_family_matches, match_report.num_original_sample_matches, len(match_report.filtered_function_matches), num_all_functions - len(match_report.filtered_function_matches)))
+                self.current_function_offset = self.parent.current_function
             else:
                 self.label_current_function_matches.setText("Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (self.parent.current_function, match_report.num_original_family_matches, match_report.num_original_sample_matches, num_all_functions))
                 self.current_function_offset = self.parent.current_function
@@ -195,21 +233,21 @@ class FunctionMatchWidget(QMainWindow):
         Populate the function match table with all matches for the selected function_id
         """
         self.table_function_matches.setSortingEnabled(False)
-        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Min#", "Lib"]
+        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Score", "Lib"]
         self.table_function_matches.clear()
         self.table_function_matches.setColumnCount(len(self.function_matches_header_labels))
         self.table_function_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
         # Identify number of table entries and prepare addresses to display
         if self.cb_filter_library.isChecked():
-            self.table_function_matches.setRowCount(len([m for m in match_report.function_matches if not m.match_is_library]))
+            self.table_function_matches.setRowCount(len([m for m in match_report.filtered_function_matches if not m.match_is_library]))
         else:
-            self.table_function_matches.setRowCount(len(match_report.function_matches))
+            self.table_function_matches.setRowCount(len(match_report.filtered_function_matches))
         self.table_function_matches.resizeRowToContents(0)
 
         sample_id_to_matched_sample = {matched_sample.sample_id: matched_sample for matched_sample in match_report.sample_matches}
 
         row = 0
-        sorted_entries = sorted(match_report.function_matches, key=lambda x: x.matched_score + (1 if x.match_is_pichash else 0)+ (1 if x.match_is_library else 0), reverse=True)
+        sorted_entries = sorted(match_report.filtered_function_matches, key=lambda x: x.matched_score + (1 if x.match_is_pichash else 0)+ (1 if x.match_is_library else 0), reverse=True)
         for function_match_entry in sorted_entries:
             sample_sha256 = sample_id_to_matched_sample[function_match_entry.matched_sample_id].sha256[:8]
             family_name = match_report.getFamilyNameByFamilyId(function_match_entry.matched_family_id)
@@ -250,7 +288,7 @@ class FunctionMatchWidget(QMainWindow):
         """
         Populate the function name table with all names for the matches we found
         """
-        function_matches_by_id = {match.matched_function_id: match for match in match_report.function_matches}
+        function_matches_by_id = {match.matched_function_id: match for match in match_report.filtered_function_matches}
         self.parent.mcrit_interface.queryFunctionEntriesById([i for i in function_matches_by_id.keys()])
         matched_entries = {}
         for function_id in function_matches_by_id.keys():
@@ -317,6 +355,19 @@ class FunctionMatchWidget(QMainWindow):
         """
         Use the row with that was double clicked to import the function_name to the current function
         """
-        function_name = self.table_function_names.item(mi.row(), 3).text()
-        # print(function_name)
-        self.cc.ida_proxy.set_name(self.last_viewed, function_name, self.cc.ida_proxy.SN_NOWARN)
+        if mi.column() == 0:
+            smda_function_a = self.parent.local_smda_report.getFunction(self.current_function_offset)
+            smda_report_a = self.parent.local_smda_report
+            remote_function_id = int(self.table_function_matches.item(mi.row(), 0).text())
+            function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(remote_function_id)
+            smda_function_b = function_entry_b.toSmdaFunction()
+            sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
+            fcm = FunctionCfgMatcher(smda_report_a, smda_function_a, sample_entry_b, smda_function_b)
+            coloring = fcm.getColoredMatches()
+            coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
+            g = SmdaGraphViewer(self, sample_entry_b, function_entry_b, smda_function_b, coloring)
+            g.Show()
+        elif mi.column() == 3:
+            function_name = self.table_function_names.item(mi.row(), 3).text()
+            # print(function_name)
+            self.cc.ida_proxy.set_name(self.last_viewed, function_name, self.cc.ida_proxy.SN_NOWARN)

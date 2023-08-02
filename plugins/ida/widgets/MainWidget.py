@@ -48,13 +48,13 @@ class MainWidget(QMainWindow):
         for widget in self.tabbed_widgets:
             self.tabs.addTab(widget, widget.icon, widget.name)
         layout = self.cc.QVBoxLayout()
-        splitter = self.cc.QSplitter(self.cc.QtCore.Qt.Vertical)
+        self.splitter = self.cc.QSplitter(self.cc.QtCore.Qt.Vertical)
         q_clean_style = self.cc.QStyleFactory.create('Plastique')
-        splitter.setStyle(q_clean_style)
-        splitter.addWidget(self.parent.local_widget)
-        splitter.addWidget(self.tabs)
-        splitter.setStretchFactor(1, 10)
-        layout.addWidget(splitter)
+        self.splitter.setStyle(q_clean_style)
+        self.splitter.addWidget(self.parent.local_widget)
+        self.splitter.addWidget(self.tabs)
+        self.splitter.setStretchFactor(1, 10)
+        layout.addWidget(self.splitter)
         self.central_widget.setLayout(layout)
         self.setTabFocus("SampleInfo")
 
@@ -226,10 +226,14 @@ class MainWidget(QMainWindow):
                 else:
                     self.parent.mcrit_interface.getMatchingJobById(dialog_result["selected_job_id"])
                 self.tabs.setCurrentIndex(2)
+                self.hideLocalWidget()
             self.parent.function_widget.update()
             return
         else:
             self.parent.local_widget.updateActivityInfo("No remote Sample present yet, can't request a matching or query results.")
+
+    def hideLocalWidget(self):
+        self.splitter.setSizes([0, 1])
 
     def setTabFocus(self, widget_name):
         """
