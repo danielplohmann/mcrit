@@ -1,3 +1,5 @@
+import time
+
 import idaapi
 import ida_funcs
 import ida_kernwin
@@ -222,9 +224,12 @@ class BlockMatchWidget(QMainWindow):
         # calculate all block pichashes
         pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(self.parent.local_smda_report, smda_function, min_size=4)
         block_matches_by_offset = {}
+        start = time.time()
+        num_queries = 0
         for entry in pbh:
             if entry["hash"] not in self.parent.blockhash_matches:
                 pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(entry["hash"])
+                num_queries += 1
                 self.parent.blockhash_matches[entry["hash"]] = pichash_matches
             pichash_matches = self.parent.blockhash_matches[entry["hash"]]
             # cache this so we only query once per block
@@ -242,6 +247,9 @@ class BlockMatchWidget(QMainWindow):
                 "summary": summary,
                 "has_library_matches": False
             }
+        stop = time.time()
+        if num_queries > 0:
+            print(f"Querying {num_queries} blocks took {stop-start:5.3f} seconds, or {(stop-start)/num_queries:5.3f} seconds per block.")
         if block_matches_by_offset:
             # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
             set_families = set([])
@@ -416,7 +424,12 @@ class BlockMatchWidget(QMainWindow):
         function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(function_id_b)
         smda_function_b = function_entry_b.toSmdaFunction()
         sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
-        coloring = {block_offset_b: 0xFFDD00}
+        # 
+        coloring = {block_offset_b: 0x00DDFF}
+        for offset, data in self._last_block_matches.items():
+            for match in data["matches"]:
+                if match[2] == function_entry_b.function_id:
+                    coloring[match[3]] = 0xC0F4FF
+        coloring[block_offset_b] = 0x00DDFF
         g = SmdaGraphViewer(self, sample_entry_b, function_entry_b, smda_function_b, coloring)
         g.Show()
-
