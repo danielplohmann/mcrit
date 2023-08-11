@@ -189,7 +189,6 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         # iterate samples
         index = 0
         function_entries_to_import = []
-        minhashes_to_import = []
         for sample_sha256, sample_entry_dict in export_data["sample_entries"].items():
             index += 1
             # check if sample is already present, and skip if yes
@@ -215,15 +214,18 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                     function_entry.sample_id = remapped_sample_entry.sample_id
                     function_entry.family_id = remapped_sample_entry.family_id
                     function_entries_to_import.append(function_entry)
-                    # delaying minhash insertion speeds up the procedure dramatically
-                    if function_entry.minhash:
-                        minhash = MinHash(function_entry.function_id, function_entry.minhash, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
-                        minhashes_to_import.append(minhash)
                     import_report["num_functions_imported"] += 1
             LOGGER.info(f"Sample %d with SHA256 %s added...", index, sample_sha256)
         
-        self._storage.importFunctionEntries(function_entries_to_import)
-        LOGGER.info(f"{len(function_entries_to_import)} functions added")
+        adjusted_function_entries = self._storage.importFunctionEntries(function_entries_to_import)
+        LOGGER.info(f"{len(adjusted_function_entries)} functions added")
+        # we can only start indexing once our imported function_entries had their function_id adjusted to our DB
+        minhashes_to_import = []
+        for function_entry in adjusted_function_entries:
+            # delaying minhash insertion speeds up the procedure dramatically
+            if function_entry.minhash:
+                minhash = MinHash(function_entry.function_id, function_entry.minhash, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
+                minhashes_to_import.append(minhash)
         # ensure that their minhashes / pichashes are added to the respective indices
         self._storage.addMinHashes(minhashes_to_import)
         LOGGER.info(f"{len(minhashes_to_import)} Minhashes added")
