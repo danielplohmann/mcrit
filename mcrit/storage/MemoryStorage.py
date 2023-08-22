@@ -389,6 +389,9 @@ class MemoryStorage(StorageInterface):
 
     def importFunctionEntry(self, function_entry: "FunctionEntry") -> Optional["FunctionEntry"]:
         function_entry.function_id = self._useCounter("functions")
+        if function_entry.function_name and len(function_entry.function_labels) == 0:
+            new_function_entry_label = FunctionLabelEntry(function_entry.function_name, "mcrit-import")
+            function_entry.function_labels.append(new_function_entry_label)
         # add function to regular storage
         self._functions[function_entry.function_id] = function_entry
         if function_entry.sample_id not in self._sample_id_to_function_ids:
@@ -400,10 +403,12 @@ class MemoryStorage(StorageInterface):
             self._pichashes[function_entry.pichash].add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
         return function_entry
 
-
     def importFunctionEntries(self, function_entries: List["FunctionEntry"]) -> Optional[List["FunctionEntry"]]:
         for function_entry in function_entries:
             function_entry.function_id = self._useCounter("functions")
+            if function_entry.function_name and len(function_entry.function_labels) == 0:
+                new_function_entry_label = FunctionLabelEntry(function_entry.function_name, "mcrit-import")
+                function_entry.function_labels.append(new_function_entry_label)
             # add function to regular storage
             self._functions[function_entry.function_id] = function_entry
             if function_entry.sample_id not in self._sample_id_to_function_ids:

@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-08-22 v1.0.11: Fixed a bug where when importing bulk data, the `function_name` was not also added as a `function_label`.
  * 2023-08-11 v1.0.10: Fixed a bug where when importing bulk data, the function_id would not be adjusted prior to adding MinHashes to bands, possibly leading to non-existing function_ids.
  * 2023-08-02 v1.0.9: IDA plugin can now filter by block size and minhash score, optimized layout and user experience (THX for the feedback to @r0ny123!!)
  * 2023-07-28 v1.0.8: IDA plugin can now display colored graphs for remote functions and do queries for PicBlockHashes (for basic blocks) for the currently viewed function.

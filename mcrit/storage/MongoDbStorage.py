@@ -607,6 +607,9 @@ class MongoDbStorage(StorageInterface):
 
     def importFunctionEntry(self, function_entry: "FunctionEntry") -> Optional["FunctionEntry"]:
         function_entry.function_id = self._useCounter("functions")
+        if function_entry.function_name and len(function_entry.function_labels) == 0:
+            new_function_entry_label = FunctionLabelEntry(function_entry.function_name, "mcrit-import")
+            function_entry.function_labels.append(new_function_entry_label)
         # add function to regular storage
         function_dict = function_entry.toDict()
         self._encodeFunction(function_dict)
@@ -618,6 +621,9 @@ class MongoDbStorage(StorageInterface):
         function_ids = self._useCounterBulk("functions", len(function_entries))
         for function_id, function_entry in zip(function_ids, function_entries):
             function_entry.function_id = function_id
+            if function_entry.function_name and len(function_entry.function_labels) == 0:
+                new_function_entry_label = FunctionLabelEntry(function_entry.function_name, "mcrit-import")
+                function_entry.function_labels.append(new_function_entry_label)
             # add function to regular storage
             function_dict = function_entry.toDict()
             self._encodeFunction(function_dict)
