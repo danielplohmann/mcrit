@@ -284,10 +284,9 @@ class McritConsole(object):
         for filename in os.listdir(args.filepath):
             filepath = os.sep.join([args.filepath, filename])
             if os.path.isfile(filepath):
-                if os.path.isfile(filepath):
-                    if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
-                        print(f"SKIPPING: {filepath} - already in MCRIT.")
-                        continue
+                if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
+                    print(f"SKIPPING: {filepath} - already in MCRIT.")
+                    continue
                 smda_report = getSmdaReportFromFilepath(args, filepath)
                 if smda_report:
                     print(smda_report)
