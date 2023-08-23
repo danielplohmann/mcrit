@@ -169,6 +169,12 @@ class Worker(QueueRemoteCallee):
 
     # Reports PROGRESS
     @Remote(progress=True)
+    def rebuildIndex(self, progress_reporter=NoProgressReporter()):
+        self._storage.rebuildMinhashBandIndex(progress_reporter=progress_reporter)
+        return
+
+    # Reports PROGRESS
+    @Remote(progress=True)
     def updateMinHashes(self, function_ids, progress_reporter=NoProgressReporter()):
         """Find unhashed functions in storage and calculate their MinHashes, optionally filter by function_ids or get function_entries passed directly"""
         if function_ids is None:

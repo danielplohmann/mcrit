@@ -173,8 +173,15 @@ class MainWidget(QMainWindow):
         self.parent.local_widget.update()
 
     def _onExportSmdaButtonClicked(self):
+        # save metadata before upload to not overwrite it
+        local_family = self.parent.local_smda_report.family if self.parent.local_smda_report else ""
+        local_version = self.parent.local_smda_report.version if self.parent.local_smda_report else ""
+        local_library = self.parent.local_smda_report.is_library if self.parent.local_smda_report else False
         # update before export, to ensure we have all most recent function label information
         self.parent.local_smda_report = self.getLocalSmdaReport()
+        self.parent.local_smda_report.family = local_family
+        self.parent.local_smda_report.version = local_version
+        self.parent.local_smda_report.is_library = local_library
         if self.parent.local_smda_report:
             filepath = ida_kernwin.ask_file(1, self.parent.local_smda_report.filename + ".smda", 'Export SMDA report to file...')
             if filepath:
@@ -187,8 +194,15 @@ class MainWidget(QMainWindow):
             self.parent.local_widget.updateActivityInfo("IDB is not converted to SMDA report yet, can't export.")
 
     def _onUploadSmdaButtonClicked(self):
+        # save metadata before upload to not overwrite it
+        local_family = self.parent.local_smda_report.family if self.parent.local_smda_report else ""
+        local_version = self.parent.local_smda_report.version if self.parent.local_smda_report else ""
+        local_library = self.parent.local_smda_report.is_library if self.parent.local_smda_report else False
         # update before export, to ensure we have all most recent function label information
         self.parent.local_smda_report = self.getLocalSmdaReport()
+        self.parent.local_smda_report.family = local_family
+        self.parent.local_smda_report.version = local_version
+        self.parent.local_smda_report.is_library = local_library
         if self.parent.local_smda_report:
             self.parent.mcrit_interface.uploadReport(self.parent.local_smda_report)
             # check if remote sample exists

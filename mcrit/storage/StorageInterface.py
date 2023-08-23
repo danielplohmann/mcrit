@@ -634,6 +634,13 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def rebuildMinhashBandIndex(self) -> int:
+        """Drop the current band index and rebuild it from scratch
+        Returns:
+            the number of minhashes indexed
+        """
+        raise NotImplementedError
+
     def createBandhashProjection(self, minhash):
         """Calculate a projection for index permutation based on a given minhash
         Args:

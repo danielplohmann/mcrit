@@ -21,6 +21,7 @@ from picblocks.blockhasher import BlockHasher
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, NotNode, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver, SearchTermNode
 from mcrit.libs.utility import generate_unique_groups
+from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
@@ -30,7 +31,6 @@ from mcrit.storage.StorageInterface import StorageInterface
 
 if TYPE_CHECKING: # pragma: no cover
     from mcrit.config.StorageConfig import StorageConfig
-    from mcrit.minhash.MinHash import MinHash
     from mcrit.storage.MemoryStorage import MemoryStorage
     from pymongo.database import Database
     from smda.common.SmdaFunction import SmdaFunction
@@ -1037,6 +1037,38 @@ class MongoDbStorage(StorageInterface):
                     self._decodeFunction(function_document)
                     unhashed_functions.append(FunctionEntry.fromDict(function_document))
         return unhashed_functions
+    
+    def rebuildMinhashBandIndex(self, progress_reporter=None):
+        # TODO while minhashes are considerably small, there is a still chance that the 
+        # sum of all minhashes will eventually exceed available memory on a given system.
+        # in this case we can start doing batches in our database interation already
+        minhashes = []
+        # get all minhash objects from all functions
+        for function_document in self._database.functions.find({}, {"function_id": 1, "minhash": 1, "_id": 0}):
+            if function_document["minhash"]:
+                function_id = function_document["function_id"]
+                minhash_bytes = bytes.fromhex(function_document["minhash"])
+                minhash_obj = MinHash(function_id, minhash_bytes, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
+                minhashes.append(minhash_obj)
+        # drop band collections
+        # recreate collections and their indices
+        collections = []
+        for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
+            collections.append("band_%d" % band_id)
+        for c in collections:
+            self._database[c].drop()
+            col = self._database[c]
+            self._database[c].create_index("band_hash")
+        # re-add minhashes in batches
+        batch_size = 100000
+        if progress_reporter:
+            progress_reporter.set_total((len(minhashes) // batch_size) + 1)
+        for minhash_batch in zip_longest(*[iter(minhashes)]*batch_size):
+            minhash_batch = [mh for mh in minhash_batch if mh is not None]
+            self._addMinHashesToBands(minhash_batch)
+            if progress_reporter:
+                progress_reporter.step()
+        return len(minhashes)
 
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples

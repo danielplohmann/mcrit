@@ -73,15 +73,23 @@ class StatusResource:
 
     @timing
     def on_post_respawn(self, req, resp):
+        # this one has implicit "recalculation" because it nukes the whole DB
         self.index.respawn()
         resp.data = jsonify({"status": "successful", "data": {"message": "Successfully performed reset of MCRIT instance."}})
         db_log_msg(self.index, req, f"StatusResource.on_post_respawn - success.")
 
     @timing
     def on_get_complete_minhashes(self, req, resp):
-        minhash_report = self.index.updateMinHashes(None)
+        minhash_report = self.index.updateMinHashes(None, force_recalculation=True)
         resp.data = jsonify({"status": "successful", "data": minhash_report})
         db_log_msg(self.index, req, f"StatusResource.on_get_complete_minhashes - success.")
+        return
+
+    @timing
+    def on_get_rebuild_index(self, req, resp):
+        index_report = self.index.rebuildIndex(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": index_report})
+        db_log_msg(self.index, req, f"StatusResource.on_get_rebuild_index - success.")
         return
 
     @staticmethod

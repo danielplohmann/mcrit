@@ -33,6 +33,8 @@ class MemoryStorageTest(TestCase):
         mcrit_config = McritConfig()
         mcrit_config.STORAGE_CONFIG = self._storage_config
         mcrit_config.MINHASH_CONFIG = MinHashConfig()
+        mcrit_config.MINHASH_CONFIG.MINHASH_SIGNATURE_LENGTH = 10
+        mcrit_config.MINHASH_CONFIG.MINHASH_SIGNATURE_BITS = 8
         mcrit_config.SHINGLER_CONFIG = ShinglerConfig()
         mcrit_config.QUEUE_CONFIG = QueueConfig()
         self.storage = StorageFactory.getStorage(mcrit_config)
@@ -259,10 +261,10 @@ class MemoryStorageTest(TestCase):
         # minhash tests
         # TODO check if MinHash initialization works
         minhash_a = MinHash(
-            function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39]
+            function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39], minhash_bits=8
         )
         minhash_b = MinHash(
-            function_id=3, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39]
+            function_id=3, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39], minhash_bits=8
         )
         function_entry = self.storage.getFunctionById(1)
         self.assertEqual(b"", function_entry.minhash)
@@ -287,6 +289,14 @@ class MemoryStorageTest(TestCase):
         candidates = self.storage.getCandidatesForMinHashes({1000: minhash_a})
         self.assertEqual({1000: set([1, 3])}, candidates)
 
+        # band rebuild test
+        num_reindexed_minhashes = self.storage.rebuildMinhashBandIndex()
+        minhash_c = MinHash(
+            function_id=1000, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39], minhash_bits=8
+        )
+        candidates_after = self.storage.getCandidatesForMinHashes({1000: minhash_c})
+        self.assertEqual(candidates, candidates_after)
+
     def testMatchingCache(self):
         cache = self.storage.createMatchingCache([])
         self.assertTrue(hasattr(cache, "getMinHashByFunctionId"))
@@ -309,6 +319,8 @@ class MongoDbStorageTest(MemoryStorageTest):
         mcrit_config = McritConfig()
         mcrit_config.STORAGE_CONFIG = self._storage_config
         mcrit_config.MINHASH_CONFIG = MinHashConfig()
+        mcrit_config.MINHASH_CONFIG.MINHASH_SIGNATURE_LENGTH = 10
+        mcrit_config.MINHASH_CONFIG.MINHASH_SIGNATURE_BITS = 8
         mcrit_config.SHINGLER_CONFIG = ShinglerConfig()
         mcrit_config.QUEUE_CONFIG = QueueConfig()
         self.storage = StorageFactory.getStorage(mcrit_config)

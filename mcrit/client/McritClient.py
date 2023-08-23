@@ -88,6 +88,14 @@ class McritClient:
     def respawn(self):
         response = requests.post(f"{self.mcrit_server}/respawn")
         return handle_response(response)
+    
+    def completeMinhashes(self):
+        response = requests.get(f"{self.mcrit_server}/complete_minhashes")
+        return handle_response(response)
+
+    def rebuildIndex(self):
+        response = requests.get(f"{self.mcrit_server}/rebuild_index")
+        return handle_response(response)
 
     def addReport(self, smda_report: SmdaReport) -> Tuple[SampleEntry, Optional[str]]:
         smda_json = smda_report.toDict()

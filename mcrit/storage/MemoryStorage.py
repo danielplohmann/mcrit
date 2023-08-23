@@ -5,12 +5,14 @@ import uuid
 import logging
 from copy import deepcopy
 from collections import defaultdict
+from itertools import zip_longest
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from picblocks.blockhasher import BlockHasher
 from mcrit.index.SearchCursor import FullSearchCursor
 
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver
+from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
@@ -22,7 +24,6 @@ if TYPE_CHECKING: # pragma: no cover
     from mcrit.config.McritConfig import McritConfig
     from mcrit.config.StorageConfig import StorageConfig
     from mcrit.config.MinHashConfig import MinHashConfig
-    from mcrit.minhash.MinHash import MinHash
     from smda.common.SmdaFunction import SmdaFunction
     from smda.common.SmdaReport import SmdaReport
 
@@ -828,6 +829,33 @@ class MemoryStorage(StorageInterface):
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 candidate_picblockhashes[picblockhash]["instructions"] = entry.xcfg["blocks"][str(block_offset)]
         return {"statistics": block_statistics, "unique_blocks": candidate_picblockhashes}
+
+    def rebuildMinhashBandIndex(self, progress_reporter=None):
+        # TODO while minhashes are considerably small, there is a still chance that the 
+        # sum of all minhashes will eventually exceed available memory on a given system.
+        # in this case we can start doing batches in our database interation already
+        minhashes = []
+        # get all minhash objects from all functions
+        for function_id, function_entry in self._functions.items():
+            if function_entry.minhash:
+                minhash_obj = function_entry.getMinHash(self._minhash_config.MINHASH_SIGNATURE_BITS)
+                minhashes.append(minhash_obj)
+        # drop band collections
+        # recreate indices for band collections
+        collections = []
+        for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
+            self._bands[band_id] = {}
+        # re-add minhashes in batches
+        batch_size = 100000
+        if progress_reporter:
+            progress_reporter.set_total((len(minhashes) // batch_size) + 1)
+        for minhash_batch in zip_longest(*[iter(minhashes)]*batch_size):
+            minhash_batch = [mh for mh in minhash_batch if mh is not None]
+            for mh in minhash_batch:
+                self._addMinHashToBands(mh)
+            if progress_reporter:
+                progress_reporter.step()
+        return len(minhashes)
 
     ##### helpers for search ######
 
