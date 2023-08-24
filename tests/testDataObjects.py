@@ -80,6 +80,9 @@ class MinHashingTestSuite(unittest.TestCase):
         filtered_result.filterToFunctionScore(95)
         assert len(filtered_result.getFunctionMatches()) == 581
         filtered_result = deepcopy(matching_result)
+        filtered_result.filterToFunctionScore(min_score=95, library_only=True)
+        assert len(filtered_result.getFunctionMatches()) == 718
+        filtered_result = deepcopy(matching_result)
         filtered_result.excludeLibraryMatches()
         assert len(filtered_result.getFunctionMatches()) == 715
         assert len(set([match.function_id for match in filtered_result.getFunctionMatches()])) == 513

@@ -1,3 +1,4 @@
+import math
 from copy import deepcopy
 from typing import TYPE_CHECKING, Dict, List, Optional
 
@@ -98,6 +99,8 @@ class MatchingResult(object):
         # filter functions
         if self.filter_values.get("filter_exclude_library", None):
             self.excludeLibraryMatches()
+        if self.filter_values.get("filter_library_min_score", None):
+            self.filterToFunctionScore(min_score=self.filter_values["filter_library_min_score"], library_only=True)
         if self.filter_values.get("filter_max_num_families", None):
             self.filterToFamilyCount(self.filter_values["filter_max_num_families"])
         if self.filter_values.get("filter_max_num_samples", None):
@@ -232,12 +235,23 @@ class MatchingResult(object):
         self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_families_by_function_id[function_match.function_id]) <= max_family_count]
         self.is_family_count_filtered = True
 
-    def filterToFunctionScore(self, min_score=None, max_score=None):
+    def filterToFunctionScore(self, min_score=None, max_score=None, library_only=False):
         """ reduce contained matches to those with a minimum score of <threshold> """
-        if min_score is not None:
-            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_score >= min_score]
-        if max_score is not None:
-            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_score <= max_score]
+        filtered_function_matches = []
+        for function_match in self.filtered_function_matches:
+            if library_only and not function_match.match_is_library:
+                filtered_function_matches.append(function_match)
+            else:
+                if (min_score is not None) and (max_score is not None):
+                    if min_score <= function_match.matched_score <= max_score:
+                        filtered_function_matches.append(function_match)
+                else:
+                    # no duplicates expected as per above condition only one case can be true
+                    if min_score is not None and function_match.matched_score >= min_score:
+                        filtered_function_matches.append(function_match)
+                    if max_score is not None and function_match.matched_score <= max_score:
+                        filtered_function_matches.append(function_match)
+        self.filtered_function_matches = filtered_function_matches
         self.is_score_filtered = True
 
     def filterToFamilyId(self, family_id):
@@ -311,7 +325,6 @@ class MatchingResult(object):
             return self.unique_family_scores_per_sample[sample_id]
         else:
             return {"functions_matched": 0, "bytes_matched": 0, "unique_score": 0}
-
 
     def getSampleMatches(self, start=None, limit=None, unfiltered=False, library_only=False, malware_only=False):
         by_sample_id = {}
@@ -387,6 +400,70 @@ class MatchingResult(object):
 
     def getFunctionsSlice(self, start, limit, unfiltered=False):
         return self.filtered_function_matches[start:start+limit]
+    
+    def getLinkHuntResults(self, min_score=None, min_lib_score=None, min_size=None, unpenalized_family_count=3, exclude_family_ids=None, exclude_sample_ids=None, strongest_per_family=True):
+        """ Returns the most promising matches for finding inter-family relationship as a list """
+        # run over all function_matches while applying filters, collect aggregate data needed to calculate scores
+        by_function_id = {}
+        link_matches = []
+        droppable_fids = set()
+        for function_match in sorted(self.function_matches, key=lambda x: (x.matched_score, x.matched_family_id), reverse=True):
+            if min_lib_score is not None and function_match.match_is_library and function_match.matched_score < min_lib_score:
+                continue
+            if min_score is not None and function_match.matched_score < min_score:
+                continue
+            if min_size is not None and function_match.num_bytes < min_size:
+                continue
+            if exclude_family_ids is not None and function_match.matched_family_id in exclude_family_ids:
+                continue
+            if exclude_sample_ids is not None and function_match.matched_sample_id in exclude_sample_ids:
+                continue
+            if function_match.function_id not in by_function_id:
+                by_function_id[function_match.function_id] = {
+                    "function_id": function_match.function_id,
+                    "num_bytes": 0,
+                    "offset": 0,
+                    "position": len(by_function_id),
+                    "num_families_matched": 0,
+                    "family_ids_matched": set([]),
+                    "families_matched": set([]),
+                    "library_matches": 0,
+                }
+            # only keep the first / strongest per function_id and family_id
+            if strongest_per_family and function_match.matched_family_id in by_function_id[function_match.function_id]["family_ids_matched"]:
+                continue
+            by_function_id[function_match.function_id]["num_bytes"] = function_match.num_bytes
+            by_function_id[function_match.function_id]["offset"] = function_match.offset
+            by_function_id[function_match.function_id]["num_families_matched"] = len(by_function_id[function_match.function_id]["family_ids_matched"])
+            by_function_id[function_match.function_id]["family_ids_matched"].add(function_match.matched_family_id)
+            family_name = self.getFamilyNameByFamilyId(function_match.matched_family_id)
+            function_match.matched_family = family_name
+            by_function_id[function_match.function_id]["families_matched"].add(family_name)
+            by_function_id[function_match.function_id]["library_matches"] += 1 if function_match.match_is_library else 0
+            # these will be discarded later on anyway
+            if function_match.match_is_library:
+                droppable_fids.add(function_match.function_id)
+            link_matches.append(function_match)
+        filtered_link_matched = []
+        for match in link_matches:
+            if match.function_id in droppable_fids:
+                continue
+            filtered_link_matched.append(match)
+        link_matches = filtered_link_matched
+        for match in link_matches:
+            num_families_matched = by_function_id[match.function_id]["num_families_matched"]
+            family_adjustment_value = 1 if num_families_matched < unpenalized_family_count else 1 + int(math.log(1 + num_families_matched - unpenalized_family_count, 2))
+            # magic formula: 
+            # do a compound score that is based on
+            # 10% position, front of binary preferred
+            # 30% size, functions larger 100bytes preferred
+            # 60% score, adjusted by number of matched families
+            position_score = 100 * (1 - (by_function_id[match.function_id]["position"] / len(by_function_id)))
+            size_score = 100 * (min(500, by_function_id[match.function_id]["num_bytes"]) / 500)
+            adjusted_match_score = match.matched_score / family_adjustment_value
+            match.matched_link_score = 0.1 * position_score + 0.3 * size_score + 0.6 * adjusted_match_score
+            link_matches.sort(key=lambda x: (x.matched_link_score, x.function_id), reverse=True)
+        return link_matches
 
     def toDict(self):
         # we need to aggregate by function_id here

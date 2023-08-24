@@ -16,9 +16,11 @@ class MatchedFunctionEntry(object):
     num_bytes: int
     offset: int
     matched_family_id: int
+    matched_family: str
     matched_sample_id: int
     matched_function_id: int
     matched_score: float
+    matched_link_score: float
     match_is_minhash: bool
     match_is_pichash: bool
     match_is_library: bool
@@ -35,6 +37,8 @@ class MatchedFunctionEntry(object):
         self.match_is_minhash = match_tuple[4] & MatcherInterface.IS_MINHASH_FLAG
         self.match_is_pichash = match_tuple[4] & MatcherInterface.IS_PICHASH_FLAG
         self.match_is_library = match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG
+        self.matched_family = None
+        self.matched_link_score = 0
 
     def getMatchTuple(self):
         return [
