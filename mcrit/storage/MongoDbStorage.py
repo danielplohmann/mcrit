@@ -1039,17 +1039,6 @@ class MongoDbStorage(StorageInterface):
         return unhashed_functions
     
     def rebuildMinhashBandIndex(self, progress_reporter=None):
-        # TODO while minhashes are considerably small, there is a still chance that the 
-        # sum of all minhashes will eventually exceed available memory on a given system.
-        # in this case we can start doing batches in our database interation already
-        minhashes = []
-        # get all minhash objects from all functions
-        for function_document in self._database.functions.find({}, {"function_id": 1, "minhash": 1, "_id": 0}):
-            if function_document["minhash"]:
-                function_id = function_document["function_id"]
-                minhash_bytes = bytes.fromhex(function_document["minhash"])
-                minhash_obj = MinHash(function_id, minhash_bytes, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
-                minhashes.append(minhash_obj)
         # drop band collections
         # recreate collections and their indices
         collections = []
@@ -1060,15 +1049,24 @@ class MongoDbStorage(StorageInterface):
             col = self._database[c]
             self._database[c].create_index("band_hash")
         # re-add minhashes in batches
+        total_functions = self._database.functions.count_documents(filter={})
+        minhash_functions = 0
         batch_size = 100000
         if progress_reporter:
-            progress_reporter.set_total((len(minhashes) // batch_size) + 1)
-        for minhash_batch in zip_longest(*[iter(minhashes)]*batch_size):
-            minhash_batch = [mh for mh in minhash_batch if mh is not None]
-            self._addMinHashesToBands(minhash_batch)
+            progress_reporter.set_total((total_functions // batch_size) + 1)
+        for start_index in range(0, total_functions, batch_size):
+            minhashes = []
+            for function_document in self._database.functions.find({}, {"function_id": 1, "minhash": 1, "_id": 0}).skip(start_index).limit(batch_size):
+                if function_document["minhash"]:
+                    function_id = function_document["function_id"]
+                    minhash_bytes = bytes.fromhex(function_document["minhash"])
+                    minhash_obj = MinHash(function_id, minhash_bytes, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
+                    minhashes.append(minhash_obj)
+            self._addMinHashesToBands(minhashes)
+            minhash_functions += len(minhashes)
             if progress_reporter:
                 progress_reporter.step()
-        return len(minhashes)
+        return minhash_functions
 
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
