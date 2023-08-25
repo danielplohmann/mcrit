@@ -401,13 +401,17 @@ class MatchingResult(object):
     def getFunctionsSlice(self, start, limit, unfiltered=False):
         return self.filtered_function_matches[start:start+limit]
     
-    def getLinkHuntResults(self, min_score=None, min_lib_score=None, min_size=None, unpenalized_family_count=3, exclude_family_ids=None, exclude_sample_ids=None, strongest_per_family=True):
+    def getLinkHuntResults(self, min_score=None, min_lib_score=None, min_size=None, min_offset=None, max_offset=None, unpenalized_family_count=3, exclude_family_ids=None, exclude_sample_ids=None, strongest_per_family=True):
         """ Returns the most promising matches for finding inter-family relationship as a list """
         # run over all function_matches while applying filters, collect aggregate data needed to calculate scores
         by_function_id = {}
         link_matches = []
         droppable_fids = set()
         for function_match in sorted(self.function_matches, key=lambda x: (x.matched_score, x.matched_family_id), reverse=True):
+            if min_offset is not None and function_match.offset < min_offset:
+                continue
+            if max_offset is not None and max_offset < function_match.offset:
+                continue
             if min_lib_score is not None and function_match.match_is_library and function_match.matched_score < min_lib_score:
                 continue
             if min_score is not None and function_match.matched_score < min_score:
