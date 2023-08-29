@@ -484,13 +484,19 @@ class MatchingResult(object):
         function_offsets = [f.offset for f in function_entries]
         candidate_links = {}
         family_id_to_name = {}
+        families_per_offset = {}
         for fm in link_hunt_matches:
+            # map names
+            family_id_to_name[fm.matched_family_id] = fm.matched_family
+            # filter to some minimal link score (remove super common functions to break up huge clusters)
             if fm.matched_family_id not in candidate_links:
                 candidate_links[fm.matched_family_id] = []
-            # filter to some minimal link score (remove super common functions to break up huge clusters)
             if fm.matched_link_score > 1:
                 candidate_links[fm.matched_family_id].append(fm)
-            family_id_to_name[fm.matched_family_id] = fm.matched_family_name
+            # make unique matches identifiable
+            if fm.offset not in families_per_offset:
+                families_per_offset[fm.offset] = set()
+            families_per_offset[fm.offset].add(fm.matched_family_id)
         # extract code references from function_entries via SmdaFunctions
         binfo = BinaryInfo(b"")
         all_function_links = {}
@@ -529,7 +535,8 @@ class MatchingResult(object):
                 subgraph_result = {
                     "family_id": fam_id,
                     "family": family_id_to_name[fam_id],
-                    "nodes": tuple(reachable),
+                    "nodes": reachable,
+                    "unique_matches": [o for o in reachable if len(families_per_offset[o]) == 1],
                     "score": subgraph_score,
                     "max_score": max_score
                 }
