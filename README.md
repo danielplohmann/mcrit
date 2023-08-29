@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-08-29 v1.0.16: Refined LinkHunt scoring and clustering of results via ICFG relationship.
  * 2023-08-24 v1.0.15: Integrated first attempt at link hunting capability in MatchingResult.
  * 2023-08-24 v1.0.13: Rebuilding the minhash bands will no longer explode RAM usage. Removed redundant path checks (THX to @yankovs).
  * 2023-08-23 v1.0.12: Added the ability to rebuild the minhash bands used for indexing.

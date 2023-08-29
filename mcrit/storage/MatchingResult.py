@@ -2,6 +2,10 @@ import math
 from copy import deepcopy
 from typing import TYPE_CHECKING, Dict, List, Optional
 
+from smda.common.SmdaFunction import SmdaFunction
+from smda.common.BinaryInfo import BinaryInfo
+
+from mcrit.libs.graph import Graph
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.MatchedSampleEntry import MatchedSampleEntry
 from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
@@ -457,17 +461,81 @@ class MatchingResult(object):
         for match in link_matches:
             num_families_matched = by_function_id[match.function_id]["num_families_matched"]
             family_adjustment_value = 1 if num_families_matched < unpenalized_family_count else 1 + int(math.log(1 + num_families_matched - unpenalized_family_count, 2))
+            # for now, we use an interpolated polynome that is flatter than linear initially and crosses upwards once past ~10 families matched
+            family_adjustment_value = 1 if num_families_matched < unpenalized_family_count else max(1, math.floor(0.0545793*num_families_matched**2 + 0.370159*num_families_matched - 0.170796))
             # magic formula: 
             # do a compound score that is based on
             # 10% position, front of binary preferred
-            # 30% size, functions larger 100bytes preferred
-            # 60% score, adjusted by number of matched families
+            # 20% size, functions larger 100bytes preferred
+            # 70% score, as originally produced by minhash
             position_score = 100 * (1 - (by_function_id[match.function_id]["position"] / len(by_function_id)))
-            size_score = 100 * (min(500, by_function_id[match.function_id]["num_bytes"]) / 500)
-            adjusted_match_score = match.matched_score / family_adjustment_value
-            match.matched_link_score = 0.1 * position_score + 0.3 * size_score + 0.6 * adjusted_match_score
+            size_score = 100 * (min(300, by_function_id[match.function_id]["num_bytes"]) / 300)
+            # scale the whole compound score with frequency weight
+            match.matched_link_score = (0.1 * position_score + 0.2 * size_score + 0.7 * match.matched_score) / family_adjustment_value
             link_matches.sort(key=lambda x: (x.matched_link_score, x.function_id), reverse=True)
         return link_matches
+    
+    def clusterLinkHuntResult(self, function_entries, link_hunt_matches):
+        """ 
+        Clustering is based on ICFG relationships, so we need to pass in that information in the form of function_entries
+        """
+        cluster_results = []
+        # build some helper lookup structures
+        function_offsets = [f.offset for f in function_entries]
+        candidate_links = {}
+        family_id_to_name = {}
+        for fm in link_hunt_matches:
+            if fm.matched_family_id not in candidate_links:
+                candidate_links[fm.matched_family_id] = []
+            # filter to some minimal link score (remove super common functions to break up huge clusters)
+            if fm.matched_link_score > 1:
+                candidate_links[fm.matched_family_id].append(fm)
+            family_id_to_name[fm.matched_family_id] = fm.matched_family_name
+        # extract code references from function_entries via SmdaFunctions
+        binfo = BinaryInfo(b"")
+        all_function_links = {}
+        for function_entry in function_entries:
+            smda_function = SmdaFunction.fromDict(function_entry.xcfg, binfo)
+            for _, to_offsets in smda_function.outrefs.items():
+                for to_offset in [o for o in to_offsets if o in function_offsets]:
+                    from_offset = smda_function.offset
+                    if from_offset not in all_function_links:
+                        all_function_links[from_offset] = set()
+                    all_function_links[from_offset].add(to_offset)
+                    if to_offset not in all_function_links:
+                        all_function_links[to_offset] = set()
+                    all_function_links[to_offset].add(from_offset)
+        # turn into proper (undirected) ICFG and DFS all clusters
+        for fam_id, links in candidate_links.items():
+            subgraphs = set()
+            offset_to_score = {}
+            g = Graph()
+            for index, link_a in enumerate(links):
+                g.addNode(link_a.offset)
+                offset_to_score[link_a.offset] = link_a.matched_link_score
+                for link_b in links[index:]:
+                    if link_a.offset in all_function_links and link_b.offset in all_function_links[link_a.offset]:
+                        g.addEdge(link_a.offset, link_b.offset)
+                        g.addEdge(link_b.offset, link_a.offset)
+            queue = set([k for k in g.graph.keys()])
+            while queue:
+                start = queue.pop()
+                reachable = g.DFS(start)
+                subgraph_score = 0
+                max_score = 0
+                for offset in reachable:
+                    subgraph_score += offset_to_score[offset]
+                    max_score = max(max_score, offset_to_score[offset])
+                subgraph_result = {
+                    "family_id": fam_id,
+                    "family": family_id_to_name[fam_id],
+                    "nodes": tuple(reachable),
+                    "score": subgraph_score,
+                    "max_score": max_score
+                }
+                cluster_results.append(subgraph_result)
+                queue.difference_update(reachable)
+        return cluster_results
 
     def toDict(self):
         # we need to aggregate by function_id here
