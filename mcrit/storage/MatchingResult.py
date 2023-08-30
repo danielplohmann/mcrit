@@ -442,8 +442,8 @@ class MatchingResult(object):
                 continue
             by_function_id[function_match.function_id]["num_bytes"] = function_match.num_bytes
             by_function_id[function_match.function_id]["offset"] = function_match.offset
-            by_function_id[function_match.function_id]["num_families_matched"] = len(by_function_id[function_match.function_id]["family_ids_matched"])
             by_function_id[function_match.function_id]["family_ids_matched"].add(function_match.matched_family_id)
+            by_function_id[function_match.function_id]["num_families_matched"] = len(by_function_id[function_match.function_id]["family_ids_matched"])
             family_name = self.getFamilyNameByFamilyId(function_match.matched_family_id)
             function_match.matched_family = family_name
             by_function_id[function_match.function_id]["families_matched"].add(family_name)
@@ -472,6 +472,7 @@ class MatchingResult(object):
             size_score = 100 * (min(300, by_function_id[match.function_id]["num_bytes"]) / 300)
             # scale the whole compound score with frequency weight
             match.matched_link_score = (0.1 * position_score + 0.2 * size_score + 0.7 * match.matched_score) / family_adjustment_value
+            match.matched_unique = num_families_matched == 1
             link_matches.sort(key=lambda x: (x.matched_link_score, x.function_id), reverse=True)
         return link_matches
     
@@ -513,12 +514,11 @@ class MatchingResult(object):
                     all_function_links[to_offset].add(from_offset)
         # turn into proper (undirected) ICFG and DFS all clusters
         for fam_id, links in candidate_links.items():
-            subgraphs = set()
-            offset_to_score = {}
+            offset_to_link = {}
             g = Graph()
             for index, link_a in enumerate(links):
                 g.addNode(link_a.offset)
-                offset_to_score[link_a.offset] = link_a.matched_link_score
+                offset_to_link[link_a.offset] = link_a
                 for link_b in links[index:]:
                     if link_a.offset in all_function_links and link_b.offset in all_function_links[link_a.offset]:
                         g.addEdge(link_a.offset, link_b.offset)
@@ -530,13 +530,13 @@ class MatchingResult(object):
                 subgraph_score = 0
                 max_score = 0
                 for offset in reachable:
-                    subgraph_score += offset_to_score[offset]
-                    max_score = max(max_score, offset_to_score[offset])
+                    subgraph_score += offset_to_link[offset].matched_link_score
+                    max_score = max(max_score, offset_to_link[offset].matched_link_score)
                 subgraph_result = {
                     "family_id": fam_id,
                     "family": family_id_to_name[fam_id],
-                    "nodes": reachable,
-                    "unique_matches": [o for o in reachable if len(families_per_offset[o]) == 1],
+                    "links": [offset_to_link[offset] for offset in reachable],
+                    "unique_matches": [offset_to_link[offset] for offset in reachable if len(families_per_offset[offset]) == 1],
                     "score": subgraph_score,
                     "max_score": max_score
                 }
