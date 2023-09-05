@@ -33,7 +33,6 @@ class StatusResource:
         resp.status = falcon.HTTP_NOT_IMPLEMENTED
         db_log_msg(self.index, req, f"StatusResource.on_get_config - success / not implemented.")
         return
-        resp.data = jsonify({"status": "error", "data": {"message": "We don't have that yet."}})
 
     @timing
     def on_get_export(self, req, resp):

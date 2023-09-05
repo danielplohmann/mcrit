@@ -1012,16 +1012,21 @@ class MongoDbStorage(StorageInterface):
         num_unique_pichashes = 0
         for result in self._database["functions"].aggregate([{"$group": {"_id": "$_pichash"}}, {"$count": "Total" }]):
             num_unique_pichashes = result["Total"]
+        # use family statistics to derive relevant values
         stats = {
             "db_state": self._getDbState(),
-            "num_families": self._database.families.count_documents(filter={}),
-            "num_samples": self._database.samples.count_documents(filter={}),
-            "num_query_samples": self._database.query_samples.count_documents(filter={}),
-            "num_query_functions": self._database.query_functions.count_documents(filter={}),
-            "num_functions": self._database.functions.count_documents(filter={}),
+            "num_families": 0,
+            "num_samples": 0,
+            "num_query_samples": self._database.query_samples.estimated_document_count(),
+            "num_query_functions": self._database.query_functions.estimated_document_count(),
+            "num_functions": 0,
             "num_bands": self._storage_config.STORAGE_NUM_BANDS,
             "num_pichashes": num_unique_pichashes,
         }
+        for family_document in self._database.families.find():
+            stats["num_families"] += 1
+            stats["num_samples"] += family_document["num_samples"]
+            stats["num_functions"] += family_document["num_functions"]
         return stats
 
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
