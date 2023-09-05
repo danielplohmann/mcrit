@@ -63,3 +63,15 @@ def decompress_decode(compressed_b64):
     with zipfile.ZipFile(zip_buffer, "r", zipfile.ZIP_DEFLATED, False) as zip_file:
         decompressed = zip_file.read("content")
     return decompressed
+
+
+def encode_two_complement(unit64):
+    if unit64 > 0x7fffffffffffffff:
+        return unit64 - 0x10000000000000000
+    return unit64
+
+
+def decode_two_complement(int64):
+    if int64 < 0:
+        return int64 + 0x10000000000000000
+    return int64

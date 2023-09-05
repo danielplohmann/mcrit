@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
 
+from mcrit.libs.utility import encode_two_complement, decode_two_complement
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 
@@ -91,7 +92,7 @@ class FunctionEntry(object):
             "minhash_shingle_composition": shingler_composition,
             "num_blocks": self.num_blocks,
             "num_instructions": self.num_instructions,
-            "offset": self.offset,
+            "offset": encode_two_complement(self.offset),
             "pichash": self.pichash,
             "picblockhashes": self.picblockhashes,
             "sample_id": self.sample_id,
@@ -118,7 +119,7 @@ class FunctionEntry(object):
         function_entry.num_blocks = entry_dict["num_blocks"]
         function_entry.num_instructions = entry_dict["num_instructions"]
         function_entry.binweight = entry_dict["binweight"]
-        function_entry.offset = entry_dict["offset"]
+        function_entry.offset = decode_two_complement(entry_dict["offset"])
         function_entry.xcfg = entry_dict["xcfg"] if "xcfg" in entry_dict else None
         return function_entry
 

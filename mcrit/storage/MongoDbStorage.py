@@ -20,7 +20,7 @@ from picblocks.blockhasher import BlockHasher
 
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, NotNode, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver, SearchTermNode
-from mcrit.libs.utility import generate_unique_groups
+from mcrit.libs.utility import generate_unique_groups, encode_two_complement, decode_two_complement
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
@@ -196,7 +196,6 @@ class MongoDbStorage(StorageInterface):
             )
             raise ValueError("Database insert failed.")
 
-
     def _dbInsertMany(self, collection: str, data: List["Dict"]):
         if len(data) == 0:
             return []
@@ -275,6 +274,7 @@ class MongoDbStorage(StorageInterface):
     ###############################################################################
     # Conversion
     ###############################################################################
+
     def _encodeXcfg(self, function_dict: Dict, delete_old: bool = True) -> None:
         if "xcfg" in function_dict:
             function_dict["_xcfg"] = json.dumps(function_dict["xcfg"])
@@ -297,6 +297,8 @@ class MongoDbStorage(StorageInterface):
             for entry in function_dict["picblockhashes"]:
                 converted_entry = dict(**entry)
                 converted_entry["hash"] = hex(converted_entry["hash"])
+                # use two-complement to convert unit64 to int64 and vice versa
+                converted_entry["offset"] = encode_two_complement(converted_entry["offset"])
                 converted_entries.append(converted_entry)
             function_dict["_picblockhashes"] = converted_entries
             if delete_old:
@@ -312,6 +314,8 @@ class MongoDbStorage(StorageInterface):
             for entry in function_dict["_picblockhashes"]:
                 converted_entry = dict(**entry)
                 converted_entry["hash"] = int(converted_entry["hash"], 16)
+                # use two-complement to convert unit64 to int64 and vice versa
+                converted_entry["offset"] = decode_two_complement(converted_entry["offset"])
                 converted_entries.append(converted_entry)
             function_dict["picblockhashes"] = converted_entries
             if delete_old:
@@ -543,7 +547,9 @@ class MongoDbStorage(StorageInterface):
         for smda_function in smda_report.getFunctions():
             function_name = smda_function.function_name
             if function_name and not re.match("sub_[a-fA-F0-9]{1,16}", function_name):
-                submitted_labels[smda_function.offset] = function_name
+                # use two-complement to convert unit64 to int64 and vice versa
+                offset = encode_two_complement(smda_function.offset)
+                submitted_labels[offset] = function_name
         # get the respective FunctionEntries and check if the label is novel
         sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
         label_updates = []
@@ -920,7 +926,8 @@ class MongoDbStorage(StorageInterface):
             {"$project": {"_id": 0, "function_id": 1, "family_id": 1, "sample_id": 1, "offset": "$_picblockhashes.offset"}}])
         return set(
             map(
-                lambda x: (x["family_id"], x["sample_id"], x["function_id"], x["offset"]),
+                # use two-complement to convert unit64 to int64 and vice versa
+                lambda x: (x["family_id"], x["sample_id"], x["function_id"], decode_two_complement(x["offset"])),
                 result,
             )
         )
@@ -1098,7 +1105,7 @@ class MongoDbStorage(StorageInterface):
                         "length": block_entry["length"],
                         "function_id": entry["function_id"],
                         "sample_id": sample_id,
-                        "offset": block_entry["offset"],
+                        "offset": self._decodeTwoComplement(block_entry["offset"]),
                         "instructions": [],
                         "escaped_sequence": "",
                         "score": 0

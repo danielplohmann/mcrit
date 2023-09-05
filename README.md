@@ -121,7 +121,8 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
- * 2023-09-05 v1.0.19: Statistics are now using the internal counters that had been created a while ago.
+ * 2023-09-05 v1.0.20: Use two-complement to represent addresses in SampleEntry, FunctionEntry when storing in MongoDB to address BSON limitations (THX to @yankovs).
+ * 2023-09-05 v1.0.19: Statistics are now using the internal counters that had been created a while ago (THX to @yankovs).
  * 2023-08-30 v1.0.18: Refined LinkHunt scoring and clustering of results via ICFG relationship.
  * 2023-08-24 v1.0.15: Integrated first attempt at link hunting capability in MatchingResult.
  * 2023-08-24 v1.0.13: Rebuilding the minhash bands will no longer explode RAM usage. Removed redundant path checks (THX to @yankovs).

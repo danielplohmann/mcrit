@@ -2,6 +2,8 @@ from dataclasses import dataclass
 import datetime
 from typing import Dict, TYPE_CHECKING
 
+from mcrit.libs.utility import encode_two_complement, decode_two_complement
+
 if TYPE_CHECKING: # pragma: no cover
     from smda.common.SmdaReport import SmdaReport
 
@@ -61,7 +63,7 @@ class SampleEntry(object):
     def toDict(self):
         sample_entry = {
             "architecture": self.architecture,
-            "base_addr": self.base_addr,
+            "base_addr": encode_two_complement(self.base_addr),
             "binary_size": self.binary_size,
             "binweight": self.binweight,
             "bitness": self.bitness,
@@ -85,7 +87,7 @@ class SampleEntry(object):
         sample_entry.family_id = entry_dict["family_id"]
         sample_entry.sample_id = entry_dict["sample_id"]
         sample_entry.architecture = entry_dict["architecture"]
-        sample_entry.base_addr = entry_dict["base_addr"]
+        sample_entry.base_addr = decode_two_complement(entry_dict["base_addr"])
         sample_entry.binary_size = entry_dict["binary_size"]
         sample_entry.binweight = entry_dict["binweight"]
         sample_entry.bitness = entry_dict["bitness"]
