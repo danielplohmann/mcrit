@@ -86,15 +86,15 @@ class McritClient:
         return params
 
     def respawn(self):
-        response = requests.post(f"{self.mcrit_server}/respawn")
+        response = requests.post(f"{self.mcrit_server}/respawn", headers=self.headers)
         return handle_response(response)
     
     def completeMinhashes(self):
-        response = requests.get(f"{self.mcrit_server}/complete_minhashes")
+        response = requests.get(f"{self.mcrit_server}/complete_minhashes", headers=self.headers)
         return handle_response(response)
 
     def rebuildIndex(self):
-        response = requests.get(f"{self.mcrit_server}/rebuild_index")
+        response = requests.get(f"{self.mcrit_server}/rebuild_index", headers=self.headers)
         return handle_response(response)
 
     def addReport(self, smda_report: SmdaReport) -> Tuple[SampleEntry, Optional[str]]:
@@ -127,7 +127,7 @@ class McritClient:
         query_string = ""
         if len(query_fields) > 0:
             query_string = "?" + "&".join(query_fields)
-        response = requests.post(f"{self.mcrit_server}/samples/binary{query_string}", data=binary)
+        response = requests.post(f"{self.mcrit_server}/samples/binary{query_string}", data=binary, headers=self.headers)
         return handle_response(response)
 
     ###########################################
@@ -140,7 +140,7 @@ class McritClient:
             update_dict["family_name"] = family_name
         if is_library is not None:
             update_dict["is_library"] = is_library
-        response = requests.put(f"{self.mcrit_server}/families/{family_id}", update_dict)
+        response = requests.put(f"{self.mcrit_server}/families/{family_id}", update_dict, headers=self.headers)
         return handle_response(response)
 
     def getFamily(self, family_id: int, with_samples=True) -> Optional[FamilyEntry]:
@@ -185,7 +185,7 @@ class McritClient:
 
     def deleteFamily(self, family_id, keep_samples=False):
         query_params = "?keep_samples=true" if keep_samples else "?keep_samples=false"
-        response = requests.delete(f"{self.mcrit_server}/families/{family_id}{query_params}")
+        response = requests.delete(f"{self.mcrit_server}/families/{family_id}{query_params}", headers=self.headers)
         return handle_response(response)
 
     ###########################################
@@ -215,11 +215,11 @@ class McritClient:
             update_dict["component"] = component
         if is_library is not None:
             update_dict["is_library"] = is_library
-        response = requests.put(f"{self.mcrit_server}/samples/{sample_id}", update_dict)
+        response = requests.put(f"{self.mcrit_server}/samples/{sample_id}", update_dict, headers=self.headers)
         return handle_response(response)
 
     def deleteSample(self, sample_id):
-        response = requests.delete(f"{self.mcrit_server}/samples/{sample_id}")
+        response = requests.delete(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers)
         return handle_response(response)
 
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List[SampleEntry]]:
@@ -332,7 +332,7 @@ class McritClient:
             return FunctionEntry.fromDict(data)
 
     def completeMinhashes(self):
-        response = requests.get(f"{self.mcrit_server}/complete_minhashes")
+        response = requests.get(f"{self.mcrit_server}/complete_minhashes", headers=self.headers)
         return handle_response(response)
 
     ###########################################
@@ -351,7 +351,7 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
-        response = requests.post(f"{self.mcrit_server}/query", json=smda_json, params=params)
+        response = requests.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params)
         return handle_response(response)
 
     def requestMatchesForMappedBinary(
@@ -380,7 +380,7 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
-        response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, params=params)
+        response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, headers=self.headers, params=params)
         return handle_response(response)
 
     def requestMatchesForUnmappedBinary(
@@ -409,7 +409,7 @@ class McritClient:
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
 
-        response = requests.post(f"{self.mcrit_server}/query/binary", binary, params=params)
+        response = requests.post(f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params)
         return handle_response(response)
 
     def requestMatchesForSample(
@@ -457,7 +457,8 @@ class McritClient:
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
         response = requests.get(
-            f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}",
+            f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", 
+            headers=self.headers,
             params=params
         )
         return handle_response(response)
@@ -657,19 +658,19 @@ class McritClient:
         if sample_ids is not None:
             if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
                 sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
-                response = requests.get(f"{self.mcrit_server}/export/{sample_ids_as_str}{compress_uri_param}")
+                response = requests.get(f"{self.mcrit_server}/export/{sample_ids_as_str}{compress_uri_param}", headers=self.headers)
                 result_data = handle_response(response)
             else:
                 raise ValueError("sample_ids must be a list of int.")
         else:
-            response = requests.get(f"{self.mcrit_server}/export{compress_uri_param}")
+            response = requests.get(f"{self.mcrit_server}/export{compress_uri_param}", headers=self.headers)
             result_data = handle_response(response)
         return result_data
 
     def addImportData(self, import_data):
         if not isinstance(import_data, dict):
             raise ValueError("Can only forward dictionaries with export data.")
-        response = requests.post(f"{self.mcrit_server}/import", json=import_data)
+        response = requests.post(f"{self.mcrit_server}/import", json=import_data, headers=self.headers)
         return handle_response(response)
 
     ###########################################
@@ -679,7 +680,7 @@ class McritClient:
     def requestUniqueBlocksForSamples(self, sample_ids: List[int]) -> Dict:
         if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
             sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
-            response = requests.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}")
+            response = requests.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}", headers=self.headers)
             result_data = handle_response(response)
         else:
             raise ValueError("sample_ids must be a list of int.")
@@ -687,7 +688,7 @@ class McritClient:
 
     def requestUniqueBlocksForFamily(self, family_id: int) -> Dict:
         if isinstance(family_id, int):
-            response = requests.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}")
+            response = requests.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}", headers=self.headers)
             result_data = handle_response(response)
         else:
             raise ValueError("sample_ids must be a list of int.")
@@ -730,7 +731,7 @@ class McritClient:
         if limit is not None:
             params["limit"] = limit 
         encoded_params = urllib.parse.urlencode(params)
-        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}")
+        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers)
         return handle_response(response)
 
     search_families = functools.partialmethod(_search_base, "families")
