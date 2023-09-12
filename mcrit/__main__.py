@@ -17,6 +17,7 @@ def runServer(profiling=False):
     class gunicornServer(BaseApplication):
         def __init__(self, app):
             self.app = app
+            super().__init__()
         
         def load_config(self):
             for key, value in GunicornConfig().toDict():
