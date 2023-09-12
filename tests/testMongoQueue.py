@@ -7,6 +7,7 @@ from unittest import TestCase
 import pymongo
 
 from mcrit.libs.mongoqueue import MongoQueue
+from mcrit.config.QueueConfig import QueueConfig
 
 from .context import config
 
@@ -23,8 +24,10 @@ import pytest
 class MongoQueueTest(TestCase):
     def setUp(self):
         self.client = pymongo.MongoClient(os.environ.get("TEST_MONGODB"))
-        self.db = self.client.test_queue
-        self.queue = MongoQueue(self.db.queue_1, "consumer_1")
+        queue_config = QueueConfig()
+        queue_config.QUEUE_MONGODB_DBNAME = "test_queue"
+        queue_config.QUEUE_MONGODB_COLLECTION_NAME = "queue_1"
+        self.queue = MongoQueue(queue_config, "consumer_1")
 
     def tearDown(self):
         self.client.drop_database("test_queue")

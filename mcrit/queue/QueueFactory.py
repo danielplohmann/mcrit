@@ -1,4 +1,3 @@
-from pymongo import MongoClient
 
 
 class QueueFactory:
@@ -22,10 +21,8 @@ class QueueFactory:
 
             if consumer_id is None:
                 raise ValueError("QueueFactory needs consumer_id to set up MongoQueue")
-            db = MongoClient(host=queue_config.QUEUE_SERVER, port=queue_config.QUEUE_PORT)
-            collection = db[queue_config.QUEUE_MONGODB_DBNAME].queue
             queue = MongoQueue(
-                collection,
+                queue_config,
                 consumer_id,
                 timeout=queue_config.QUEUE_TIMEOUT,
                 max_attempts=queue_config.QUEUE_MAX_ATTEMPTS,

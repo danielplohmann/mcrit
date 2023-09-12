@@ -20,7 +20,7 @@ from typing import List
 
 import gridfs
 import pymongo
-from pymongo import ReturnDocument
+from pymongo import MongoClient, ReturnDocument
 from bson.objectid import ObjectId
 
 DEFAULT_INSERT = {
@@ -52,66 +52,91 @@ def _useCounter(database, name: str) -> int:
 class MongoQueue(object):
     """A queue class"""
 
-    def __init__(self, collection, consumer_id, timeout=300, max_attempts=3):
+    def __init__(self, queue_config, consumer_id, timeout=300, max_attempts=3):
         """ """
-        self.collection = collection
+        self.queue_config = queue_config
+        self.collection = None
         self.consumer_id = consumer_id
         self.timeout = timeout
         self.max_attempts = max_attempts
         self._default_insert = dict(DEFAULT_INSERT)
         self._default_insert["attempts_left"] = max_attempts
-        self.fs = gridfs.GridFS(self.collection.database)
-        self.fs_files = self.collection.database["fs.files"]
-        self._ensure_indices()
+        self.fs = None
+        self.fs_files = None
         self.cache_time = 10 ** 9
 
+    def _getCollection(self):
+        # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
+        if self.collection is None:
+            db = MongoClient(host=self.queue_config.QUEUE_SERVER, port=self.queue_config.QUEUE_PORT, connect=False)
+            self.collection = db[self.queue_config.QUEUE_MONGODB_DBNAME][self.queue_config.QUEUE_MONGODB_COLLECTION_NAME]
+            self.fs = gridfs.GridFS(self.collection.database)
+            self.fs_files = self.collection.database["fs.files"]
+            self._ensure_indices()
+        return self.collection
+    
+    def _getFs(self):
+        if self.fs is None:
+            collection = self._getCollection()
+            self.fs = gridfs.GridFS(collection.database)
+            self.fs_files = self.collection.database["fs.files"]
+        return self.fs
+    
+    def _getFsFiles(self):
+        if self.fs_files is None:
+            collection = self._getCollection()
+            self.fs = gridfs.GridFS(self.collection.database)
+            self.fs_files = collection.database["fs.files"]
+        return self.fs_files
+
     def _ensure_indices(self):
+        # should only be called, after self.collection has been initiated
         self.collection.create_index("payload.descriptor")
         self.fs_files.create_index("metadata.sha256")
 
     def close(self):
         """Close the in memory queue connection."""
-        self.collection.connection.close()
+        self._getCollection().connection.close()
 
     def clear(self):
         """Clear the queue."""
-        self.collection.database["fs"].drop()
-        self.collection.drop()
+        self._getCollection().database["fs"].drop()
+        self._getCollection().drop()
         self._ensure_indices()
 
     def size(self):
         """Total size of the queue"""
-        return self.collection.count_documents({"finished_at": None})
+        return self._getCollection().count_documents({"finished_at": None})
 
     def size_inc_finished(self):
         """Total size of the queue"""
-        return self.collection.count_documents(ilter={})
+        return self._getCollection().count_documents(ilter={})
 
     def repair(self):
         """Clear out stale locks.
 
         Increments per job attempt counter.
         """
-        self.collection.find_one_and_update(
+        self._getCollection().find_one_and_update(
             filter={"locked_by": {"$ne": None}, "locked_at": {"$lt": datetime.now() - timedelta(self.timeout)}},
             update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
         )
 
     def drop_max_attempts(self):
         """ """
-        self.collection.find_one_and_update({"attempts_left": {"$lte": 0}}, remove=True)
+        self._getCollection().find_one_and_update({"attempts_left": {"$lte": 0}}, remove=True)
 
     def put(self, payload, priority=0, await_jobs:List[str]=[]):
         """Place a job into the queue"""
         job = dict(self._default_insert)
-        job["number"] = _useCounter(self.collection.database, "job")
+        job["number"] = _useCounter(self._getCollection().database, "job")
         job["created_at"] = datetime.now()
         job["priority"] = priority
         job["payload"] = payload
         await_jobs_set = set(await_jobs)
         job["unfinished_dependencies"] = list(await_jobs_set)
         job["all_dependencies"] = list(await_jobs_set)
-        insert_result = self.collection.insert_one(job)
+        insert_result = self._getCollection().insert_one(job)
         if insert_result.acknowledged:
             job_id = insert_result.inserted_id
             for child_job_id in await_jobs_set:
@@ -120,13 +145,13 @@ class MongoQueue(object):
         return None
 
     def _notify_on_done(self, notifying_job_id:str, notified_job_id:str):
-        self.collection.find_one_and_update(
+        self._getCollection().find_one_and_update(
             filter={"_id": ObjectId(notifying_job_id)},
             update={"$push": {'required_by': notified_job_id}}
         )
-        notifying_job = self.collection.find_one({"_id": ObjectId(notifying_job_id)})
+        notifying_job = self._getCollection().find_one({"_id": ObjectId(notifying_job_id)})
         if notifying_job["notify_done"]:
-            self.collection.find_one_and_update(
+            self._getCollection().find_one_and_update(
                 filter={"_id": ObjectId(notified_job_id)},
                 update={"$pull": {'unfinished_dependencies': notifying_job_id}},
             )
@@ -135,12 +160,12 @@ class MongoQueue(object):
         #     remove job.id from job_to_notify.unfinished_deps
     
     def _notify_dependent_jobs(self, job_id:str):
-        job = self.collection.find_one_and_update(
+        job = self._getCollection().find_one_and_update(
             filter={"_id": ObjectId(job_id)},
             update={"$set": {'notify_done': True}},
         )
         for job_id_to_notify in job["required_by"]:
-            self.collection.find_one_and_update(
+            self._getCollection().find_one_and_update(
                 filter={"_id": ObjectId(job_id_to_notify)},
                 update={"$pull": {'unfinished_dependencies': job_id}},
             )
@@ -148,7 +173,7 @@ class MongoQueue(object):
     def next(self):
         current_time = datetime.now()
         return self._wrap_one(
-            self.collection.find_one_and_update(
+            self._getCollection().find_one_and_update(
                 filter={
                     "locked_by": None,
                     "locked_at": None,
@@ -164,13 +189,13 @@ class MongoQueue(object):
         )
 
     def _jobs_to_do(self):
-        return self.collection.find(
+        return self._getCollection().find(
             filter={"locked_by": None, "locked_at": None, "attempts_left": {"$gt": 0}, "finished_at": None},
             sort=[("priority", pymongo.DESCENDING)],
         )
 
     def _jobs_in_progress(self):
-        return self.collection.find(
+        return self._getCollection().find(
             filter={
                 "locked_by": {"$ne": None},
                 "locked_at": {"$ne": None},
@@ -181,13 +206,13 @@ class MongoQueue(object):
         )
 
     def _jobs_given_up(self):
-        return self.collection.find(
+        return self._getCollection().find(
             filter={"attempts_left": {"$le": 0}, "finished_at": None},
             sort=[("priority", pymongo.DESCENDING)],
         )
 
     def _jobs_finished(self):
-        return self.collection.findOne(
+        return self._getCollection().findOne(
             filter={"finished_at": {"$ne": None}},
             sort=[("priority", pymongo.DESCENDING)],
         )
@@ -200,34 +225,34 @@ class MongoQueue(object):
 
         Use sparingly requires a collection lock.
         """
-        querys = []
-        querys.append({"locked_by": None, "attempts_left": {"$gt": 0}})
-        querys.append({"locked_by": {"$ne": None}})
-        querys.append({"attempts_left": {"$lte": 0}})
-        querys.append({})
-        counts = [self.collection.count_documents(q) for q in querys]
+        queries = []
+        queries.append({"locked_by": None, "attempts_left": {"$gt": 0}})
+        queries.append({"locked_by": {"$ne": None}})
+        queries.append({"attempts_left": {"$lte": 0}})
+        queries.append({})
+        counts = [self._getCollection().count_documents(q) for q in queries]
 
         return dict(zip(["available", "locked", "errors", "total"], counts))
 
     def get_jobs(self):
         jobs = []
-        for job_document in self.collection.find():
+        for job_document in self._getCollection().find():
             jobs.append(self._wrap_one(job_document))
         return jobs
 
     def get_job(self, job_id):
         job_id = ObjectId(job_id)
-        return self._wrap_one(self.collection.find_one({"_id": job_id}))
+        return self._wrap_one(self._getCollection().find_one({"_id": job_id}))
 
     def _file_to_grid(self, binary, metadata=None):
-        object_id = self.fs.put(binary, metadata=metadata)
+        object_id = self._getFs().put(binary, metadata=metadata)
         return str(object_id)
 
     def _grid_to_file(self, grid, results_only=True):
         oid = ObjectId(grid)
-        if not self.fs.exists(oid):
+        if not self._getFs().exists(oid):
             return None
-        entry = self.fs.get(oid)
+        entry = self._getFs().get(oid)
         if results_only:
             metadata = entry.metadata
             if not "result" in metadata or not metadata["result"]:
@@ -248,16 +273,16 @@ class MongoQueue(object):
 
     def _delete_grid(self, grid):
         oid = ObjectId(grid)
-        self.fs.delete(oid)
+        self._getFs().delete(oid)
 
     def _grid_to_meta(self, grid):
         oid = ObjectId(grid)
-        entry = self.fs.get(oid)
+        entry = self._getFs().get(oid)
         return entry.metadata
 
     def get_cached_job_id(self, payload):
         job = self._wrap_one(
-            self.collection.find_one(
+            self._getCollection().find_one(
                 {
                     "attempts_left": {"$gt": 0},
                     "payload.descriptor": payload["descriptor"],
@@ -269,22 +294,22 @@ class MongoQueue(object):
         return job and job.job_id or None
 
     def _get_file_by_hash(self, sha256):
-        file = self.fs.find_one({"metadata.sha256": sha256})
+        file = self._getFs().find_one({"metadata.sha256": sha256})
 
     def get_file_by_hash_inc_lock(self, sha256):
-        file = self.fs_files.find_one_and_update({"metadata.sha256": sha256}, {"$inc": {"metadata.tmp_lock": 1}})
+        file = self._getFsFiles().find_one_and_update({"metadata.sha256": sha256}, {"$inc": {"metadata.tmp_lock": 1}})
         return file and str(file["_id"]) or None
 
     def add_job_id_to_file(self, job_id, file_id):
         file_id = ObjectId(file_id)
-        self.fs_files.find_one_and_update(
+        self._getFsFiles().find_one_and_update(
             {"_id": file_id}, {"$inc": {"metadata.tmp_lock": -1}, "$addToSet": {"metadata.jobs": job_id}}
         )
 
     def clean(self):
         time_threshold = datetime.now() - timedelta(seconds=self.cache_time)
         job_query = {"finished_at": {"$lt": time_threshold}}
-        to_delete = self.collection.find(job_query)
+        to_delete = self._getCollection().find(job_query)
         to_delete = list(to_delete)
         results = [data["result"] for data in to_delete]
         file_params = {data["_id"]: list(json.loads(data["payload"]["file_params"]).values()) for data in to_delete}
@@ -295,7 +320,7 @@ class MongoQueue(object):
 
         # remove job from params
         for job, params in file_params.items():
-            self.fs_files.update_many(
+            self._getFsFiles().update_many(
                 {"_id": {"$in": [ObjectId(p) for p in params]}}, {"$pull": {"metadata.jobs": str(job)}}
             )
 
@@ -303,20 +328,20 @@ class MongoQueue(object):
         all_params = [ObjectId(j) for i in file_params.values() for j in i]
         # for all of the params that can be deleted (with no jobs, and no lock), remove the sha256
         # In this way the file cannot be utilized as a cached file again
-        self.fs_files.update_many(
+        self._getFsFiles().update_many(
             {"_id": {"$in": all_params}, "metadata.jobs": [], "metadata.tmp_lock": 0},
             {"$set": {"metadata.sha256": None}},
         )
         # now get the list of files to be deleted
-        params_to_delete = self.fs_files.find(
+        params_to_delete = self._getFsFiles().find(
             {"_id": {"$in": all_params}, "metadata.jobs": [], "metadata.tmp_lock": 0, "metadata.sha256": None}
         )
         # delete them
         for p in params_to_delete:
-            self.fs.delete(ObjectId(p["_id"]))
+            self._getFs().delete(ObjectId(p["_id"]))
 
         # delete jobs
-        self.collection.delete_many(job_query)
+        self._getCollection().delete_many(job_query)
 
 
     def terminate_all_jobs(self):

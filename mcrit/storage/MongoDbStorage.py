@@ -36,7 +36,6 @@ if TYPE_CHECKING: # pragma: no cover
     from smda.common.SmdaFunction import SmdaFunction
     from smda.common.SmdaReport import SmdaReport
 
-# TODO when is checking self._database.samples.count_documents() necessary?
 
 class MongoSearchTranspiler(BaseVisitor):
     """
@@ -109,43 +108,49 @@ class MongoDbStorage(StorageInterface):
         super().__init__(config)  # sets config
         self._matching_cache = None
         self.blockhasher = BlockHasher()
-        self._initDb(self._storage_config.STORAGE_SERVER, self._storage_config.STORAGE_PORT, self._storage_config.STORAGE_MONGODB_DBNAME)
+        self._database = None
+        
+    def _getDb(self):
+        # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
+        if self._database is None:
+            self._initDb(self._storage_config.STORAGE_SERVER, self._storage_config.STORAGE_PORT, self._storage_config.STORAGE_MONGODB_DBNAME)
+        return self._database
 
     def _initDb(self, server, port, db_name):
-        self._database = MongoClient(server, port=port)[db_name]
+        self._database = MongoClient(server, port=port, connect=False)[db_name]
         self._ensureIndexAndUnknownFamily()
 
     def _ensureIndexAndUnknownFamily(self) -> None:
-        if "settings" not in self._database.list_collection_names():
-            self._database["settings"].insert_one({"mcrit_db_id": str(uuid.uuid4()), "db_state": 0})
-        self._database["samples"].create_index("sample_id")
-        self._database["families"].create_index("family_id")
-        self._database["functions"].create_index("function_id")
-        self._database["functions"].create_index("sample_id")
-        self._database["functions"].create_index("_pichash")
-        self._database["functions"].create_index("_picblockhashes.hash")
-        self._database["functions"].create_index("_picblockhashes.offset")
+        if "settings" not in self._getDb().list_collection_names():
+            self._getDb()["settings"].insert_one({"mcrit_db_id": str(uuid.uuid4()), "db_state": 0})
+        self._getDb()["samples"].create_index("sample_id")
+        self._getDb()["families"].create_index("family_id")
+        self._getDb()["functions"].create_index("function_id")
+        self._getDb()["functions"].create_index("sample_id")
+        self._getDb()["functions"].create_index("_pichash")
+        self._getDb()["functions"].create_index("_picblockhashes.hash")
+        self._getDb()["functions"].create_index("_picblockhashes.offset")
         # stored without guarantee of existence
-        self._database["query_samples"].create_index("sample_id")
-        self._database["query_functions"].create_index("function_id")
-        self._database["query_functions"].create_index("sample_id")
+        self._getDb()["query_samples"].create_index("sample_id")
+        self._getDb()["query_functions"].create_index("function_id")
+        self._getDb()["query_functions"].create_index("sample_id")
         # ensure that their counters are at least 1, so that they never contain items with sample_id/function_id 0
-        self._database.counters.find_one_and_update(
+        self._getDb().counters.find_one_and_update(
             filter={"name": "query_samples", "value": 0}, 
             update={"$inc": {"value": 1}}, 
             upsert=True
         )
-        self._database.counters.find_one_and_update(
+        self._getDb().counters.find_one_and_update(
             filter={"name": "query_functions", "value": 0}, 
             update={"$inc": {"value": 1}}, 
             upsert=True
         )
-        self._database["matches"].create_index("match_id")
-        self._database["candidates"].create_index("function_id")
-        self._database["counters"].create_index("name")
-        self._database["logs"].create_index("username")
+        self._getDb()["matches"].create_index("match_id")
+        self._getDb()["candidates"].create_index("function_id")
+        self._getDb()["counters"].create_index("name")
+        self._getDb()["logs"].create_index("username")
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
-            self._database["band_%d" % band_id].create_index("band_hash")
+            self._getDb()["band_%d" % band_id].create_index("band_hash")
         # Add Family "" if it is not already in storage
         if self.getFamily(0) is None:
             self.addFamily("")
@@ -185,7 +190,7 @@ class MongoDbStorage(StorageInterface):
 
     def _dbInsert(self, collection: str, data: Dict):
         try:
-            insert_result = self._database[collection].insert_one(self._toBinary(data))
+            insert_result = self._getDb()[collection].insert_one(self._toBinary(data))
             if insert_result.acknowledged:
                 return insert_result.inserted_id
             return None
@@ -200,7 +205,7 @@ class MongoDbStorage(StorageInterface):
         if len(data) == 0:
             return []
         try:
-            insert_result = self._database[collection].insert_many([self._toBinary(document) for document in data])
+            insert_result = self._getDb()[collection].insert_many([self._toBinary(document) for document in data])
             if insert_result.acknowledged:
                 return insert_result.inserted_ids
             return None
@@ -214,9 +219,9 @@ class MongoDbStorage(StorageInterface):
     def _dbQuery(self, collection: str, query: Dict, find_one: bool = False):
         try:
             if find_one:
-                return self._database[collection].find_one(query)
+                return self._getDb()[collection].find_one(query)
             else:
-                return self._database[collection].find(query)
+                return self._getDb()[collection].find(query)
         except Exception as exc:
             self._dbLogError(
                 'Database query for collection "%s" failed.' % collection,
@@ -238,13 +243,13 @@ class MongoDbStorage(StorageInterface):
         if log_username is None:
             log_username = "mcrit/internal"
         record = {"ts": self._getCurrentTimestamp(), "%s_msg" % log_type: log_msg, "username": log_username, "%s_details" % log_type: log_details}
-        self._database[log_type].insert_one(self._toBinary(record))
+        self._getDb()[log_type].insert_one(self._toBinary(record))
 
     def _useCounterBulk(self, name: str, num_counts: int) -> Iterable[int]:
         assert num_counts >= 0
         if num_counts == 0:
             return []
-        query_result = self._database.counters.find_one_and_update(
+        query_result = self._getDb().counters.find_one_and_update(
             filter={"name": name}, 
             update={"$inc": {"value": num_counts}}, 
             upsert=True
@@ -258,14 +263,14 @@ class MongoDbStorage(StorageInterface):
         return next(iter(self._useCounterBulk(name, 1)))
 
     def _updateDbState(self):
-        result = self._database.settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
+        result = self._getDb().settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
         if result is None:
             raise Exception("Database does not have a db_state field")
         else:
             return result["db_state"]
 
     def _getDbState(self):
-        result = self._database.settings.find_one({})
+        result = self._getDb().settings.find_one({})
         if result is None:
             raise Exception("Database does not have a db_state field")
         else:
@@ -349,9 +354,9 @@ class MongoDbStorage(StorageInterface):
     # NOTE this actually only gets used in MemoryStorage / MatchingCache
     def getSampleIdByFunctionId(self, function_id: int) -> Optional[int]:
         if function_id < 0:
-            function_document = self._database.query_functions.find_one({"function_id": function_id})
+            function_document = self._getDb().query_functions.find_one({"function_id": function_id})
         else:
-            function_document = self._database.functions.find_one({"function_id": function_id})
+            function_document = self._getDb().functions.find_one({"function_id": function_id})
         if function_document is None:
             return None
         return function_document["sample_id"]
@@ -362,9 +367,9 @@ class MongoDbStorage(StorageInterface):
             return False
         if sample_id < 0:
             # remove functions
-            self._database.query_functions.delete_many({"sample_id": sample_id})
+            self._getDb().query_functions.delete_many({"sample_id": sample_id})
             # remove sample
-            self._database.query_samples.delete_one({"sample_id": sample_id})
+            self._getDb().query_samples.delete_one({"sample_id": sample_id})
             return 
         function_entries = self.getFunctionsBySampleId(sample_id)
         if function_entries is None:
@@ -390,18 +395,18 @@ class MongoDbStorage(StorageInterface):
         # update family stats
         self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove functions
-        self._database.functions.delete_many({"sample_id": sample_id})
+        self._getDb().functions.delete_many({"sample_id": sample_id})
         # remove sample
-        self._database.samples.delete_one({"sample_id": sample_id})
+        self._getDb().samples.delete_one({"sample_id": sample_id})
         # delete family if empty
         family_info = self.getFamily(sample_entry.family_id)
         if family_info.num_samples == 0 and family_info.family_id != 0:
-            self._database.families.delete_one({"family_id": family_info.family_id})
+            self._getDb().families.delete_one({"family_id": family_info.family_id})
         self._updateDbState()
         return True
 
     def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
-        self._database.families.update_one(
+        self._getDb().families.update_one(
             {"family_id": family_id},
             {
                 "$inc": {
@@ -418,21 +423,21 @@ class MongoDbStorage(StorageInterface):
         sample_entry = self.getSampleById(sample_id)
         if "is_library" in update_information:
             is_library_info_changed = sample_entry.is_library != update_information["is_library"]
-            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": update_information["is_library"]}})
+            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": update_information["is_library"]}})
             family_entry = self.getFamily(sample_entry.family_id)
             if is_library_info_changed:
                 new_value = family_entry.num_library_samples + (1 if update_information["is_library"] else -1)
-                self._database.families.update_one({"family_id": sample_entry.family_id}, {"$set": {"num_library_samples": new_value}})
+                self._getDb().families.update_one({"family_id": sample_entry.family_id}, {"$set": {"num_library_samples": new_value}})
         if "family_name" in update_information:
             old_family_entry = self.getFamily(sample_entry.family_id)
             family_name = update_information["family_name"]
             family_id = self.addFamily(family_name)
             new_family_entry = self.getFamily(family_id)
             # update sample_entry and function_entries with new family information
-            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
-            self._database.functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}})
+            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
+            self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}})
             # update family entry with statistics
-            self._database.families.update_one(
+            self._getDb().families.update_one(
                 {"family_id": old_family_entry.family_id}, 
                 {"$set": {
                     "num_samples": old_family_entry.num_samples - 1,
@@ -441,7 +446,7 @@ class MongoDbStorage(StorageInterface):
                     }
                 }
             )
-            self._database.families.update_one(
+            self._getDb().families.update_one(
                 {"family_id": family_id}, 
                 {"$set": {
                     "num_samples": new_family_entry.num_samples + 1,
@@ -453,12 +458,12 @@ class MongoDbStorage(StorageInterface):
             old_family_entry = self.getFamily(sample_entry.family_id)
             # delete family if empty
             if old_family_entry.num_samples == 0 and old_family_entry.family_id != 0:
-                self._database.families.delete_one({"family_id": old_family_entry.family_id})
+                self._getDb().families.delete_one({"family_id": old_family_entry.family_id})
             self._updateDbState()
         if "version" in update_information:
-            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"version": update_information["version"]}})
+            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"version": update_information["version"]}})
         if "component" in update_information:
-            self._database.samples.update_one({"sample_id": sample_id}, {"$set": {"component": update_information["component"]}})
+            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"component": update_information["component"]}})
         return True
 
     def modifyFamily(self, family_id: int, update_information: dict) -> bool:
@@ -466,9 +471,9 @@ class MongoDbStorage(StorageInterface):
             return False
         old_family_info = self.getFamily(family_id)
         if "is_library" in update_information:
-            self._database.samples.update_many({"family_id": family_id}, {"$set": {"is_library": update_information["is_library"]}})
+            self._getDb().samples.update_many({"family_id": family_id}, {"$set": {"is_library": update_information["is_library"]}})
             updated_count = old_family_info.num_samples if update_information["is_library"] else 0
-            self._database.families.update_one({"family_id": family_id}, {"$set": {"num_library_samples": updated_count}})
+            self._getDb().families.update_one({"family_id": family_id}, {"$set": {"num_library_samples": updated_count}})
             self._updateDbState()
         if "family_name" in update_information:
             old_family_info = self.getFamily(family_id)
@@ -480,13 +485,13 @@ class MongoDbStorage(StorageInterface):
             new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
             # update family_entry
             if family_id == 0:
-                self._database.families.update_one({"family_id": 0}, {"$set": {"num_samples": 0, "num_functions": 0, "num_library_samples": 0}})
+                self._getDb().families.update_one({"family_id": 0}, {"$set": {"num_samples": 0, "num_functions": 0, "num_library_samples": 0}})
             else:
-                self._database.families.delete_one({"family_id": family_id})
-            self._database.families.update_one({"family_id": new_family_id}, {"$set": {"num_samples": new_num_samples, "num_functions": new_num_functions, "num_library_samples": new_num_lib_samples}})
+                self._getDb().families.delete_one({"family_id": family_id})
+            self._getDb().families.update_one({"family_id": new_family_id}, {"$set": {"num_samples": new_num_samples, "num_functions": new_num_functions, "num_library_samples": new_num_lib_samples}})
             # update sample_entry and function_entries with new family information
-            self._database.samples.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id, "family": family_name}})
-            self._database.functions.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id}})
+            self._getDb().samples.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id, "family": family_name}})
+            self._getDb().functions.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id}})
             self._updateDbState()
         return True
 
@@ -496,29 +501,29 @@ class MongoDbStorage(StorageInterface):
             return False
         sample_entries = self.getSamplesByFamilyId(family_id)
         if keep_samples:
-            self._database.samples.update_many({"family_id": family_id}, {"$set": {"family_id": 0, "family": ""}})
-            self._database.functions.update_many({"family_id": family_id}, {"$set": {"family_id": 0}})
+            self._getDb().samples.update_many({"family_id": family_id}, {"$set": {"family_id": 0, "family": ""}})
+            self._getDb().functions.update_many({"family_id": family_id}, {"$set": {"family_id": 0}})
             self._updateFamilyStats(0, family_entry.num_samples, family_entry.num_functions, family_entry.num_library_samples)
         else:
             for sample_entry in sample_entries:
                 self.deleteSample(sample_entry.sample_id)
         # ensure we always have family_id 0 as empty family.
         if family_id == 0:
-            self._database.families.update_one({"family_id": 0}, {"$set": {"num_samples": 0, "num_functions": 0, "num_library_samples": 0}})
+            self._getDb().families.update_one({"family_id": 0}, {"$set": {"num_samples": 0, "num_functions": 0, "num_library_samples": 0}})
         else:
-            self._database.families.delete_one({"family_id": family_id})
+            self._getDb().families.delete_one({"family_id": family_id})
         self._updateDbState()
         return True
 
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List["SampleEntry"]]:
         if self.getFamily(family_id) is None:
             return None
-        samples = self._database.samples.find({"family_id": family_id}, {"_id":0})
+        samples = self._getDb().samples.find({"family_id": family_id}, {"_id":0})
         return [SampleEntry.fromDict(sample_document) for sample_document in samples]
 
     def getSamples(self, start_index: int, limit: int) -> Optional["SampleEntry"]:
         sample_entries = []
-        for sample_document in self._database.samples.find().skip(start_index).limit(limit):
+        for sample_document in self._getDb().samples.find().skip(start_index).limit(limit):
             sample_entries.append(SampleEntry.fromDict(sample_document))
         return sample_entries
 
@@ -527,12 +532,12 @@ class MongoDbStorage(StorageInterface):
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
-            self._database[c].drop()
+            self._getDb()[c].drop()
         self._ensureIndexAndUnknownFamily()
 
     def getSampleBySha256(self, sha256: str) -> Optional["SampleEntry"]:
-        if self._database.samples.count_documents(filter={}):
-            report_dict = self._database.samples.find_one({"sha256": sha256})
+        if self._getDb().samples.count_documents(filter={}):
+            report_dict = self._getDb().samples.find_one({"sha256": sha256})
             if not report_dict:
                 return None
             return SampleEntry.fromDict(report_dict)
@@ -568,7 +573,7 @@ class MongoDbStorage(StorageInterface):
                 update_command = {"$push": {"function_labels": new_function_entry_label.toDict()}}
                 label_updates.append(UpdateOne({"function_id": sample_function_entries[label_offset].function_id}, update_command, upsert=True))
         if label_updates:
-            self._database["functions"].bulk_write(label_updates, ordered=False)
+            self._getDb().functions.bulk_write(label_updates, ordered=False)
 
     def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
         sample_entry = None
@@ -641,9 +646,9 @@ class MongoDbStorage(StorageInterface):
         if not self.isSampleId(sample_id):
             return None
         if sample_id < 0:
-            function_dicts = list(self._database.query_functions.find({"sample_id": sample_id}, {"_id": 0}))
+            function_dicts = list(self._getDb().query_functions.find({"sample_id": sample_id}, {"_id": 0}))
         else:
-            function_dicts = list(self._database.functions.find({"sample_id": sample_id}, {"_id": 0}))
+            function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0}))
         functions = []
         for f in function_dicts:
             self._decodeFunction(f)
@@ -656,29 +661,29 @@ class MongoDbStorage(StorageInterface):
             return function_ids
         function_ids = []
         if sample_id < 0:
-            function_dicts = list(self._database.query_functions.find({"sample_id": sample_id}, {"_id": 0, "function_id": 1}))
+            function_dicts = list(self._getDb().query_functions.find({"sample_id": sample_id}, {"_id": 0, "function_id": 1}))
         else:
-            function_dicts = list(self._database.functions.find({"sample_id": sample_id}, {"_id": 0, "function_id": 1}))
+            function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0, "function_id": 1}))
         for f in function_dicts:
             function_ids(f["function_ids"])
         return function_ids
 
     def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
         functions = []
-        for function_document in self._database.functions.find().skip(start_index).limit(limit):
+        for function_document in self._getDb().functions.find().skip(start_index).limit(limit):
             self._decodeFunction(function_document)
             functions.append(FunctionEntry.fromDict(function_document))
         return functions
 
     def getSampleIds(self) -> List[int]:
-        return self._database.samples.find().distinct("sample_id")
+        return self._getDb().samples.find().distinct("sample_id")
 
     def isSampleId(self, sample_id: int) -> bool:
         is_sample_id = None
         if sample_id < 0:
-            is_sample_id = bool(self._database.query_samples.find_one({"sample_id": sample_id}))
+            is_sample_id = bool(self._getDb().query_samples.find_one({"sample_id": sample_id}))
         else:
-            is_sample_id = bool(self._database.samples.find_one({"sample_id": sample_id}))
+            is_sample_id = bool(self._getDb().samples.find_one({"sample_id": sample_id}))
         return is_sample_id
 
     def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
@@ -687,13 +692,13 @@ class MongoDbStorage(StorageInterface):
         function_ids = list(
             map(
                 itemgetter("function_id"),
-                list(self._database.functions.find({"sample_id": sample_id}, {"function_id": 1, "_id": 0})),
+                list(self._getDb().functions.find({"sample_id": sample_id}, {"function_id": 1, "_id": 0})),
             )
         )  # ["function_id"]
         return self.getPicHashMatchesByFunctionIds(function_ids)
 
     def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
-        query_result = self._database.functions.find_one({"function_id": function_id}, {"_id": 0, "_pichash": 1})
+        query_result = self._getDb().functions.find_one({"function_id": function_id}, {"_id": 0, "_pichash": 1})
         if query_result is None or not "_pichash" in query_result:
             return None
         self._decodePichash(query_result, delete_old=False)
@@ -705,7 +710,7 @@ class MongoDbStorage(StorageInterface):
         sample_and_function_ids = set(
             map(
                 lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
-                list(self._database.functions.find({"_pichash": encoded_pichash}, {"family_id": 1, "sample_id": 1, "function_id":1, "_id": 0})),
+                list(self._getDb().functions.find({"_pichash": encoded_pichash}, {"family_id": 1, "sample_id": 1, "function_id":1, "_id": 0})),
             )
         )
 
@@ -713,7 +718,7 @@ class MongoDbStorage(StorageInterface):
 
     def getPicHashMatchesByFunctionIds(self, function_ids: List[int]) -> Dict[int, Set[Tuple[int, int, int]]]:
         # internal format!
-        pichash_raw = self._database.functions.find({"function_id": {"$in": function_ids}}, {"_pichash": 1, "_id": 0})
+        pichash_raw = self._getDb().functions.find({"function_id": {"$in": function_ids}}, {"_pichash": 1, "_id": 0})
         pichashes_list = list(pichash_raw)  # broken? TODO
         pichashes = {}
         fields_to_fetch =  {"family_id": 1, "sample_id": 1, "function_id":1, "_id": 0}
@@ -727,7 +732,7 @@ class MongoDbStorage(StorageInterface):
             pichashes[decoded_pichash] = set(
                 map(
                     lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
-                    list(self._database.functions.find({"_pichash": encoded_pichash}, fields_to_fetch)),
+                    list(self._getDb().functions.find({"_pichash": encoded_pichash}, fields_to_fetch)),
                 )
             )
         return pichashes
@@ -735,13 +740,13 @@ class MongoDbStorage(StorageInterface):
     def isFunctionId(self, function_id: int) -> bool:
         is_function_id = None
         if function_id < 0:
-            is_function_id = bool(self._database.query_functions.find_one({"function_id": function_id}))
+            is_function_id = bool(self._getDb().query_functions.find_one({"function_id": function_id}))
         else:
-            is_function_id = bool(self._database.functions.find_one({"function_id": function_id}))
+            is_function_id = bool(self._getDb().functions.find_one({"function_id": function_id}))
         return is_function_id
 
     def isFamilyId(self, family_id: int) -> bool:
-        return bool(self._database.families.find_one({"family_id": family_id}))
+        return bool(self._getDb().families.find_one({"family_id": family_id}))
 
     def addMinHash(self, minhash: "MinHash") -> bool:
         if minhash.function_id is None:
@@ -756,7 +761,7 @@ class MongoDbStorage(StorageInterface):
         set_command = {
             "$set": {"minhash": minhash.getMinHash().hex(), "minhash_shingle_composition": minhash.getComposition()}
         }
-        self._database["functions"].find_one_and_update({"function_id": minhash.function_id}, set_command)
+        self._getDb().functions.find_one_and_update({"function_id": minhash.function_id}, set_command)
         self._addMinHashToBands(minhash)
         return True
 
@@ -771,7 +776,7 @@ class MongoDbStorage(StorageInterface):
             }
             # TODO what happens if one of the function_ids is not found or minhash.function_id is not set?
             function_updates.append(UpdateOne({"function_id": minhash.function_id}, set_command))
-        self._database.functions.bulk_write(function_updates, ordered=False)
+        self._getDb().functions.bulk_write(function_updates, ordered=False)
         self._addMinHashesToBands(minhashes)
 
     # original implementation, already working
@@ -804,7 +809,7 @@ class MongoDbStorage(StorageInterface):
                         update_command = {"$pull": {"function_ids": {"$in": function_ids}}}
                 band_updates.append(UpdateOne({"band_hash": band_hash}, update_command, upsert=True))
             if band_updates:
-                self._database["band_%d" % band_number].bulk_write(band_updates, ordered=False)
+                self._getDb()["band_%d" % band_number].bulk_write(band_updates, ordered=False)
             num_band_updates += len(band_updates)
         return num_band_updates
 
@@ -823,7 +828,7 @@ class MongoDbStorage(StorageInterface):
                 band_hash_to_function_ids[band_number][band_hash].add(function_id)
         for band_number, band_hashes in target_band_hashes_per_band.items():
             match_query = {"$match": {"band_hash": {"$in": list(band_hashes)}}}
-            cursor = self._database["band_%d" % band_number].aggregate([match_query])
+            cursor = self._getDb()["band_%d" % band_number].aggregate([match_query])
             for hit in cursor:
                 reference_function_ids = band_hash_to_function_ids[band_number][hit["band_hash"]]
                 for function_id in reference_function_ids:
@@ -850,7 +855,7 @@ class MongoDbStorage(StorageInterface):
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
             band_hash_query = {"band_hash": band_hash}
-            band_document = self._database["band_%d" % band_number].find_one(band_hash_query)
+            band_document = self._getDb()["band_%d" % band_number].find_one(band_hash_query)
             if band_document:
                 for function_id in band_document["function_ids"]:
                     if function_id not in candidates:
@@ -871,7 +876,7 @@ class MongoDbStorage(StorageInterface):
         # process this in batches as the number of function_ids can be exceedingly large, pushing beyond Mongo's 16M limit
         for sliced_ids in zip_longest(*[iter(function_ids)]*500000):
             query_function_ids = [fid for fid in sliced_ids if fid is not None]
-            for function_document in self._database.functions.find(
+            for function_document in self._getDb().functions.find(
                 {"function_id": {"$in": list(query_function_ids)}}, {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1}
             ):
                 function_id = function_document["function_id"]
@@ -888,10 +893,10 @@ class MongoDbStorage(StorageInterface):
         return cache_data
 
     def deleteXcfgForSampleId(self, sample_id: int) -> None:
-        self._database.functions.update_many({"sample_id": sample_id}, {"$set": {"_xcfg": "{}"}})
+        self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"_xcfg": "{}"}})
 
     def deleteXcfgData(self) -> None:
-        self._database.functions.update_many({}, {"$set": {"_xcfg": "{}"}})
+        self._getDb().functions.update_many({}, {"$set": {"_xcfg": "{}"}})
 
     # TODO move to storage interface, remove this from memory storage?
     def getLibraryInfoForSampleId(self, sample_id: int) -> Optional[Dict[str, str]]:
@@ -905,7 +910,7 @@ class MongoDbStorage(StorageInterface):
     def isPicHash(self, pichash: int) -> bool:
         query = {"pichash": pichash}
         self._encodePichash(query)
-        return self._database.functions.find_one(query) is not None
+        return self._getDb().functions.find_one(query) is not None
 
     def getMatchesForPicHash(self, pichash: int) -> Set[Tuple[int, int, int]]:
         query = {"pichash": pichash}
@@ -913,13 +918,13 @@ class MongoDbStorage(StorageInterface):
         return set(
             map(
                 lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
-                list(self._database.functions.find(query, {"family_id": 1, "function_id": 1, "sample_id": 1, "_id": 0})),
+                list(self._getDb().functions.find(query, {"family_id": 1, "function_id": 1, "sample_id": 1, "_id": 0})),
             )
         )
 
     def getMatchesForPicBlockHash(self, picblockhash: int) -> Set[Tuple[int, int, int, int]]:
         query = {"_picblockhashes.hash": hex(picblockhash)}
-        result = self._database.functions.aggregate([
+        result = self._getDb().functions.aggregate([
             {"$match": query}, 
             {"$unwind": "$_picblockhashes"}, 
             {"$match": query}, 
@@ -966,16 +971,16 @@ class MongoDbStorage(StorageInterface):
         self._matching_cache = None
 
     def getFamilyId(self, family_name: str) -> Optional[int]:
-        family_document = self._database.families.find_one({"family_name": family_name})
+        family_document = self._getDb().families.find_one({"family_name": family_name})
         if family_document is None:
             return None
         return family_document["family_id"]
 
     def getFamilyIds(self) -> List[int]:
-        return self._database.families.find().distinct("family_id")
+        return self._getDb().families.find().distinct("family_id")
 
     def addFamily(self, family_name: str) -> int:
-        family_document = self._database.families.find_one({"family_name": family_name})
+        family_document = self._getDb().families.find_one({"family_name": family_name})
         if family_document is not None:
             return family_document["family_id"]
         family_id = self._useCounter("families")
@@ -985,7 +990,7 @@ class MongoDbStorage(StorageInterface):
         return family_id
 
     def getFamily(self, family_id: int) -> Optional[FamilyEntry]:
-        family_document = self._database.families.find_one({"family_id": family_id})
+        family_document = self._getDb().families.find_one({"family_id": family_id})
         if family_document is None:
             return None
         return FamilyEntry.fromDict(family_document)
@@ -995,9 +1000,9 @@ class MongoDbStorage(StorageInterface):
         if not with_xcfg:
             field_selection["_xcfg"] = 0
         if function_id < 0:
-            function_document = self._database.query_functions.find_one({"function_id": function_id}, field_selection)
+            function_document = self._getDb().query_functions.find_one({"function_id": function_id}, field_selection)
         else:
-            function_document = self._database.functions.find_one({"function_id": function_id}, field_selection)
+            function_document = self._getDb().functions.find_one({"function_id": function_id}, field_selection)
         if not function_document:
             return None
         self._decodeFunction(function_document)
@@ -1005,9 +1010,9 @@ class MongoDbStorage(StorageInterface):
 
     def getSampleById(self, sample_id: int) -> Optional["SampleEntry"]:
         if sample_id < 0:
-            sample_document = self._database.query_samples.find_one({"sample_id": sample_id}, {"_id": 0})
+            sample_document = self._getDb().query_samples.find_one({"sample_id": sample_id}, {"_id": 0})
         else:
-            sample_document = self._database.samples.find_one({"sample_id": sample_id}, {"_id": 0})
+            sample_document = self._getDb().samples.find_one({"sample_id": sample_id}, {"_id": 0})
         if not sample_document:
             return None
         return SampleEntry.fromDict(sample_document)
@@ -1017,20 +1022,20 @@ class MongoDbStorage(StorageInterface):
         # we will have to work around using .aggregate(), as a collection with unique pic hashes will easily exceed 16M
         # https://stackoverflow.com/questions/20348093/mongodb-aggregation-how-to-get-total-records-count
         num_unique_pichashes = 0
-        for result in self._database["functions"].aggregate([{"$group": {"_id": "$_pichash"}}, {"$count": "Total" }]):
+        for result in self._getDb().functions.aggregate([{"$group": {"_id": "$_pichash"}}, {"$count": "Total" }]):
             num_unique_pichashes = result["Total"]
         # use family statistics to derive relevant values
         stats = {
             "db_state": self._getDbState(),
             "num_families": 0,
             "num_samples": 0,
-            "num_query_samples": self._database.query_samples.estimated_document_count(),
-            "num_query_functions": self._database.query_functions.estimated_document_count(),
+            "num_query_samples": self._getDb().query_samples.estimated_document_count(),
+            "num_query_functions": self._getDb().query_functions.estimated_document_count(),
             "num_functions": 0,
             "num_bands": self._storage_config.STORAGE_NUM_BANDS,
             "num_pichashes": num_unique_pichashes,
         }
-        for family_document in self._database.families.find():
+        for family_document in self._getDb().families.find():
             stats["num_families"] += 1
             stats["num_samples"] += family_document["num_samples"]
             stats["num_functions"] += family_document["num_functions"]
@@ -1041,7 +1046,7 @@ class MongoDbStorage(StorageInterface):
         search_query = {}
         if function_ids is not None:
             search_query = {"function_id": {"$in": list(function_ids)}}
-        for function_document in self._database.functions.find(search_query, {"_id": 0}):
+        for function_document in self._getDb().functions.find(search_query, {"_id": 0}):
             if function_document["minhash"] == "":
                 if only_function_ids:
                     unhashed_functions.append(function_document["function_id"])
@@ -1057,18 +1062,18 @@ class MongoDbStorage(StorageInterface):
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
-            self._database[c].drop()
-            col = self._database[c]
-            self._database[c].create_index("band_hash")
+            self._getDb()[c].drop()
+            col = self._getDb()[c]
+            self._getDb()[c].create_index("band_hash")
         # re-add minhashes in batches
-        total_functions = self._database.functions.count_documents(filter={})
+        total_functions = self._getDb().functions.count_documents(filter={})
         minhash_functions = 0
         batch_size = 100000
         if progress_reporter:
             progress_reporter.set_total((total_functions // batch_size) + 1)
         for start_index in range(0, total_functions, batch_size):
             minhashes = []
-            for function_document in self._database.functions.find({}, {"function_id": 1, "minhash": 1, "_id": 0}).skip(start_index).limit(batch_size):
+            for function_document in self._getDb().functions.find({}, {"function_id": 1, "minhash": 1, "_id": 0}).skip(start_index).limit(batch_size):
                 if function_document["minhash"]:
                     function_id = function_document["function_id"]
                     minhash_bytes = bytes.fromhex(function_document["minhash"])
@@ -1095,7 +1100,7 @@ class MongoDbStorage(StorageInterface):
             "num_samples": len(sample_ids)
         }
         candidate_picblockhashes = {}
-        for entry in self._database.functions.find({"sample_id": {"$in": sample_ids}, "_picblockhashes": {"$exists": True, "$ne": [] }}, {"function_id": 1, "sample_id": 1, "_picblockhashes": 1, "_id": 0}):
+        for entry in self._getDb().functions.find({"sample_id": {"$in": sample_ids}, "_picblockhashes": {"$exists": True, "$ne": [] }}, {"function_id": 1, "sample_id": 1, "_picblockhashes": 1, "_id": 0}):
             sample_id = entry["sample_id"]
             for block_entry in entry["_picblockhashes"]:
                 block_hash = block_entry["hash"]
@@ -1117,9 +1122,9 @@ class MongoDbStorage(StorageInterface):
                 block_statistics["by_sample_id"][sample_id]["total_blocks"] += 1
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
         if progress_reporter is not None:
-            progress_reporter.set_total(self._database.functions.count_documents(filter={}))
+            progress_reporter.set_total(self._getDb().functions.count_documents(filter={}))
         # remove those that are not unique
-        for entry in self._database.functions.find({"_picblockhashes": {"$exists": True, "$ne": [] }}, {"sample_id": 1, "_picblockhashes": 1, "_id": 0}):
+        for entry in self._getDb().functions.find({"_picblockhashes": {"$exists": True, "$ne": [] }}, {"sample_id": 1, "_picblockhashes": 1, "_id": 0}):
             if progress_reporter is not None:
                 progress_reporter.step()
             sample_id = entry["sample_id"]
@@ -1154,7 +1159,7 @@ class MongoDbStorage(StorageInterface):
             if entry["function_id"] not in function_id_to_block_offsets:
                 function_id_to_block_offsets[entry["function_id"]] = []
             function_id_to_block_offsets[entry["function_id"]].append((entry["offset"], picblockhash))
-        for entry in self._database.functions.find({"function_id": {"$in": list(function_id_to_block_offsets.keys())}}, {"function_id": 1, "_xcfg": 1, "_id": 0}):
+        for entry in self._getDb().functions.find({"function_id": {"$in": list(function_id_to_block_offsets.keys())}}, {"function_id": 1, "_xcfg": 1, "_id": 0}):
             function_id = entry["function_id"]
             self._decodeXcfg(entry)
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
@@ -1192,7 +1197,7 @@ class MongoDbStorage(StorageInterface):
         search_fields = ["family_name"]
         query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for family_document in self._database.families.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
+        for family_document in self._getDb().families.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
             entry = FamilyEntry.fromDict(family_document)
             result_dict[family_document["family_id"]] = entry
         return result_dict
@@ -1203,7 +1208,7 @@ class MongoDbStorage(StorageInterface):
         conditional_field = ("sha256", lambda search_term: len(search_term)>=3)
         query = self._get_search_query(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for sample_document in self._database.samples.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
+        for sample_document in self._getDb().samples.find(query, {"_id":0}, sort=sort_list, limit=max_num_results):
             entry = SampleEntry.fromDict(sample_document)
             result_dict[entry.sample_id] = entry
         return result_dict
@@ -1214,7 +1219,7 @@ class MongoDbStorage(StorageInterface):
         search_fields = ["function_name"]
         query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for function_document in self._database.functions.find(query, {"_id":0, "_xcfg":0}, sort=sort_list, limit=max_num_results):
+        for function_document in self._getDb().functions.find(query, {"_id":0, "_xcfg":0}, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
             entry = FunctionEntry.fromDict(function_document)
             result_dict[entry.function_id] = entry

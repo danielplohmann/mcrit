@@ -33,6 +33,7 @@ class MinHashConfig(ConfigInterface):
     PICHASH_SIZE: int = 10
     # do not perform minhash matching for pichash matches, instead assume they are implied
     PICHASH_IMPLIES_MINHASH_MATCH: bool = True
+    # 
 
     def getConfigHash(self):
         config_str = ""

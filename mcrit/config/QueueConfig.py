@@ -13,6 +13,7 @@ class QueueConfig(ConfigInterface):
     # By default, MongoDbStorage's DB's name and MongoQueue's DB's name are both "mcrit"
     # Changing one DB name here or at runtime DOES NOT change the other name!
     QUEUE_MONGODB_DBNAME: str = "mcrit"
+    QUEUE_MONGODB_COLLECTION_NAME: str = "queue"
     QUEUE_PORT: ... = None
     QUEUE_TIMEOUT: int = 300
     QUEUE_MAX_ATTEMPTS: int = 3

@@ -6,6 +6,7 @@ from unittest import TestCase
 
 import pymongo
 from bson.json_util import dumps, loads
+from mcrit.config.QueueConfig import QueueConfig
 from mcrit.libs.mongoqueue import MongoQueue
 from mcrit.queue.LocalQueue import LocalQueue
 from mcrit.queue.QueueRemoteCalls import (
@@ -342,9 +343,10 @@ class LocalQueueRemoteCallTest(TestCase):
 class MongoQueueRemoteCallTest(LocalQueueRemoteCallTest):
     def setUp(self):
         self.client = pymongo.MongoClient(os.environ.get("TEST_MONGODB"))
-        self.db = self.client.test_queue_remote_calls
-        self.queue = MongoQueue(self.db.queue_1, "consumer_1")
-
+        queue_config = QueueConfig()
+        queue_config.QUEUE_MONGODB_DBNAME = "test_queue_remote_calls"
+        queue_config.QUEUE_MONGODB_COLLECTION_NAME = "queue_1"
+        self.queue = MongoQueue(queue_config, "consumer_1")
         self.caller = Caller(self.queue)
         self.queue.clean_interval = 1e100
         self.worker = myWorker(self.queue)

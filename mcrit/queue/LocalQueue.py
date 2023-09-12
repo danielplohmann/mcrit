@@ -348,3 +348,7 @@ class LocalQueue(object):
         for job in self._jobs.values():
             if job["result"] is None:
                 job["terminated"] = True
+
+    def next(self):
+        # this is a dummy, as we don't have an actual queue
+        return None

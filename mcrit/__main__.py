@@ -1,6 +1,6 @@
 import os
 import sys
-import platform
+
 
 def runWorker(profiling=False):
     from mcrit.Worker import Worker
@@ -9,14 +9,20 @@ def runWorker(profiling=False):
 
 
 def runServer(profiling=False):
+    import platform
     from waitress import serve
     from mcrit.server.wsgi import app
     from mcrit.config.GunicornConfig import GunicornConfig
-    from gunicorn.app.base import BaseApplication
+    try:
+        import gunicorn
+        from gunicorn.app.base import BaseApplication
+    except:
+        gunicorn = None
 
     class gunicornServer(BaseApplication):
         def __init__(self, app):
             self.app = app
+            super().__init__()
         
         def load_config(self):
             for key, value in GunicornConfig().toDict():
@@ -39,14 +45,14 @@ def runServer(profiling=False):
         )
     
     platform = platform.system().lower()
-    if platform == "linux":
-        print("[!] Detected linux platform. Using gunicorn deployment.")
+    if platform == "linux" and gunicorn is not None:
+        print("[!] Detected linux platform and gunicorn availability. Using gunicorn deployment.")
         gunicornServer(wrapped_app).run()
         sys.exit()
     elif platform == "windows":
         print("[!] Detected windows platform. Using waitress deployment.")
     else:
-        print("[!] Could not determine platform. Defaulting to waitress deployment.")
+        print("[!] Could not determine platform or gunicorn not available. Defaulting to waitress deployment.")
     # TODO consider allowing an argument to pass an configuration for initial setup of the instance
     serve(wrapped_app, listen="*:8000")
 
