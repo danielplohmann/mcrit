@@ -2,6 +2,7 @@ coverage
 dataclasses
 falcon>=2.0.0
 fastcluster
+gunicorn
 picblocks>=1.1.2
 pymongo
 pyparsing
@@ -14,4 +15,5 @@ scipy
 smda>=1.11.0
 tqdm
 waitress
+werkzeug
 rapidfuzz

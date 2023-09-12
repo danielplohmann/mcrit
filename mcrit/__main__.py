@@ -1,6 +1,6 @@
 import os
 import sys
-
+import platform
 
 def runWorker(profiling=False):
     from mcrit.Worker import Worker
@@ -11,6 +11,20 @@ def runWorker(profiling=False):
 def runServer(profiling=False):
     from waitress import serve
     from mcrit.server.wsgi import app
+    from mcrit.config.GunicornConfig import GunicornConfig
+    from gunicorn.app.base import BaseApplication
+
+    class gunicornServer(BaseApplication):
+        def __init__(self, app):
+            self.app = app
+        
+        def load_config(self):
+            for key, value in GunicornConfig().toDict():
+                self.cfg.set(key.lower(), value)
+
+        def load(self):
+            return self.app
+
     wrapped_app = app
     if profiling:
         print("[!] Running as profiled application.")
@@ -23,6 +37,16 @@ def runServer(profiling=False):
             profile_dir=profile_dir,
             filename_format="{method}-{path}-{time:.0f}-{elapsed:.0f}ms.prof",
         )
+    
+    platform = platform.system().lower()
+    if platform == "linux":
+        print("[!] Detected linux platform. Using gunicorn deployment.")
+        gunicornServer(wrapped_app).run()
+        sys.exit()
+    elif platform == "windows":
+        print("[!] Detected windows platform. Using waitress deployment.")
+    else:
+        print("[!] Could not determine platform. Defaulting to waitress deployment.")
     # TODO consider allowing an argument to pass an configuration for initial setup of the instance
     serve(wrapped_app, listen="*:8000")
 
