@@ -846,7 +846,7 @@ class MemoryStorage(StorageInterface):
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             self._bands[band_id] = {}
         # re-add minhashes in batches
-        batch_size = 100000
+        batch_size = self._minhash_config.MINHASH_BAND_REBUILD_WORK_PACKAGE_SIZE
         if progress_reporter:
             progress_reporter.set_total((len(minhashes) // batch_size) + 1)
         for minhash_batch in zip_longest(*[iter(minhashes)]*batch_size):

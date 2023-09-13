@@ -405,6 +405,9 @@ class NoProgressReporter:
     def step(self):
         pass
 
+    def get_total(self):
+        return 1
+
 
 class JobProgressReporter:
     def __init__(self, job, report_interval):
@@ -419,6 +422,9 @@ class JobProgressReporter:
     # If total is not set, progress will be reported as absolute number of steps.
     def set_total(self, total):
         self._total = total
+
+    def get_total(self):
+        return self._total
 
     def step(self):
         self._count += 1

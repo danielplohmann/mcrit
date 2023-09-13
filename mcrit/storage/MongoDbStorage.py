@@ -1068,7 +1068,7 @@ class MongoDbStorage(StorageInterface):
         # re-add minhashes in batches
         total_functions = self._getDb().functions.count_documents(filter={})
         minhash_functions = 0
-        batch_size = 100000
+        batch_size = self._minhash_config.MINHASH_BAND_REBUILD_WORK_PACKAGE_SIZE
         if progress_reporter:
             progress_reporter.set_total((total_functions // batch_size) + 1)
         for start_index in range(0, total_functions, batch_size):

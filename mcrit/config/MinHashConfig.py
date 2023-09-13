@@ -33,7 +33,14 @@ class MinHashConfig(ConfigInterface):
     PICHASH_SIZE: int = 10
     # do not perform minhash matching for pichash matches, instead assume they are implied
     PICHASH_IMPLIES_MINHASH_MATCH: bool = True
-    # 
+    # size of batches for which candidates are processed
+    MINHASH_MATCHING_FUNCTION_BATCH_SIZE = 10000
+    # size of candidate packs to be processed per work unit
+    MINHASH_MATCHING_CANDIDATE_WORKPACK_SIZE = 20000
+    # size of functions to be processed into minhashes per work iteration
+    MINHASH_GENERATION_WORKPACK_SIZE = 10000
+    # when rebuilding minhash bands, work in packs of this size
+    MINHASH_BAND_REBUILD_WORK_PACKAGE_SIZE = 100000
 
     def getConfigHash(self):
         config_str = ""

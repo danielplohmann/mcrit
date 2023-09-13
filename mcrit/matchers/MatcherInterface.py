@@ -156,8 +156,11 @@ class MatcherInterface(object):
         LOGGER.info("Calculated PicHash matches")
         all_minhash_matches = {}
         # if we have an exceedingly large number of functions, we need to process in batches...
-        for start_index in range(0, len(self._function_entries), 10000):
-            candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+10000)
+        quotient, remainder = divmod(len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
+        num_batches = quotient + int(bool(remainder)) # always round up
+        self._progress_reporter.set_total(num_batches)
+        for start_index in range(0, len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE):
+            candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
             LOGGER.info("Created candidate groups from MinHash bands")
             matching_cache = self._createMatchingCache(candidate_groups)
             LOGGER.info("Created MatchingCache")
@@ -168,6 +171,8 @@ class MatcherInterface(object):
             LOGGER.info("Now starting MinHash matching")
             minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
             all_minhash_matches.update(minhash_matches)
+            if num_batches > 1:
+                self._progress_reporter.step()
         LOGGER.info("Calculated MinHash matches.")
         matching_report = self._craftResultDict(pichash_matches, all_minhash_matches)
         LOGGER.info("Returning aggregated match report.")
@@ -183,7 +188,11 @@ class MatcherInterface(object):
         organized_matching_results: Dict[Tuple[int, int, int], Tuple[int, float]] = defaultdict(lambda: (-1, -1.0))
         packed_tuples = self._unrollGroupsAsPackedTuples(cache, candidate_groups)
         num_packed_tuples = self._countPackedTuples(candidate_groups)
-        self._progress_reporter.set_total(num_packed_tuples)
+        # progress reporter counts here in case calling function does not count
+        single_batch = False
+        if self._progress_reporter.get_total == 1:
+            self._progress_reporter.set_total(num_packed_tuples)
+            single_batch = True
         calculation_function = functools.partial(
             self._worker.minhasher.calculateScoresFromPackedTuples, ignore_threshold=True, minhash_threshold=self._minhash_threshold
         )
@@ -212,23 +221,24 @@ class MatcherInterface(object):
                 for key, new_value in pool_result.items():
                     original_value = organized_matching_results[key]
                     organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
-                self._progress_reporter.step()
+                if single_batch:
+                    self._progress_reporter.step()
         full_score_counts = sorted([(item[0]*64/100, item[1]) for item in dict(counted_scores).items()])
         LOGGER.info("Minhash Signature Field Match Counts: " + ", ".join([f"({i[0]}: {i[1]})" for i in full_score_counts]))
         matching_results = [k+v for k, v in organized_matching_results.items()]
         self._storage.clearMatchingCache()
         return matching_results
 
-    def _countPackedTuples(self, candidate_pairs, packsize=20000) -> int:
+    def _countPackedTuples(self, candidate_pairs) -> int:
         count = 0
         for candidate_ids in candidate_pairs.values():
             count += len(candidate_ids) 
-        quotient, remainder = divmod(count, packsize)
+        quotient, remainder = divmod(count, self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_CANDIDATE_WORKPACK_SIZE)
         LOGGER.info("Processing a total of %d candidates.", count)
         return quotient + int(bool(remainder)) # always round up
 
     def _unrollGroupsAsPackedTuples(
-        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs, packsize=20000
+        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs
     ) -> Iterable[List[Tuple[int, int, bytes, int, int, bytes]]]:
         # Query, VS, Sample
         # All were identical
@@ -244,15 +254,13 @@ class MatcherInterface(object):
                 sample_id_a = cache.getSampleIdByFunctionId(function_id_a)
                 sample_id_b = cache.getSampleIdByFunctionId(function_id_b)
                 current_pack.append((sample_id_a, function_id_a, minhash_a, sample_id_b, function_id_b, minhash_b))
-                if count < packsize:
+                if count < self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_CANDIDATE_WORKPACK_SIZE:
                     count += 1
                 else:
-                    # packed_tuples.append(current_pack)
                     yield current_pack
                     current_pack = []
                     count = 0
         if current_pack:
-            # packed_tuples.append(current_pack)
             yield current_pack
         return packed_tuples
 

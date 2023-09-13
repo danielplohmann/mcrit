@@ -182,7 +182,7 @@ class Worker(QueueRemoteCallee):
             unhashed_function_ids = self._storage.getUnhashedFunctions(None, only_function_ids=True)
             # to up to 10.000 function per batch
             LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_function_ids))
-            for sliced_ids in zip_longest(*[iter(unhashed_function_ids)]*10000):
+            for sliced_ids in zip_longest(*[iter(unhashed_function_ids)]*self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
                 unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
                 minhashes = self.calculateMinHashes(unhashed_functions, progress_reporter=progress_reporter)
@@ -191,7 +191,7 @@ class Worker(QueueRemoteCallee):
                     LOGGER.info("Updated minhashes for %d function entries.", len(minhashes))
         else:
             LOGGER.info("Updating MinHashes: %d function entries considered.", len(function_ids))
-            for sliced_ids in zip_longest(*[iter(function_ids)]*10000):
+            for sliced_ids in zip_longest(*[iter(function_ids)]*self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
                 unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
                 LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_functions))
