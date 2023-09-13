@@ -25,7 +25,7 @@ def runServer(profiling=False):
             super().__init__()
         
         def load_config(self):
-            for key, value in GunicornConfig().toDict():
+            for key, value in GunicornConfig().toDict().items():
                 self.cfg.set(key.lower(), value)
 
         def load(self):
