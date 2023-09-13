@@ -5,23 +5,6 @@ from setuptools import find_packages, setup
 with open("README.md") as f:
     README = f.read()
 
-requirements = [
-    "dataclasses",
-    "falcon>=2.0.0",
-    "fastcluster",
-    "mmh3>=2.5.1",
-    "numpy",
-    "picblocks>=1.1.2",
-    "pymongo",
-    "pyparsing>=3",
-    "requests",
-    "scipy",
-    "smda>=1.3.0",
-    "tqdm",
-    "waitress",
-    "rapidfuzz"
-]
-
 setup(
     name='mcrit',
     version="1.1.0",
@@ -33,7 +16,7 @@ setup(
     url='https://github.com/danielplohmann/mcrit',
     license="NU General Public License v3 (GPLv3)",
     packages=find_packages(exclude=("tests", "data", "docs", "examples", "plugins")),
-    install_requires=requirements,
+    install_requires=open("requirements.txt").read().splitlines(),
     data_files=[
         ("", ["LICENSE"]),
     ],
