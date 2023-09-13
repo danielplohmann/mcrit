@@ -2,7 +2,7 @@ coverage
 dataclasses
 falcon>=2.0.0
 fastcluster
-gunicorn
+gunicorn; platform_system != "Windows"
 picblocks>=1.1.2
 pymongo
 pyparsing>=3
