@@ -2,18 +2,18 @@ coverage
 dataclasses
 falcon>=2.0.0
 fastcluster
-gunicorn
+gunicorn; platform_system != "Windows"
 picblocks>=1.1.2
 pymongo
-pyparsing
+pyparsing>=3
 pytest
 pytest-cov
 mmh3>=2.5.1
 numpy
+rapidfuzz
 requests
 scipy
 smda>=1.11.0
 tqdm
 waitress
 werkzeug
-rapidfuzz
