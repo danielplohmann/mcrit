@@ -121,7 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
- * 2023-09-13 v1.1.2: Extracted some performance critical constants into parameters configurable in MinHashConfig and StorageConfig, fixed progress reporting for batched matching.
+ * 2023-09-13 v1.1.3: Extracted some performance critical constants into parameters configurable in MinHashConfig and StorageConfig, fixed progress reporting for batched matching, fixed usage of GunicornConfig to proper dataclass.
  * 2023-09-13 v1.1.1: Streamlined requirements / setup, excluded `gunicorn` for Windows (THX to @yankovs!!).
  * 2023-09-12 v1.1.0: For Linux deployments, MCRIT now uses `gunicorn` instead of `waitress` as WSGI server because of [much better performance](https://github.com/danielplohmann/mcrit/pull/39). As gunicorn needs its own config, this required bumping the minor versions (THX to @yankovs!!).
  * 2023-09-08 v1.0.21: All methods of McritClient now forward apitokens/usernames to the backend.
