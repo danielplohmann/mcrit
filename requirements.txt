@@ -10,10 +10,10 @@ pytest
 pytest-cov
 mmh3>=2.5.1
 numpy
+rapidfuzz
 requests
 scipy
 smda>=1.11.0
 tqdm
 waitress
 werkzeug
-rapidfuzz
