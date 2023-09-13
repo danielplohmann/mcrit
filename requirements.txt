@@ -5,7 +5,7 @@ fastcluster
 gunicorn
 picblocks>=1.1.2
 pymongo
-pyparsing
+pyparsing>=3
 pytest
 pytest-cov
 mmh3>=2.5.1
