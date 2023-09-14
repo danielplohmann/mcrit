@@ -4,6 +4,8 @@ from mcrit.config.ConfigInterface import ConfigInterface
 
 @dataclass
 class GunicornConfig(ConfigInterface):
+    # introduce a switch for gunicorn
+    USE_GUNICORN: bool = False
     # specified as "<host>:<port>" to be able to pass it easily into gunicorn config
     BIND: str = "0.0.0.0:8000"
     # The number of workers gunicorn will spin up

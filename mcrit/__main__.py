@@ -8,7 +8,7 @@ def runWorker(profiling=False):
     worker.run()
 
 
-def runServer(profiling=False):
+def runServer(profiling=False, uses_gunicorn=False):
     import platform
     from waitress import serve
     from mcrit.server.wsgi import app
@@ -45,14 +45,14 @@ def runServer(profiling=False):
         )
     
     platform = platform.system().lower()
-    if platform == "linux" and gunicorn is not None:
+    if platform == "linux" and gunicorn is not None and (GunicornConfig().USE_GUNICORN or uses_gunicorn):
         print("[!] Detected linux platform and gunicorn availability. Using gunicorn deployment.")
         gunicornServer(wrapped_app).run()
         sys.exit()
     elif platform == "windows":
         print("[!] Detected windows platform. Using waitress deployment.")
     else:
-        print("[!] Could not determine platform or gunicorn not available. Defaulting to waitress deployment.")
+        print("[!] Could not determine platform, gunicorn not available or activated. Defaulting to waitress deployment.")
     # TODO consider allowing an argument to pass an configuration for initial setup of the instance
     serve(wrapped_app, listen="*:8000")
 
@@ -67,10 +67,13 @@ def runClient():
 # do not use argparse for processing here to allow using argparse help for the more intricate things in McritConsole
 if len(sys.argv) >= 2:
     is_profiling = False
-    if len(sys.argv) >= 3 and sys.argv[2] == "--profile":
+    uses_gunicorn = False
+    if len(sys.argv) >= 3 and "--profile" in sys.argv[2:]:
         is_profiling = True
+    if len(sys.argv) >= 3 and "--gunicorn" in sys.argv[2:]:
+        uses_gunicorn = True
     if sys.argv[1] == "server":
-        runServer(profiling=is_profiling)
+        runServer(profiling=is_profiling, uses_gunicorn=uses_gunicorn)
     elif sys.argv[1] == "worker":
         runWorker(profiling=is_profiling)
     elif sys.argv[1] == "client":
