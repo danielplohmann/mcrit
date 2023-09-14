@@ -7,7 +7,7 @@ with open("README.md") as f:
 
 setup(
     name='mcrit',
-    version="1.1.3",
+    version="1.1.4",
     description='MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity.',
     long_description_content_type="text/markdown",
     long_description=README,
@@ -18,7 +18,7 @@ setup(
     packages=find_packages(exclude=("tests", "data", "docs", "examples", "plugins")),
     install_requires=open("requirements.txt").read().splitlines(),
     data_files=[
-        ("", ["LICENSE"]),
+        ("", ["LICENSE", "requirements.txt"]),
     ],
     classifiers=[
         "Development Status :: 4 - Beta",
