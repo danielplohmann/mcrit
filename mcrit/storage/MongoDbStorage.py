@@ -1110,7 +1110,7 @@ class MongoDbStorage(StorageInterface):
                         "length": block_entry["length"],
                         "function_id": entry["function_id"],
                         "sample_id": sample_id,
-                        "offset": self._decodeTwoComplement(block_entry["offset"]),
+                        "offset": decode_two_complement(block_entry["offset"]),
                         "instructions": [],
                         "escaped_sequence": "",
                         "score": 0
