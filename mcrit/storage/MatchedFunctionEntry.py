@@ -22,6 +22,7 @@ class MatchedFunctionEntry(object):
     matched_score: float
     matched_link_score: float
     matched_unique: bool
+    matched_offset: int
     match_is_minhash: bool
     match_is_pichash: bool
     match_is_library: bool
@@ -41,6 +42,7 @@ class MatchedFunctionEntry(object):
         self.matched_family = None
         self.matched_link_score = 0
         self.matched_unique = None
+        self.matched_offset = None
 
     def getMatchTuple(self):
         return [

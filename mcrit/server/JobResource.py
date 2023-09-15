@@ -38,7 +38,7 @@ class JobResource:
         for index, job_data in enumerate(queue_data):
             if index < start_job_id:
                 continue
-            if (limit_job_count == 0) or  (num_jobs_included < limit_job_count):
+            if (limit_job_count == 0) or (num_jobs_included < limit_job_count):
                 result_data.append(job_data)
                 num_jobs_included += 1
             else:

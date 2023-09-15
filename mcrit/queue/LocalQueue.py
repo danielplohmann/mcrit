@@ -14,17 +14,141 @@ LOGGER = logging.getLogger(__name__)
 
 # copied from mongoqueue
 class Job(object):
+    """
+    This class is also used to represent jobs to the outside
+    """
     def __init__(self, data, queue):
-        """ """
         self._data = data
         self._queue = queue
+        # All currently known remote jobs as implemented in the Worker, redundantly organized by various aspects
+        self._method_types = {
+            "matching": [
+                "combineMatchesToCross",
+                "getMatchesForSampleVs",
+                "getMatchesForSample",
+                "getMatchesForUnmappedBinary",
+                "getMatchesForMappedBinary",
+                "getMatchesForSmdaReport",
+                "getUniqueBlocks",
+            ],
+            "minhashing": [
+                "updateMinHashesForSample",
+                "updateMinHashes",
+                "rebuildIndex",
+            ],
+            "collection": [
+                "addBinarySample",
+                "deleteSample",
+                "modifySample",
+                "deleteFamily",
+                "modifyFamily",
+            ],
+            "sample_id": [
+                "getMatchesForSampleVs",
+                "getMatchesForSample",
+                "updateMinHashesForSample",
+                "deleteSample",
+                "modifySample",
+            ],
+            "family_id": [
+                "deleteFamily",
+                "modifyFamily",
+            ],
+            "all": [
+                "combineMatchesToCross",
+                "getMatchesForSampleVs",
+                "getMatchesForSample",
+                "getMatchesForUnmappedBinary",
+                "getMatchesForMappedBinary",
+                "getMatchesForSmdaReport",
+                "getUniqueBlocks",
+                "updateMinHashesForSample",
+                "updateMinHashes",
+                "rebuildIndex",
+                "addBinarySample",
+                "deleteSample",
+                "modifySample",
+                "deleteFamily",
+                "modifyFamily",
+            ]
+        }
 
     def __str__(self) -> str:
         return f"ID: {self.job_id} - {self.parameters} | created: {self.created_at}, finished: {self.finished_at}, result: {self.result}, progress: {self.progress}"
+    
+    @property
+    def family_id(self):
+        if self.method in self._method_types["family_id"]:
+            return int(self.arguments[0])
+
+    @property
+    def has_family_id(self):
+        if self.method in self._method_types["family_id"]:
+            return True
+        return False
+
+    @property
+    def sample_id(self):
+        if self.method in self._method_types["sample_id"]:
+            return int(self.arguments[0])
+
+    def has_sample_id(self, sample_id:int):
+        if self.method in self._method_types["sample_id"]:
+            if self.method == "getMatchesForSampleVs":
+                return int(self.arguments[0]) == sample_id or int(self.arguments[1]) == sample_id
+            else:
+                return int(self.arguments[0]) == sample_id
+
+    @property
+    def is_matching_job(self):
+        if self.method in self._method_types["matching"]:
+            return True
+        return False
+    
+    @property
+    def is_minhashing_job(self):
+        if self.method in self._method_types["minhashing"]:
+            return True
+        return False
+
+    @property
+    def is_collection_job(self):
+        if self.method in self._method_types["collection"]:
+            return True
+        return False
+
+    @property
+    def method(self):
+        if "payload" in self._data and "method" in self._data["payload"]:
+            return self._data["payload"]["method"]
 
     @property
     def payload(self):
         return self._data["payload"]
+
+    @property
+    def arguments(self):
+        combined_values = []
+        if "payload" in self._data and "params" in self._data["payload"] and "method" in self._data["payload"]:
+            payload_params = json.loads(self._data["payload"]["params"])
+            indexed_key_values = []
+            named_key_values = []
+            for k, v in payload_params.items():
+                try:
+                    int(k)
+                    indexed_key_values.append(v)
+                except:
+                    named_key_values.append(v)
+            combined_values = indexed_key_values + named_key_values
+        return combined_values
+
+    @property
+    def parameters(self):
+        method_str = ""
+        if "payload" in self._data and "params" in self._data["payload"] and "method" in self._data["payload"]:
+            method_str = self._data["payload"]["method"]
+            method_str += "(" + ", ".join([str(v) for v in self.arguments]) + ")"
+        return method_str
 
     @property
     def all_dependencies(self):
@@ -105,25 +229,6 @@ class Job(object):
     @property
     def progress(self):
         return self._data["progress"] if "progress" in self._data else 0
-
-    @property
-    def parameters(self):
-        method_str = ""
-        if "payload" in self._data and "params" in self._data["payload"] and "method" in self._data["payload"]:
-            payload_params = json.loads(self._data["payload"]["params"])
-            method_str = self._data["payload"]["method"]
-            indexed_key_values = []
-            named_key_values = []
-            for k, v in payload_params.items():
-                try:
-                    int(k)
-                    indexed_key_values.append(v)
-                except:
-                    named_key_values.append(v)
-            combined_values = indexed_key_values + named_key_values
-            method_str += "(" + ", ".join([str(v) for v in combined_values]) + ")"
-        return method_str
-
 
     # NOTE: This is a GridFS id, not the actual result
     @property

@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-09-15 v1.1.6: Bugfix in BlockMatching, convenience functionality for interacting with Job objects.
  * 2023-09-14 v1.1.5: Deactivated gunicorn as default WSGI handler for the time being due to issues with non-returning calls when handling compute-heavy calls.
  * 2023-09-14 v1.1.4: BUGFIX: Added `requirements.txt` to `data_files` in `setup.py` to ensure it's available for the package.
  * 2023-09-13 v1.1.3: Extracted some performance critical constants into parameters configurable in MinHashConfig and StorageConfig, fixed progress reporting for batched matching, BUGFIX: usage of GunicornConfig to proper dataclass.
