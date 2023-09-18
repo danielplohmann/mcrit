@@ -78,6 +78,7 @@ class MatcherInterface(object):
         self._sample_info: Optional[Dict] = None
         self._sample_id: Optional[int] = None
         self._progress_reporter = progress_reporter
+        self._num_batches = None
         self._minhash_threshold = minhash_threshold
         self._exclude_self_matches = exclude_self_matches
         if pichash_size is None:
@@ -155,25 +156,27 @@ class MatcherInterface(object):
         pichash_matches = self._harmonizePicHashMatches(self._getPicHashMatches())
         LOGGER.info("Calculated PicHash matches")
         all_minhash_matches = {}
-        # if we have an exceedingly large number of functions, we need to process in batches...
-        quotient, remainder = divmod(len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
-        num_batches = quotient + int(bool(remainder)) # always round up
-        self._progress_reporter.set_total(num_batches)
-        for start_index in range(0, len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE):
-            candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
-            LOGGER.info("Created candidate groups from MinHash bands")
-            matching_cache = self._createMatchingCache(candidate_groups)
-            LOGGER.info("Created MatchingCache")
-            if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
-                LOGGER.info("Removing PicHash matches")
-                candidate_groups = self.filter_pichashes_from_candidate_groups(matching_cache, candidate_groups, pichash_matches)
-                LOGGER.info("Removed PicHash matches from CandidateGroups")
-            LOGGER.info("Now starting MinHash matching")
-            minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
-            all_minhash_matches.update(minhash_matches)
-            if num_batches > 1:
-                self._progress_reporter.step()
-        LOGGER.info("Calculated MinHash matches.")
+        # only do minhashing, if we have bands to evaluate
+        if self._band_matches_required > 0:
+            # if we have an exceedingly large number of functions, we need to process in batches...
+            quotient, remainder = divmod(len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
+            self._num_batches = quotient + int(bool(remainder)) # always round up
+            self._progress_reporter.set_total(self._num_batches)
+            for start_index in range(0, len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE):
+                candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
+                LOGGER.info("Created candidate groups from MinHash bands")
+                matching_cache = self._createMatchingCache(candidate_groups)
+                LOGGER.info("Created MatchingCache")
+                if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
+                    LOGGER.info("Removing PicHash matches")
+                    candidate_groups = self.filter_pichashes_from_candidate_groups(matching_cache, candidate_groups, pichash_matches)
+                    LOGGER.info("Removed PicHash matches from CandidateGroups")
+                LOGGER.info("Now starting MinHash matching")
+                minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
+                all_minhash_matches.update(minhash_matches)
+                if self._num_batches > 1:
+                    self._progress_reporter.step()
+            LOGGER.info("Calculated MinHash matches.")
         matching_report = self._craftResultDict(pichash_matches, all_minhash_matches)
         LOGGER.info("Returning aggregated match report.")
         return matching_report
@@ -190,7 +193,7 @@ class MatcherInterface(object):
         num_packed_tuples = self._countPackedTuples(candidate_groups)
         # progress reporter counts here in case calling function does not count
         single_batch = False
-        if self._progress_reporter.get_total == 1:
+        if self._num_batches == 1:
             self._progress_reporter.set_total(num_packed_tuples)
             single_batch = True
         calculation_function = functools.partial(
@@ -213,7 +216,8 @@ class MatcherInterface(object):
                             new_value = (function_id_b, score)
                             original_value = organized_matching_results[key]
                             organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
-                    self._progress_reporter.step()
+                    if single_batch:
+                        self._progress_reporter.step()
         else:
             packed_tuple: List[Tuple[int, int, bytes, int, int, bytes]]
             for packed_tuple in tqdm.tqdm(packed_tuples, total=num_packed_tuples):

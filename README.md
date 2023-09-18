@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-09-18 v1.1.7: Bugfix: Tasking matching with 0 bands now deactivates minhash matching as it was supposed to be before. Also matching job progress percentage fixed.
  * 2023-09-15 v1.1.6: Bugfix in BlockMatching, convenience functionality for interacting with Job objects.
  * 2023-09-14 v1.1.5: Deactivated gunicorn as default WSGI handler for the time being due to issues with non-returning calls when handling compute-heavy calls.
  * 2023-09-14 v1.1.4: BUGFIX: Added `requirements.txt` to `data_files` in `setup.py` to ensure it's available for the package.

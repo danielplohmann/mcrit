@@ -308,7 +308,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         matcher = MatcherQueryFunction(self,
             minhash_threshold=None, 
             pichash_size=None, 
-            band_matches_required=None, 
+            band_matches_required=band_matches_required, 
             exclude_self_matches=False
         )
         # run Matcher for a single function
