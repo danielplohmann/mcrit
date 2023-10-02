@@ -26,7 +26,10 @@ def runServer(profiling=False, uses_gunicorn=False):
         
         def load_config(self):
             for key, value in GunicornConfig().toDict().items():
-                self.cfg.set(key.lower(), value)
+                try:
+                    self.cfg.set(key.lower(), value)
+                except AttributeError:
+                    continue
 
         def load(self):
             return self.app
