@@ -74,7 +74,9 @@ class MinHashingTestSuite(unittest.TestCase):
         assert len(filtered_result.getFunctionMatches(unfiltered=True)) == 719
         filtered_result = deepcopy(matching_result)
         filtered_result.filterToSampleCount(max_samples=1)
-        assert len(filtered_result.getFunctionMatches()) == 340
+        assert len(filtered_result.getFunctionMatches()) == 414
+        filtered_result.filterToSampleCount(min_samples=2)
+        assert len(filtered_result.getFunctionMatches()) == 0
         # filter by score / library
         filtered_result = deepcopy(matching_result)
         filtered_result.filterToFunctionScore(95)

@@ -226,7 +226,7 @@ class MatchingResult(object):
             if not function_match.function_id in matched_samples_by_function_id:
                 matched_samples_by_function_id[function_match.function_id] = []
             if not function_match.matched_sample_id in matched_samples_by_function_id[function_match.function_id]:
-                matched_samples_by_function_id[function_match.function_id].append(function_match.matched_family_id)
+                matched_samples_by_function_id[function_match.function_id].append(function_match.matched_sample_id)
         if min_samples is not None:
             self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) >= min_samples]
         if max_samples is not None:
