@@ -107,8 +107,10 @@ class MatchingResult(object):
             self.filterToFunctionScore(min_score=self.filter_values["filter_library_min_score"], library_only=True)
         if self.filter_values.get("filter_max_num_families", None):
             self.filterToFamilyCount(self.filter_values["filter_max_num_families"])
+        if self.filter_values.get("filter_min_num_samples", None):
+            self.filterToSampleCount(min_samples=self.filter_values["filter_min_num_samples"])
         if self.filter_values.get("filter_max_num_samples", None):
-            self.filterToSampleCount(self.filter_values["filter_max_num_samples"])
+            self.filterToSampleCount(max_samples=self.filter_values["filter_max_num_samples"])
         if self.filter_values.get("filter_function_min_score", None):
             self.filterToFunctionScore(min_score=self.filter_values["filter_function_min_score"])
         if self.filter_values.get("filter_function_max_score", None):
@@ -217,7 +219,7 @@ class MatchingResult(object):
         self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if not function_match.match_is_pichash]
         self.is_pic_filtered = True
 
-    def filterToSampleCount(self, max_sample_count):
+    def filterToSampleCount(self, min_samples=None, max_samples=None):
         """ reduce contained matches to those with a maximum of <max_sample_count> matched samples """
         matched_samples_by_function_id = {}
         for function_match in self.filtered_function_matches:
@@ -225,7 +227,10 @@ class MatchingResult(object):
                 matched_samples_by_function_id[function_match.function_id] = []
             if not function_match.matched_sample_id in matched_samples_by_function_id[function_match.function_id]:
                 matched_samples_by_function_id[function_match.function_id].append(function_match.matched_family_id)
-        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) <= max_sample_count]
+        if min_samples is not None:
+            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) >= min_samples]
+        if max_samples is not None:
+            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) <= max_samples]
         self.is_sample_count_filtered = True
 
     def filterToFamilyCount(self, max_family_count):
