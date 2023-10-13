@@ -4,8 +4,8 @@ import sys
 
 def runWorker(profiling=False):
     from mcrit.Worker import Worker
-    worker = Worker(profiling=profiling)
-    worker.run()
+    with Worker(profiling=profiling) as worker:
+        worker.run()
 
 
 def runServer(profiling=False, uses_gunicorn=False):

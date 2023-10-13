@@ -343,6 +343,12 @@ class MongoQueue(object):
         # delete jobs
         self._getCollection().delete_many(job_query)
 
+    def release_all_jobs(self):
+        # release all jobs associated with our consumer id if they are started, locked, but not finished.
+        self._getCollection().update_many(
+        filter={"locked_by": self.consumer_id, "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
+        update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}}
+        )
 
     def terminate_all_jobs(self):
         pass

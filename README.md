@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-10-13 v1.2.3: Workers will now de-register from in-progress jobs in case they crash (THX to @yankovs for the code template).
  * 2023-10-03 v1.2.2: MatchingResult filtering for min/max num samples (incl. fix).
  * 2023-10-02 v1.2.0: Milestone release for Virus Bulletin 2023.
  * 2023-09-18 v1.1.7: Bugfix: Tasking matching with 0 bands now deactivates minhash matching as it was supposed to be before. Also matching job progress percentage fixed.

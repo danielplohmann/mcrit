@@ -45,11 +45,12 @@ LOGGER = logging.getLogger(__name__)
 
 class Worker(QueueRemoteCallee):
     def __init__(self, queue=None, config=None, storage: Optional["StorageInterface"] = None, profiling=False):
+        self._worker_id = f"Worker-{uuid.uuid4()}"
         if config is None:
             config = McritConfig()
 
         if not queue:
-            queue = QueueFactory().getQueue(config, consumer_id="Worker-" + str(uuid.uuid4()))
+            queue = QueueFactory().getQueue(config, consumer_id=self._worker_id)
 
         if profiling:
             print("[!] Running as profiled application.")
@@ -69,6 +70,13 @@ class Worker(QueueRemoteCallee):
             self._storage = storage
         else:
             self._storage = StorageFactory.getStorage(config)
+
+    def  __enter__(self):
+        return self
+
+    def  __exit__(self, *args):
+        # TODO unregister our worker_id from all in-progress jobs found in the queue
+        self.queue.release_all_jobs()
 
     #### STORAGE IO ####
     def getStorage(self):
