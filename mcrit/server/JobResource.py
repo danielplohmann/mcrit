@@ -1,5 +1,6 @@
 import re
 import logging
+import datetime
 
 import falcon
 
@@ -16,6 +17,9 @@ class JobResource:
     @timing
     def on_get_collection(self, req, resp):
         # parse optional request parameters
+        method_filter = None
+        if "method" in req.params:
+            method_filter = req.params["method"]
         query_filter = None
         if "filter" in req.params:
             query_filter = req.params["filter"]
@@ -32,21 +36,38 @@ class JobResource:
             except:
                 pass
         # newest first
-        queue_data = reversed(self.index.getQueueData(filter=query_filter))
-        result_data = []
-        num_jobs_included = 0
-        for index, job_data in enumerate(queue_data):
-            if index < start_job_id:
-                continue
-            if (limit_job_count == 0) or (num_jobs_included < limit_job_count):
-                result_data.append(job_data)
-                num_jobs_included += 1
-            else:
-                break
-            if limit_job_count and num_jobs_included >= limit_job_count:
-                break
-        resp.data = jsonify({"status": "successful", "data": result_data})
+        queue_data = reversed(self.index.getQueueData(start_index=start_job_id, limit=limit_job_count, method=method_filter, filter=query_filter))
+        resp.data = jsonify({"status": "successful", "data": queue_data})
         db_log_msg(self.index, req, f"JobResource.on_get_collection - success.")
+
+    @timing
+    def on_delete_collection(self, req, resp):
+        # parse optional request parameters, to be used as an "AND" query
+        method_filter = None
+        if "method" in req.params:
+            method_filter = req.params["method"]
+        created_before = None
+        if "created_before" in req.params:
+            try:
+                if len(req.params["created_before"]) == 10:
+                    created_before = datetime.datetime.strptime(req.params["created_before"], "%Y-%m-%d")
+                else:
+                    created_before = datetime.datetime.strptime(req.params["created_before"], "%Y-%m-%dT%H:%M:%S")
+            except:
+                pass
+        finished_before = None
+        if "finished_before" in req.params:
+            try:
+                if len(req.params["finished_before"]) == 10:
+                    finished_before = datetime.datetime.strptime(req.params["finished_before"], "%Y-%m-%d")
+                else:
+                    finished_before = datetime.datetime.strptime(req.params["finished_before"], "%Y-%m-%dT%H:%M:%S")
+            except:
+                pass
+        # newest first
+        result = self.index.deleteQueueData(method=method_filter, created_before=created_before, finished_before=finished_before)
+        resp.data = jsonify({"status": "successful", "data": {"num_deleted": result}})
+        db_log_msg(self.index, req, f"JobResource.on_delete_collection - success.")
 
     @timing
     def on_get(self, req, resp, job_id=None):
@@ -61,6 +82,20 @@ class JobResource:
         # resp.status = falcon.HTTP_404
         resp.data = jsonify({"status": "successful", "data": data})
         db_log_msg(self.index, req, f"JobResource.on_get - success.")
+
+    @timing
+    def on_delete(self, req, resp, job_id=None):
+        # validate that we only allow hexstrings with 24 chars
+        if not re.match("[a-fA-F0-9]{24}", job_id):
+            resp.status = falcon.HTTP_400
+            resp.data = jsonify({"status": "failed", "data": {"message": "Valid JobIDs are hexstrings with 24 characters."}})
+            db_log_msg(self.index, req, f"JobResource.on_delete - failed - invalid job_id.")
+            return  
+        result = self.index.deleteJob(job_id)
+        # TODO throw 404 if job_id is unknown
+        # resp.status = falcon.HTTP_404
+        resp.data = jsonify({"status": "successful", "data": {"num_deleted": result}})
+        db_log_msg(self.index, req, f"JobResource.on_delete - success.")
 
     @timing
     def on_get_results(self, req, resp, result_id=None):

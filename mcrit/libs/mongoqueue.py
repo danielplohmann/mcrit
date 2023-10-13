@@ -16,7 +16,7 @@
 import json
 import traceback
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import gridfs
 import pymongo
@@ -91,6 +91,7 @@ class MongoQueue(object):
 
     def _ensure_indices(self):
         # should only be called, after self.collection has been initiated
+        self.collection.create_index("payload.method")
         self.collection.create_index("payload.descriptor")
         self.fs_files.create_index("metadata.sha256")
 
@@ -234,15 +235,49 @@ class MongoQueue(object):
 
         return dict(zip(["available", "locked", "errors", "total"], counts))
 
-    def get_jobs(self):
+    def get_jobs(self, start_index: int, limit: int, method=None) -> Optional[List["Job"]]:
         jobs = []
-        for job_document in self._getCollection().find():
+        query_filter = {} if method == None else {"payload.method": method}
+        for job_document in self._getCollection().find(query_filter).skip(start_index).limit(limit):
             jobs.append(self._wrap_one(job_document))
         return jobs
 
     def get_job(self, job_id):
         job_id = ObjectId(job_id)
         return self._wrap_one(self._getCollection().find_one({"_id": job_id}))
+
+    def delete_job(self, job_id):
+        job_id = ObjectId(job_id)
+        result = self._getCollection().delete_one({"_id": job_id})
+        return result.deleted_count
+
+    def delete_jobs(self, method=None, created_before=None, finished_before=None):
+        filter_count = len([1 for item in [method, created_before, finished_before] if item is not None])
+        combined_filter = {"$and": []} if filter_count > 1 else {}
+        method_filter = {}
+        created_filter = {}
+        finished_filter = {}
+        if method is not None:
+            method_filter = {"payload.method": method}
+            if filter_count > 1:
+                combined_filter["$and"].append(method_filter)
+            else:
+                combined_filter = method_filter
+        if created_before is not None:
+            created_filter = {"created_at": {"$lt": created_before}}
+            if filter_count > 1:
+                combined_filter["$and"].append(created_filter)
+            else:
+                combined_filter = created_filter
+        elif finished_before is not None:
+            finished_filter = {"finished_at": {"$lt": finished_before}}
+            if filter_count > 1:
+                combined_filter["$and"].append(finished_filter)
+            else:
+                combined_filter = finished_filter
+        print(f"delete_jobs: {combined_filter}")
+        result = self._getCollection().delete_many(combined_filter)
+        return result.deleted_count
 
     def _file_to_grid(self, binary, metadata=None):
         object_id = self._getFs().put(binary, metadata=metadata)

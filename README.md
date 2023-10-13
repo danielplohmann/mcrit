@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-10-13 v1.2.4: Exposed Queue/Job Deletion to REST interface, improved query speed for various queue lookups via indexing and parameterized mongodb queries.
  * 2023-10-13 v1.2.3: Workers will now de-register from in-progress jobs in case they crash (THX to @yankovs for the code template).
  * 2023-10-03 v1.2.2: MatchingResult filtering for min/max num samples (incl. fix).
  * 2023-10-02 v1.2.0: Milestone release for Virus Bulletin 2023.

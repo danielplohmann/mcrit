@@ -30,16 +30,24 @@ class BaseRemoteCallerClass:
         # -> either return "Done" with result / where to find result, OR NotFound
         pass
 
-    def getQueueData(self, filter=None):
-        LOGGER.debug(f"getQueueData(filter={filter}):")
+    def getQueueData(self, start_index: int, limit: int, method=None, filter=None):
+        LOGGER.debug(f"getQueueData(start_index={start_index}, limit={method}, filter={method}, filter={filter}):")
         if filter is not None:
             # TODO apply filter to more fields
-            return [job._data for job in self.queue.get_jobs() if filter in job.parameters]
-        return [job._data for job in self.queue.get_jobs()]
+            return [job._data for job in self.queue.get_jobs(start_index, limit, method) if filter in job.parameters]
+        return [job._data for job in self.queue.get_jobs(start_index, limit, method)]
+    
+    def deleteQueueData(self, method=None, created_before=None, finished_before=None):
+        LOGGER.debug(f"getQueueData(filter={method}, filter={filter}, created_before={created_before}, finished_before={finished_before}):")
+        return self.queue.delete_jobs(method=method, created_before=created_before, finished_before=finished_before)
 
     def getJob(self, job_id):
         LOGGER.debug("GetJob: %s", job_id)
         return self.queue.get_job(job_id)
+
+    def deleteJob(self, job_id):
+        LOGGER.debug("DeleteJob: %s", job_id)
+        return self.queue.delete_job(job_id)
 
     def getJobData(self, job_id):
         LOGGER.debug("GetJobData: %s", job_id)

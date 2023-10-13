@@ -305,6 +305,14 @@ class LocalQueue(object):
         data = self._jobs[job_id]
         return data and Job(data, self)
 
+    def get_jobs(self, start_index: int, limit: int, method=None):
+        jobs = []
+        for job_id, job_document in self._jobs.items():
+            if method is not None and job_document["payload"]["method"] != method:
+                continue
+            jobs.append(Job(job_document, self))
+        return jobs[start_index:start_index+limit]
+
     def get_cached_job_id(self, payload):
         return self._descriptor_to_job[payload["descriptor"]]
 
@@ -411,7 +419,9 @@ class LocalQueue(object):
         self.terminate_all_jobs()
         self._setup_empty_queue()
 
-    def _delete_job(self, id):
+    def delete_job(self, id):
+        if id not in self._jobs:
+            return 0
         job = self._jobs[id]
         result = job["result"]
         file_params = json.loads(job["payload"]["file_params"])
@@ -424,8 +434,23 @@ class LocalQueue(object):
             meta = self._grid_to_meta(f)
             LOGGER.debug("Job meta: %s", meta)
             meta["jobs"].remove(id)
-
+        return 1
     delete_history = []
+
+    def delete_jobs(self, method=None, created_before=None, finished_before=None):
+        delete_list = []
+        deleted_count = 0
+        for d in self._jobs.values():
+            if d["payload"]["method"] is not None and d["payload"]["method"] != method:
+                continue
+            if d["created_at"] is not None and d["created_at"] >= finished_before:
+                continue
+            if d["finished_at"] is not None and d["finished_at"] >= finished_before:
+                continue
+            delete_list.append(d["_id"])
+        for id in delete_list:
+            deleted_count += self.delete_job(id)
+        return deleted_count
 
     def clean(self):
         time_threshold = datetime.now() - timedelta(seconds=self.cache_time)
@@ -438,7 +463,7 @@ class LocalQueue(object):
         LOGGER.debug("Perfomed clean, delete_history now has %d entries.", len(self.delete_history))
 
         for id in delete_list:
-            self._delete_job(id)
+            self.delete_job(id)
 
         delete_list = []
         for id, meta in self._files_meta.items():

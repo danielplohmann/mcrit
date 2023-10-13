@@ -2,6 +2,7 @@ import functools
 import time
 import json
 import logging
+import datetime
 from typing import Dict, List, Optional, Tuple
 
 import requests
@@ -564,7 +565,7 @@ class McritClient:
         if data is not None:
             return len(data)
 
-    def getQueueData(self, start=0, limit=0, filter=None):
+    def getQueueData(self, start=0, limit=0, method=None, filter=None):
         """
         Get queue data, optionally from <start> and <limit> many
         Supported by mcritweb API pass-through
@@ -580,6 +581,11 @@ class McritClient:
                 query_string = f"?limit={limit}"
             else:
                 query_string += f"&limit={limit}"
+        if isinstance(method, str) and method is not None:
+            if len(query_string) == 0:
+                query_string = f"?method={method}"
+            else:
+                query_string += f"&method={method}"
         if isinstance(filter, str) and filter is not None:
             if len(query_string) == 0:
                 query_string = f"?filter={filter}"
@@ -591,6 +597,42 @@ class McritClient:
         data = handle_response(response)
         if data is not None:
             return [Job(job_data, None) for job_data in data]
+
+    def deleteQueueData(self, method=None, created_before=None, finished_before=None):
+        """
+        Delete Jobs that match given provided criteria
+        Supported by mcritweb API pass-through
+        """
+        query_string = ""
+        if isinstance(method, str) and method is not None:
+            if len(query_string) == 0:
+                query_string = f"?method={method}"
+            else:
+                query_string += f"&method={method}"
+        if isinstance(created_before, datetime.datetime) and created_before is not None:
+            if len(query_string) == 0:
+                query_string = f"?created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
+            else:
+                query_string += f"&created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
+        if isinstance(finished_before, datetime.datetime) and finished_before is not None:
+            if len(query_string) == 0:
+                query_string = f"?finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
+            else:
+                query_string += f"&finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
+        response = requests.delete(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+
+    def deleteJob(self, job_id):
+        """
+        Delete the Job for a given <job_id>
+        Supported by mcritweb API pass-through
+        """
+        response = requests.delete(f"{self.mcrit_server}/jobs/{job_id}", headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
 
     def getJobData(self, job_id):
         """
