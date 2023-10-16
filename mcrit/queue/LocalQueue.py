@@ -21,14 +21,18 @@ class Job(object):
         self._data = data
         self._queue = queue
         # All currently known remote jobs as implemented in the Worker, redundantly organized by various aspects
-        self._method_types = {
+        self.method_types = {
             "matching": [
-                "combineMatchesToCross",
-                "getMatchesForSampleVs",
                 "getMatchesForSample",
+                "getMatchesForSampleVs",
+                "combineMatchesToCross",
+            ],
+            "query": [
                 "getMatchesForUnmappedBinary",
                 "getMatchesForMappedBinary",
                 "getMatchesForSmdaReport",
+            ],
+            "blocks": [
                 "getUniqueBlocks",
             ],
             "minhashing": [
@@ -78,22 +82,22 @@ class Job(object):
     
     @property
     def family_id(self):
-        if self.method in self._method_types["family_id"]:
+        if self.method in self.method_types["family_id"]:
             return int(self.arguments[0])
 
     @property
     def has_family_id(self):
-        if self.method in self._method_types["family_id"]:
+        if self.method in self.method_types["family_id"]:
             return True
         return False
 
     @property
     def sample_id(self):
-        if self.method in self._method_types["sample_id"]:
+        if self.method in self.method_types["sample_id"]:
             return int(self.arguments[0])
 
     def has_sample_id(self, sample_id:int):
-        if self.method in self._method_types["sample_id"]:
+        if self.method in self.method_types["sample_id"]:
             if self.method == "getMatchesForSampleVs":
                 return int(self.arguments[0]) == sample_id or int(self.arguments[1]) == sample_id
             else:
@@ -101,19 +105,31 @@ class Job(object):
 
     @property
     def is_matching_job(self):
-        if self.method in self._method_types["matching"]:
+        if self.method in self.method_types["matching"]:
             return True
         return False
     
     @property
     def is_minhashing_job(self):
-        if self.method in self._method_types["minhashing"]:
+        if self.method in self.method_types["minhashing"]:
+            return True
+        return False
+
+    @property
+    def is_query_job(self):
+        if self.method in self.method_types["query"]:
+            return True
+        return False
+    
+    @property
+    def is_block_job(self):
+        if self.method in self.method_types["blocks"]:
             return True
         return False
 
     @property
     def is_collection_job(self):
-        if self.method in self._method_types["collection"]:
+        if self.method in self.method_types["collection"]:
             return True
         return False
 
