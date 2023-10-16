@@ -41,6 +41,15 @@ class JobResource:
         db_log_msg(self.index, req, f"JobResource.on_get_collection - success.")
 
     @timing
+    def on_get_stats(self, req, resp):
+        query_with_refresh
+        if "with_refresh" in req.params:
+            query_with_refresh = req.params["with_refresh"].lower().strip() == "true"
+        queue_data = self.index.getQueueStats(refresh=query_with_refresh)
+        resp.data = jsonify({"status": "successful", "data": queue_data})
+        db_log_msg(self.index, req, f"JobResource.on_get_stats - success.")
+
+    @timing
     def on_delete_collection(self, req, resp):
         # parse optional request parameters, to be used as an "AND" query
         method_filter = None

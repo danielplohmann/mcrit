@@ -298,6 +298,18 @@ class LocalQueue(object):
         self._descriptor_to_job = defaultdict(lambda: None)
         self._hash_to_file = defaultdict(lambda: None)
 
+    def registerWorker(self):
+        # left empty, as we only have one worker in local mode
+        pass
+
+    def unregisterWorker(self):
+        # left empty, as we only have one worker in local mode
+        pass
+
+    def getQueueStatistics(self):
+        # we don't track stats for the volatile local mode
+        return {}
+
     def set_worker(self, worker):
         self._worker = worker
 

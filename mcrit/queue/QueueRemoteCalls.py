@@ -30,34 +30,38 @@ class BaseRemoteCallerClass:
         # -> either return "Done" with result / where to find result, OR NotFound
         pass
 
+    def getQueueStats(self, refresh=False):
+        LOGGER.debug(f"called getQueueStats()")
+        return self.queue.getQueueStatistics(refresh=refresh)
+
     def getQueueData(self, start_index: int, limit: int, method=None, filter=None):
-        LOGGER.debug(f"getQueueData(start_index={start_index}, limit={method}, filter={method}, filter={filter}):")
+        LOGGER.debug(f"called getQueueData(start_index={start_index}, limit={method}, filter={method}, filter={filter}):")
         if filter is not None:
             # TODO apply filter to more fields
             return [job._data for job in self.queue.get_jobs(start_index, limit, method) if filter in job.parameters]
         return [job._data for job in self.queue.get_jobs(start_index, limit, method)]
     
     def deleteQueueData(self, method=None, created_before=None, finished_before=None):
-        LOGGER.debug(f"getQueueData(filter={method}, filter={filter}, created_before={created_before}, finished_before={finished_before}):")
+        LOGGER.debug(f"called getQueueData(filter={method}, filter={filter}, created_before={created_before}, finished_before={finished_before}):")
         return self.queue.delete_jobs(method=method, created_before=created_before, finished_before=finished_before)
 
     def getJob(self, job_id):
-        LOGGER.debug("GetJob: %s", job_id)
+        LOGGER.debug("called GetJob: %s", job_id)
         return self.queue.get_job(job_id)
 
     def deleteJob(self, job_id):
-        LOGGER.debug("DeleteJob: %s", job_id)
+        LOGGER.debug("called DeleteJob: %s", job_id)
         return self.queue.delete_job(job_id)
 
     def getJobData(self, job_id):
-        LOGGER.debug("GetJobData: %s", job_id)
+        LOGGER.debug("called GetJobData: %s", job_id)
         return self.queue.get_job(job_id)._data
 
     def getResultForJob(self, job_id):
         result = None
         res_id = self.queue.get_job(job_id).result
         if res_id is not None:
-            LOGGER.debug("GetResultForJob: %s -> %s", job_id, res_id)
+            LOGGER.debug("called GetResultForJob: %s -> %s", job_id, res_id)
             result = self.queue._grid_to_dicts(res_id)
         return result
 
@@ -66,7 +70,7 @@ class BaseRemoteCallerClass:
         meta = self.queue._grid_to_meta(result_id)
         if meta is not None and "job" in meta:
             job_id = meta["job"]
-            LOGGER.debug("getJobIdForResult: %s -> %s", result_id, job_id)
+            LOGGER.debug("called getJobIdForResult: %s -> %s", result_id, job_id)
         return job_id
 
     def getResult(self, res_id):

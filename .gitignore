@@ -72,5 +72,6 @@ examples/cross_compare/reports/
 examples/cross_compare/*.csv
 data/*
 diagnosis/*
+experiments/*
 
 profiler

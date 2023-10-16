@@ -565,6 +565,20 @@ class McritClient:
         if data is not None:
             return len(data)
 
+    def getQueueStatistics(self, with_refresh=False):
+        """
+        Get a summary of queue statistics
+        Supported by mcritweb API pass-through
+        """
+        query_string = ""
+        if with_refresh:
+            if len(query_string) == 0:
+                query_string = f"?with_refresh=True"
+        response = requests.get(f"{self.mcrit_server}/jobs/stats/{query_string}", headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+        
     def getQueueData(self, start=0, limit=0, method=None, filter=None):
         """
         Get queue data, optionally from <start> and <limit> many

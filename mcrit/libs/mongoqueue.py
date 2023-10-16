@@ -56,6 +56,8 @@ class MongoQueue(object):
         """ """
         self.queue_config = queue_config
         self.collection = None
+        self.queue_counters = None
+        self.queue_counters_initialized = False
         self.consumer_id = consumer_id
         self.timeout = timeout
         self.max_attempts = max_attempts
@@ -72,6 +74,11 @@ class MongoQueue(object):
             self.collection = db[self.queue_config.QUEUE_MONGODB_DBNAME][self.queue_config.QUEUE_MONGODB_COLLECTION_NAME]
             self.fs = gridfs.GridFS(self.collection.database)
             self.fs_files = self.collection.database["fs.files"]
+            self.queue_counters = db[self.queue_config.QUEUE_MONGODB_DBNAME][self.queue_config.QUEUE_MONGODB_COLLECTION_NAME + "_counters"]
+            self.queue_counters_initialized = self.queue_counters.find_one({"last_updated": {"$ne": None}})
+            if not self.queue_counters_initialized:
+                self.refreshCounters()
+            self.registerWorker()
             self._ensure_indices()
         return self.collection
     
@@ -94,6 +101,78 @@ class MongoQueue(object):
         self.collection.create_index("payload.method")
         self.collection.create_index("payload.descriptor")
         self.fs_files.create_index("metadata.sha256")
+
+    def _identifyJobState(self, doc):
+        # started_at and not finished_at or terminated -> in_progress
+        if doc["started_at"] and doc["locked_by"] and not (doc["finished_at"] or doc["terminated"]):
+            return "in_progress"
+        # attempts_left == 0 and not finished_at and not terminated -> failed
+        elif doc["attempts_left"] == 0 and not doc["finished_at"] and not doc["terminated"]:
+            return "failed"
+        # not finished_at, not locked_by -> queued
+        elif not doc["finished_at"] and not doc["locked_by"] and not doc["terminated"]:
+            return "queued"
+        # finished_at and not terminated -> finished
+        elif doc["finished_at"] and not doc["terminated"]:
+            return "finished"
+        # terminated -> terminated
+        elif doc["terminated"]:
+            return "terminated"
+        return "unknown"
+    
+    def getQueueStatistics(self, refresh=False):
+        self._getCollection()
+        if refresh:
+            self.refreshCounters()
+        statistics = {}
+        for doc in self.queue_counters.find({}, {"_id": 0}):
+            if "name" in doc and doc["name"] != "workers":
+                name = doc.pop("name")
+                statistics[name] = doc
+        return statistics
+
+    def refreshCounters(self):
+        aggregated = {}
+        for doc in self.collection.find():
+            method = doc["payload"]["method"]
+            if method not in aggregated:
+                aggregated[method] = {
+                    "queued": 0,
+                    "failed": 0,
+                    "in_progress": 0,
+                    "finished": 0,
+                    "terminated": 0
+                }
+            state = self._identifyJobState(doc)
+            aggregated[method][state] += 1
+        for key, counters in aggregated.items():
+            self.queue_counters.update_one({"name": key}, {"$set": counters}, upsert=True)
+        self.queue_counters.update_one({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True)
+
+    def updateQueueCounter(self, method, state, value):
+        self._getCollection()
+        self.queue_counters.update_one({"name": method}, {"$inc": {state: value}}, upsert=True)
+        # could probably also be done in one line with an aggregator update
+        if value < 0:
+            self.queue_counters.update_one({"name": method, state: {"$lt": 0}}, {"$set": {state: 0}})
+        self.queue_counters.update_one({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True)
+        return
+
+    def registerWorker(self):
+        if self.consumer_id != "index":
+            self.queue_counters.find_one_and_update(
+                {"name": "workers"},
+                {"$push": {"workers": self.consumer_id}},
+                upsert=True
+            )
+
+    def unregisterWorker(self):
+        if self.queue_counters is not None:
+            self.queue_counters.find_one_and_update(
+                {"name": "workers"},
+                {"$pull": {"workers": self.consumer_id}},
+                upsert=True
+            )
 
     def close(self):
         """Close the in memory queue connection."""
@@ -142,6 +221,7 @@ class MongoQueue(object):
             job_id = insert_result.inserted_id
             for child_job_id in await_jobs_set:
                 self._notify_on_done(child_job_id, job_id)
+            self.updateQueueCounter(payload["method"], "queued", 1)
             return job_id
         return None
 
@@ -173,8 +253,7 @@ class MongoQueue(object):
 
     def next(self):
         current_time = datetime.now()
-        return self._wrap_one(
-            self._getCollection().find_one_and_update(
+        job =  self._getCollection().find_one_and_update(
                 filter={
                     "locked_by": None,
                     "locked_at": None,
@@ -187,7 +266,10 @@ class MongoQueue(object):
                 new=1,
                 # limit=1
             )
-        )
+        if job:
+            self.updateQueueCounter(job["payload"]["method"], "in_progress", 1)
+            self.updateQueueCounter(job["payload"]["method"], "queued", -1)
+        return self._wrap_one(job)
 
     def _jobs_to_do(self):
         return self._getCollection().find(
@@ -248,6 +330,9 @@ class MongoQueue(object):
 
     def delete_job(self, job_id):
         job_id = ObjectId(job_id)
+        job = self._getCollection().find_one({"_id": job_id})
+        if job:
+            self.updateQueueCounter(job["payload"]["method"], self._identifyJobState(job), -1)
         result = self._getCollection().delete_one({"_id": job_id})
         return result.deleted_count
 
@@ -276,7 +361,9 @@ class MongoQueue(object):
             else:
                 combined_filter = finished_filter
         print(f"delete_jobs: {combined_filter}")
+        # run find() first to determine how many jobs of which method will be deleted
         result = self._getCollection().delete_many(combined_filter)
+        # TODO update counters - accordingly to find result, if result.deleted_count matches expectation
         return result.deleted_count
 
     def _file_to_grid(self, binary, metadata=None):
@@ -342,6 +429,8 @@ class MongoQueue(object):
         )
 
     def clean(self):
+        # TODO consider a good way to implement this
+        # we probably do not want to drop matches and their results automatically, which would be the case right now
         time_threshold = datetime.now() - timedelta(seconds=self.cache_time)
         job_query = {"finished_at": {"$lt": time_threshold}}
         to_delete = self._getCollection().find(job_query)
@@ -496,6 +585,8 @@ class Job(object):
             update={"$set": {"finished_at": datetime.now(), "result": self._data["result"], "progress": 1}},
             return_document=ReturnDocument.AFTER
         )
+        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
+        self._queue.updateQueueCounter(job["payload"]["method"], "finished", 1)
         self._queue._notify_dependent_jobs(str(job["_id"]))
         return job 
 
@@ -506,8 +597,13 @@ class Job(object):
             update={"$set": {"locked_by": None, "locked_at": None, "last_error": message}, "$inc": {"attempts_left": -1}},
             return_document=ReturnDocument.AFTER
         )
+        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
+        self._queue.updateQueueCounter(job["payload"]["method"], "queued", 1)
         if job["attempts_left"] <= 0:
             self._queue._notify_dependent_jobs(self, str(job["_id"]))
+            self._queue.updateQueueCounter(job["payload"]["method"], "queued", -1)
+            self._queue.updateQueueCounter(job["payload"]["method"], "failed", 1)
+
 
     def progressor(self, count=0):
         """note progress on a long running task."""
@@ -519,11 +615,18 @@ class Job(object):
 
     def release(self):
         """put the job back into_queue."""
-        return self._queue.collection.find_one_and_update(
+        job = self._queue.collection.find_one_and_update(
             filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
             update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
             return_document=ReturnDocument.AFTER
         )
+        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
+        self._queue.updateQueueCounter(job["payload"]["method"], "queued", 1)
+        if job["attempts_left"] <= 0:
+            self._queue._notify_dependent_jobs(self, str(job["_id"]))
+            self._queue.updateQueueCounter(job["payload"]["method"], "queued", -1)
+            self._queue.updateQueueCounter(job["payload"]["method"], "failed", 1)
+        return job
 
     ## context manager support
 
@@ -551,8 +654,11 @@ class Job(object):
 
     # only works for jobs that report progress
     def terminate(self):
-        return self._queue.collection.find_one_and_update(
+        job = self._queue.collection.find_one_and_update(
             filter={"_id": self.job_id}, 
             update={"$set": {"terminated": True, "locked_at": datetime.now()}},
             return_document=ReturnDocument.AFTER
         )
+        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
+        self._queue.updateQueueCounter(job["payload"]["method"], "terminated", 1)
+        return job

@@ -37,7 +37,7 @@ class MongoQueueTest(TestCase):
             self.assertEqual(job.payload[k], v)
 
     def test_put_next(self):
-        data = {"context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
+        data = {"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
         self.queue.put(dict(data))
         job = self.queue.next()
         self.assert_job_equal(job, data)
@@ -47,9 +47,9 @@ class MongoQueueTest(TestCase):
         self.assertEqual(job, None)
 
     def test_priority(self):
-        self.queue.put({"name": "alice"}, priority=1)
-        self.queue.put({"name": "bob"}, priority=2)
-        self.queue.put({"name": "mike"}, priority=0)
+        self.queue.put({"method": "test_method", "name": "alice"}, priority=1)
+        self.queue.put({"method": "test_method", "name": "bob"}, priority=2)
+        self.queue.put({"method": "test_method", "name": "mike"}, priority=0)
 
         self.assertEqual(
             ["bob", "alice", "mike"],
@@ -57,7 +57,7 @@ class MongoQueueTest(TestCase):
         )
 
     def test_complete(self):
-        data = {"context_id": "alpha", "data": [1, 2, 3], "more-data": datetime.now()}
+        data = {"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": datetime.now()}
 
         self.queue.put(data)
         self.assertEqual(self.queue.size(), 1)
@@ -66,7 +66,7 @@ class MongoQueueTest(TestCase):
         self.assertEqual(self.queue.size(), 0)
 
     def test_release(self):
-        data = {"context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
+        data = {"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
 
         self.queue.put(data)
         job = self.queue.next()
@@ -84,20 +84,19 @@ class MongoQueueTest(TestCase):
     def test_stats(self):
 
         for i in range(5):
-            data = {"context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
+            data = {"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
             self.queue.put(data)
         job = self.queue.next()
         job.error("problem")
-
         stats = self.queue.stats()
         self.assertEqual({"available": 5, "total": 5, "locked": 0, "errors": 0}, stats)
 
     def test_context_manager_error(self):
-        self.queue.put({"foobar": 1})
+        self.queue.put({"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()})
         job = self.queue.next()
         try:
             with job as data:
-                self.assertEqual(data["payload"]["foobar"], 1)
+                self.assertEqual(data["payload"]["method"], "test_method")
                 # Item is returned to the queue on error
                 raise SyntaxError
         except SyntaxError:
@@ -107,10 +106,10 @@ class MongoQueueTest(TestCase):
         self.assertEqual(job.attempts_left, self.queue.max_attempts-1)
 
     def test_context_manager_complete(self):
-        self.queue.put({"foobar": 1})
+        self.queue.put({"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()})
         job = self.queue.next()
         with job as data:
-            self.assertEqual(data["payload"]["foobar"], 1)
+            self.assertEqual(data["payload"]["method"], "test_method")
         job = self.queue.next()
         self.assertEqual(job, None)
 
