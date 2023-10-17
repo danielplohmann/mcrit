@@ -42,7 +42,7 @@ class JobResource:
 
     @timing
     def on_get_stats(self, req, resp):
-        query_with_refresh
+        query_with_refresh = False
         if "with_refresh" in req.params:
             query_with_refresh = req.params["with_refresh"].lower().strip() == "true"
         queue_data = self.index.getQueueStats(refresh=query_with_refresh)

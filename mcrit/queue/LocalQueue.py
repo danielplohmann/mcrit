@@ -59,21 +59,21 @@ class Job(object):
                 "modifyFamily",
             ],
             "all": [
-                "combineMatchesToCross",
-                "getMatchesForSampleVs",
                 "getMatchesForSample",
+                "getMatchesForSampleVs",
+                "combineMatchesToCross",
                 "getMatchesForUnmappedBinary",
                 "getMatchesForMappedBinary",
                 "getMatchesForSmdaReport",
                 "getUniqueBlocks",
                 "updateMinHashesForSample",
                 "updateMinHashes",
-                "rebuildIndex",
                 "addBinarySample",
-                "deleteSample",
                 "modifySample",
-                "deleteFamily",
+                "deleteSample",
                 "modifyFamily",
+                "deleteFamily",
+                "rebuildIndex",
             ]
         }
 
