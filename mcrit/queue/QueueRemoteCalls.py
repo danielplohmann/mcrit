@@ -34,12 +34,12 @@ class BaseRemoteCallerClass:
         LOGGER.debug(f"called getQueueStats()")
         return self.queue.getQueueStatistics(refresh=refresh)
 
-    def getQueueData(self, start_index: int, limit: int, method=None, filter=None):
-        LOGGER.debug(f"called getQueueData(start_index={start_index}, limit={method}, filter={method}, filter={filter}):")
+    def getQueueData(self, start_index: int, limit: int, method=None, filter=None, ascending=False):
+        LOGGER.debug(f"called getQueueData(start_index={start_index}, limit={method}, filter={method}, filter={filter}, ascending={ascending}):")
         if filter is not None:
             # TODO apply filter to more fields
-            return [job._data for job in self.queue.get_jobs(start_index, limit, method) if filter in job.parameters]
-        return [job._data for job in self.queue.get_jobs(start_index, limit, method)]
+            return [job._data for job in self.queue.get_jobs(start_index, limit, method, ascending) if filter in job.parameters]
+        return [job._data for job in self.queue.get_jobs(start_index, limit, method, ascending)]
     
     def deleteQueueData(self, method=None, created_before=None, finished_before=None):
         LOGGER.debug(f"called getQueueData(filter={method}, filter={filter}, created_before={created_before}, finished_before={finished_before}):")

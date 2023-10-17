@@ -579,12 +579,12 @@ class McritClient:
             return response
         return handle_response(response)
         
-    def getQueueData(self, start=0, limit=0, method=None, filter=None):
+    def getQueueData(self, start=0, limit=0, method=None, filter=None, ascending=False):
         """
         Get queue data, optionally from <start> and <limit> many
         Supported by mcritweb API pass-through
         """
-        query_string = ""
+        query_string = "?ascending=True" if ascending else ""
         if isinstance(start, int) and start > 0:
             if len(query_string) == 0:
                 query_string = f"?start={start}"

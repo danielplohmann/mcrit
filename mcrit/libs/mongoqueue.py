@@ -317,11 +317,15 @@ class MongoQueue(object):
 
         return dict(zip(["available", "locked", "errors", "total"], counts))
 
-    def get_jobs(self, start_index: int, limit: int, method=None) -> Optional[List["Job"]]:
+    def get_jobs(self, start_index: int, limit: int, method=None, ascending=False) -> Optional[List["Job"]]:
         jobs = []
         query_filter = {} if method == None else {"payload.method": method}
-        for job_document in self._getCollection().find(query_filter).skip(start_index).limit(limit):
-            jobs.append(self._wrap_one(job_document))
+        if ascending:
+            for job_document in self._getCollection().find(query_filter).skip(start_index).limit(limit):
+                jobs.append(self._wrap_one(job_document))
+        else:
+            for job_document in self._getCollection().find(query_filter, sort=[("_id", -1)]).skip(start_index).limit(limit):
+                jobs.append(self._wrap_one(job_document))
         return jobs
 
     def get_job(self, job_id):

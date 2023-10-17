@@ -17,6 +17,9 @@ class JobResource:
     @timing
     def on_get_collection(self, req, resp):
         # parse optional request parameters
+        ascending = False
+        if "ascending" in req.params:
+            ascending = req.params["ascending"].lower().strip() == "true"
         method_filter = None
         if "method" in req.params:
             method_filter = req.params["method"]
@@ -35,8 +38,7 @@ class JobResource:
                 limit_job_count = int(req.params["limit"])
             except:
                 pass
-        # newest first
-        queue_data = reversed(self.index.getQueueData(start_index=start_job_id, limit=limit_job_count, method=method_filter, filter=query_filter))
+        queue_data = self.index.getQueueData(start_index=start_job_id, limit=limit_job_count, method=method_filter, filter=query_filter, ascending=ascending)
         resp.data = jsonify({"status": "successful", "data": queue_data})
         db_log_msg(self.index, req, f"JobResource.on_get_collection - success.")
 
