@@ -318,15 +318,34 @@ class MongoQueue(object):
 
         return dict(zip(["available", "locked", "errors", "total"], counts))
 
-    def get_jobs(self, start_index: int, limit: int, method=None, ascending=False) -> Optional[List["Job"]]:
+    def get_jobs(self, start_index: int, limit: int, method=None, state=None, ascending=False) -> Optional[List["Job"]]:
         jobs = []
         query_filter = {} if method == None else {"payload.method": method}
-        if ascending:
-            for job_document in self._getCollection().find(query_filter).skip(start_index).limit(limit):
-                jobs.append(self._wrap_one(job_document))
+        if state is None:
+            if ascending:
+                for job_document in self._getCollection().find(query_filter).skip(start_index).limit(limit):
+                    jobs.append(self._wrap_one(job_document))
+            else:
+                for job_document in self._getCollection().find(query_filter, sort=[("_id", -1)]).skip(start_index).limit(limit):
+                    jobs.append(self._wrap_one(job_document))
         else:
-            for job_document in self._getCollection().find(query_filter, sort=[("_id", -1)]).skip(start_index).limit(limit):
-                jobs.append(self._wrap_one(job_document))
+            # we go with an inefficient implementation for now to see if this is a desired feature and revise the query in case we deem this useful.
+            # TODO improve performance of these queries, we probably want to find a query_filter for the different possible states to allow use of skip/limit
+            all_jobs = []
+            print(start_index, limit, method, state, ascending)
+            if ascending:
+                for job_document in self._getCollection().find(query_filter):
+                    if self._identifyJobState(job_document) == state:
+                        all_jobs.append(self._wrap_one(job_document))
+            else:
+                for job_document in self._getCollection().find(query_filter, sort=[("_id", -1)]):
+                    if self._identifyJobState(job_document) == state:
+                        all_jobs.append(self._wrap_one(job_document))
+            # apply skip/limit as slice on the result
+            if limit:
+                jobs = all_jobs[start_index:start_index+limit]
+            else:
+                jobs = all_jobs[start_index:]
         return jobs
 
     def get_job(self, job_id):

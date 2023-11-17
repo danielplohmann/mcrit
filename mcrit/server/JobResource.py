@@ -23,6 +23,9 @@ class JobResource:
         method_filter = None
         if "method" in req.params:
             method_filter = req.params["method"]
+        state_filter = None
+        if "state" in req.params:
+            state_filter = req.params["state"]
         query_filter = None
         if "filter" in req.params:
             query_filter = req.params["filter"]
@@ -38,7 +41,7 @@ class JobResource:
                 limit_job_count = int(req.params["limit"])
             except:
                 pass
-        queue_data = self.index.getQueueData(start_index=start_job_id, limit=limit_job_count, method=method_filter, filter=query_filter, ascending=ascending)
+        queue_data = self.index.getQueueData(start_index=start_job_id, limit=limit_job_count, method=method_filter, state=state_filter, filter=query_filter, ascending=ascending)
         resp.data = jsonify({"status": "successful", "data": queue_data})
         db_log_msg(self.index, req, f"JobResource.on_get_collection - success.")
 

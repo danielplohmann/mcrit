@@ -579,7 +579,7 @@ class McritClient:
             return response
         return handle_response(response)
         
-    def getQueueData(self, start=0, limit=0, method=None, filter=None, ascending=False):
+    def getQueueData(self, start=0, limit=0, method=None, filter=None, state=None, ascending=False):
         """
         Get queue data, optionally from <start> and <limit> many
         Supported by mcritweb API pass-through
@@ -605,6 +605,11 @@ class McritClient:
                 query_string = f"?filter={filter}"
             else:
                 query_string += f"&filter={filter}"
+        if isinstance(state, str) and state is not None:
+            if len(query_string) == 0:
+                query_string = f"?state={state}"
+            else:
+                query_string += f"&state={state}"
         response = requests.get(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers)
         if self.raw:
             return response

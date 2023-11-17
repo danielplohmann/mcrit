@@ -333,7 +333,8 @@ class LocalQueue(object):
         data = self._jobs[job_id]
         return data and Job(data, self)
 
-    def get_jobs(self, start_index: int, limit: int, method=None):
+    def get_jobs(self, start_index: int, limit: int, method=None, state=None, filter=None, ascencing=False):
+        # TODO implement all the filtering methods properly
         jobs = []
         for job_id, job_document in self._jobs.items():
             if method is not None and job_document["payload"]["method"] != method:
