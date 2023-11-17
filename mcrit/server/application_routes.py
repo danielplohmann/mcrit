@@ -4,6 +4,7 @@ import os
 
 import falcon
 
+from mcrit.config.McritConfig import McritConfig
 from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.server.FamilyResource import FamilyResource
 from .FunctionResource import FunctionResource
@@ -19,6 +20,37 @@ if len(logging._handlerList) == 0:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 LOGGER = logging.getLogger(__name__)
 
+
+# https://falcon.readthedocs.io/en/stable/user/quickstart.html#a-more-complex-example
+class AuthMiddleware:
+    def process_request(self, req, resp):
+        if McritConfig.AUTH_TOKEN in [None, ""]:
+            return
+        token = req.get_header('Authorization')
+
+        if token is None:
+            description = 'Please provide an auth token as part of the request.'
+
+            raise falcon.HTTPUnauthorized(
+                title='Auth token required',
+                description=description,
+            )
+
+        if not self._token_is_valid(token):
+            description = (
+                'The provided auth token is not valid. '
+                'Please request a new token and try again.'
+            )
+
+            raise falcon.HTTPUnauthorized(
+                title='Authentication required',
+                description=description,
+            )
+
+    def _token_is_valid(self, token):
+        if McritConfig.AUTH_TOKEN in [None, ""]:
+            return True
+        return token ==  McritConfig.AUTH_TOKEN
 
 
 def create_index():
@@ -47,7 +79,7 @@ def get_app():
     query_resource = QueryResource(index)
     job_resource = JobResource(index)
 
-    _app = falcon.App()
+    _app = falcon.App(middleware=[AuthMiddleware()])
     _app.req_options.strip_url_path_trailing_slash = True
     _app.add_route("/", status_resource)
     _app.add_route("/status", status_resource, suffix="status")
