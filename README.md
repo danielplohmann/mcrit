@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-11-17 v1.2.9: Added ability to set an authentication token for the server; added ability to filter by job groups; added ability to fail orphaned jobs.
  * 2023-10-17 v1.2.8: Minor fix in job groups.
  * 2023-10-16 v1.2.6: Summarized queue statistics, refined Job classification.
  * 2023-10-13 v1.2.4: Exposed Queue/Job Deletion to REST interface, improved query speed for various queue lookups via indexing and parameterized mongodb queries.
