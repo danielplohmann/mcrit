@@ -3,6 +3,7 @@ import logging
 import falcon
 import re
 import json
+import hashlib
 
 from mcrit.server.utils import timing, jsonify
 from mcrit.index.MinHashIndex import MinHashIndex
@@ -157,10 +158,17 @@ class SampleResource:
         bitness = int(req.params["bitness"]) if ("bitness" in req.params and req.params["bitness"] in ["32", "64"]) else 32
         # binary itself
         binary = req.stream.read()
-        job_id = self.index.addBinarySample(binary, filename, family, version, is_dump, base_address, bitness)
-        # TODO 2019-05-10 return full sample_entry in response
-        resp.data = jsonify({"status": "successful", "data": job_id})
-        db_log_msg(self.index, req, f"SampleResource.on_post_submit_binary - success - with job_id: {job_id}.")
+        binary_sha256 = hashlib.sha256(binary).hexdigest()
+        sample_entry = self.index.getSampleBySha256(binary_sha256)
+        if sample_entry is None:
+            job_id = self.index.addBinarySample(binary, filename, family, version, is_dump, base_address, bitness, force_recalculation=True)
+            resp.data = jsonify({"status": "successful", "data": job_id})
+            resp.status = falcon.HTTP_202
+            db_log_msg(self.index, req, f"SampleResource.on_post_submit_binary - success - with job_id: {job_id}.")
+        else:
+            resp.data = jsonify({"status": "failed", "data": {"message": f"Conflict: Binary already exists as sample with ID: {sample_entry.sample_id}."}})
+            resp.status = falcon.HTTP_409
+            db_log_msg(self.index, req, f"SampleResource.on_post_submit_binary - failed - sample exists already.")
 
     @timing
     def on_get_collection(self, req, resp):

@@ -264,12 +264,10 @@ class McritConsole(object):
 
     def _handle_submit_file(self, args):
         client = McritClient()
-        mcrit_samples = client.getSamples()
-        mcrit_samples_by_sha256 = {}
-        for sample_id, sample in mcrit_samples.items():
-            mcrit_samples_by_sha256[sample.sha256] = sample
-        if sha256(readFileContent(args.filepath)) in mcrit_samples_by_sha256:
+        sample_sha256 = sha256(readFileContent(args.filepath))
+        if client.getSampleBySha256(sample_sha256):
             print(f"SKIPPING: {args.filepath} - already in MCRIT.")
+            return
         smda_report = getSmdaReportFromFilepath(args, args.filepath)
         if smda_report:
             print(smda_report)
