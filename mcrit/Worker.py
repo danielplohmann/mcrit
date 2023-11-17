@@ -46,6 +46,7 @@ LOGGER = logging.getLogger(__name__)
 class Worker(QueueRemoteCallee):
     def __init__(self, queue=None, config=None, storage: Optional["StorageInterface"] = None, profiling=False):
         self._worker_id = f"Worker-{uuid.uuid4()}"
+        LOGGER.info(f"Starting as worker: {self._worker_id}")
         if config is None:
             config = McritConfig()
 

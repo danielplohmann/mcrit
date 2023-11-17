@@ -165,6 +165,7 @@ class MongoQueue(object):
                 {"$push": {"workers": self.consumer_id}},
                 upsert=True
             )
+        self.release_orphaned_jobs()
 
     def unregisterWorker(self):
         if self.queue_counters is not None:
@@ -471,12 +472,34 @@ class MongoQueue(object):
         # delete jobs
         self._getCollection().delete_many(job_query)
 
-    def release_all_jobs(self):
+    def release_all_jobs(self, consumer_id=None):
         # release all jobs associated with our consumer id if they are started, locked, but not finished.
         self._getCollection().update_many(
-        filter={"locked_by": self.consumer_id, "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
+        filter={"locked_by": consumer_id if consumer_id else self.consumer_id, "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
         update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}}
         )
+
+    def release_orphaned_jobs(self):
+        # release all jobs associated with non- or no longer existing worker_ids, if they are started, locked, but not finished.
+        all_worker_ids = set([wid for wid in self._getCollection().distinct("locked_by") if wid])
+        active_workers = self.queue_counters.find_one({"name": "workers"}, {"workers": 1, "_id": 0})
+        orphan_ids = []
+        if active_workers:
+            active_worker_ids = set(active_workers["workers"])
+            orphan_ids = all_worker_ids.difference(active_worker_ids)
+        else:
+            orphan_ids = all_worker_ids
+
+        orphaned_jobs = []
+        for orphan_id in orphan_ids:
+            for job in self._getCollection().find(filter={"locked_by": orphan_id , "started_at": {"$ne": None}, "finished_at": {"$eq": None}}):
+                orphaned_jobs.append(job)
+
+        for orphan_consumer_id in orphan_ids:
+            self._getCollection().update_many(
+            filter={"locked_by": orphan_consumer_id , "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
+            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}}
+            )
 
     def terminate_all_jobs(self):
         pass
