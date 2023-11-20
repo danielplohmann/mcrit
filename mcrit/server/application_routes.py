@@ -26,19 +26,19 @@ class AuthMiddleware:
     def process_request(self, req, resp):
         if McritConfig.AUTH_TOKEN in [None, ""]:
             return
-        token = req.get_header('Authorization')
+        token = req.get_header('apitoken')
 
         if token is None:
             description = 'Please provide an auth token as part of the request.'
 
             raise falcon.HTTPUnauthorized(
-                title='Auth token required',
+                title='API token required',
                 description=description,
             )
 
         if not self._token_is_valid(token):
             description = (
-                'The provided auth token is not valid. '
+                'The provided API token is not valid. '
                 'Please request a new token and try again.'
             )
 
