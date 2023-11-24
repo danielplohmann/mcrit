@@ -13,7 +13,7 @@ numpy
 rapidfuzz
 requests
 scipy
-smda>=1.11.0
+smda==1.12.7
 tqdm
 waitress
 werkzeug

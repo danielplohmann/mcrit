@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-11-24 v1.2.11: SMDA pinned to version 1.12.7 before we upgrade SMDA and introduce a database migration to recalculate pic + picblock hashes with the improved generalization.
  * 2023-11-17 v1.2.10: Added ability to set an authorization token for the server via header field: `apitoken`; added ability to filter by job groups; added ability to fail orphaned jobs.
  * 2023-10-17 v1.2.8: Minor fix in job groups.
  * 2023-10-16 v1.2.6: Summarized queue statistics, refined Job classification.
