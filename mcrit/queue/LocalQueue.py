@@ -81,20 +81,68 @@ class Job(object):
         return f"ID: {self.job_id} - {self.parameters} | created: {self.created_at}, finished: {self.finished_at}, result: {self.result}, progress: {self.progress}"
     
     @property
+    def family(self) -> str:
+        if self.method in ["addBinarySample"]:
+            descriptor = json.loads(self._data["payload"]["descriptor"])
+            return descriptor[1]["2"]
+
+    @property
+    def sha256(self) -> str:
+        if self.method in ["getMatchesForUnmappedBinary", "getMatchesForMappedBinary", "getMatchesForSmdaReport", "addBinarySample"]:
+            descriptor = json.loads(self._data["payload"]["descriptor"])
+            return descriptor[2]["0"]
+        
+    @property
+    def filename(self) -> str:
+        if self.method in ["addBinarySample"]:
+            descriptor = json.loads(self._data["payload"]["descriptor"])
+            return descriptor[1]["1"]
+    
+    @property
     def family_id(self):
         if self.method in self.method_types["family_id"]:
             return int(self.arguments[0])
+        if self.method == "getUniqueBlocks":
+            return int(self.arguments[1])
 
     @property
     def has_family_id(self):
-        if self.method in self.method_types["family_id"]:
+        if self.method in self.method_types["family_id"] or self.method == "getUniqueBlocks":
             return True
         return False
+    
+    @property
+    def sample_ids(self):
+        sample_ids = []
+        if self.method == "combineMatchesToCross":
+            sample_ids = [int(key) for key, value in self.arguments[0].items()]
+        elif self.method == "getUniqueBlocks":
+            sample_ids = [int(sid) for sid in self.arguments[0]]
+        elif self.method in self.method_types["sample_id"]:
+            sample_ids.append(int(self.arguments[0]))
+            if self.method == "getMatchesForSampleVs":
+                sample_ids.append(int(self.arguments[1]))
+        elif self.sample_id is not None:
+            sample_ids.append(self.sample_id)
+        return set(list(sample_ids))
 
     @property
     def sample_id(self):
         if self.method in self.method_types["sample_id"]:
             return int(self.arguments[0])
+        elif self.method == "updateMinHashesForSample":
+            return int(self.arguments[0])
+        elif self.method == "getUniqueBlocks":
+            return int(self.arguments[0][0])
+        elif self.method == "deleteSample":
+            return int(self.arguments[0])
+        elif self.method == "modifySample":
+            return int(self.arguments[0])
+
+    @property
+    def other_sample_id(self):
+        if self.method == "getMatchesForSampleVs":
+            return int(self.arguments[1])
 
     def has_sample_id(self, sample_id:int):
         if self.method in self.method_types["sample_id"]:
