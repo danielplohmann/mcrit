@@ -103,7 +103,8 @@ class Job(object):
         if self.method in self.method_types["family_id"]:
             return int(self.arguments[0])
         if self.method == "getUniqueBlocks":
-            return int(self.arguments[1])
+            if len(self.arguments) > 1:
+                return int(self.arguments[1])
 
     @property
     def has_family_id(self):
