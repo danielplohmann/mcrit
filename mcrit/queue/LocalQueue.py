@@ -134,7 +134,8 @@ class Job(object):
         elif self.method == "updateMinHashesForSample":
             return int(self.arguments[0])
         elif self.method == "getUniqueBlocks":
-            return int(self.arguments[0][0])
+            if len(self.arguments[0]) > 0:
+                return int(self.arguments[0][0])
         elif self.method == "deleteSample":
             return int(self.arguments[0])
         elif self.method == "modifySample":
