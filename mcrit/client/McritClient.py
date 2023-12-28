@@ -353,6 +353,8 @@ class McritClient:
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
         response = requests.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def requestMatchesForMappedBinary(
@@ -382,6 +384,8 @@ class McritClient:
             minhash_threshold, pichash_size, force_recalculation, band_matches_required
         )
         response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, headers=self.headers, params=params)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def requestMatchesForUnmappedBinary(
@@ -411,6 +415,8 @@ class McritClient:
         )
 
         response = requests.post(f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def requestMatchesForSample(
@@ -462,6 +468,8 @@ class McritClient:
             headers=self.headers,
             params=params
         )
+        if self.raw:
+            return response
         return handle_response(response)
 
     def getMatchFunctionVs(
