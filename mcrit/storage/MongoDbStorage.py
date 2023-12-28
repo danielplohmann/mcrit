@@ -1036,7 +1036,7 @@ class MongoDbStorage(StorageInterface):
         # use family statistics to derive relevant values
         stats = {
             "db_state": self._getDbState(),
-            "db_timestamp": self._getDbTimestamp(),
+            "db_timestamp": self._convertDatetimeToString(self._getDbTimestamp()),
             "num_families": 0,
             "num_samples": 0,
             "num_query_samples": self._getDb().query_samples.estimated_document_count(),
