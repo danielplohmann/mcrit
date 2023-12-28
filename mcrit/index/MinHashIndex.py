@@ -399,11 +399,12 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             infos.append(self.getSampleById(sample_id))
         return infos
 
-    def getStatus(self):
-        storage_stats = self._storage.getStats()
+    def getStatus(self, with_pichash=True):
+        storage_stats = self._storage.getStats(with_pichash=with_pichash)
         status = {
             "status": {
                 "db_state": storage_stats["db_state"],
+                "db_timestamp": storage_stats["db_timestamp"],
                 "storage_type": self._storage_config.STORAGE_METHOD,
                 "num_bands": storage_stats["num_bands"],
                 "num_samples": storage_stats["num_samples"],

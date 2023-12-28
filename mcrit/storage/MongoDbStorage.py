@@ -264,6 +264,7 @@ class MongoDbStorage(StorageInterface):
 
     def _updateDbState(self):
         result = self._getDb().settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
+        result = self._getDb().settings.find_one_and_update({}, { "$set": {"db_timestamp": self._getCurrentTimestamp()}}, upsert=True)
         if result is None:
             raise Exception("Database does not have a db_state field")
         else:
@@ -275,6 +276,13 @@ class MongoDbStorage(StorageInterface):
             raise Exception("Database does not have a db_state field")
         else:
             return result["db_state"]
+        
+    def _getDbTimestamp(self):
+        result = self._getDb().settings.find_one({})
+        if result is None:
+            raise Exception("Database does not have a db_timestamp field")
+        else:
+            return result["db_timestamp"]
 
     ###############################################################################
     # Conversion
@@ -1018,15 +1026,17 @@ class MongoDbStorage(StorageInterface):
         return SampleEntry.fromDict(sample_document)
 
     # TODO add types
-    def getStats(self) -> Dict:
+    def getStats(self, with_pichash=True) -> Dict:
         # we will have to work around using .aggregate(), as a collection with unique pic hashes will easily exceed 16M
         # https://stackoverflow.com/questions/20348093/mongodb-aggregation-how-to-get-total-records-count
         num_unique_pichashes = 0
-        for result in self._getDb().functions.aggregate([{"$group": {"_id": "$_pichash"}}, {"$count": "Total" }]):
-            num_unique_pichashes = result["Total"]
+        if with_pichash:
+            for result in self._getDb().functions.aggregate([{"$group": {"_id": "$_pichash"}}, {"$count": "Total" }]):
+                num_unique_pichashes = result["Total"]
         # use family statistics to derive relevant values
         stats = {
             "db_state": self._getDbState(),
+            "db_timestamp": self._getDbTimestamp(),
             "num_families": 0,
             "num_samples": 0,
             "num_query_samples": self._getDb().query_samples.estimated_document_count(),

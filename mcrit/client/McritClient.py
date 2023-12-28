@@ -528,12 +528,15 @@ class McritClient:
     ### Status, Results 
     ###########################################
 
-    def getStatus(self):
+    def getStatus(self, with_pichash=True):
         """
         Get a status report of the MCRIT server with some statistics
         Supported by mcritweb API pass-through
         """
-        response = requests.get(f"{self.mcrit_server}/status", headers=self.headers)
+        query_string = ""
+        if with_pichash:
+            query_string = f"?with_pichash=True"
+        response = requests.get(f"{self.mcrit_server}/status{query_string}", headers=self.headers)
         if self.raw:
             return response
         return handle_response(response)

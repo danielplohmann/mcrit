@@ -20,7 +20,8 @@ class StatusResource:
 
     @timing
     def on_get_status(self, req, resp):
-        resp.data = jsonify({"status": "successful", "data": self.index.getStatus()})
+        with_pichash = True if "with_pichash" in req.params and req.params["with_pichash"].lower() == "true" else False
+        resp.data = jsonify({"status": "successful", "data": self.index.getStatus(with_pichash=with_pichash)})
         db_log_msg(self.index, req, f"StatusResource.on_get_status - success.")
 
     @timing

@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2023-12-28 v1.2.19: Status now provides timestamp of last DB update.
  * 2023-12-13 v1.2.18: Bounds check versus sample_ids passed to getUniqueBlocks.
  * 2023-12-05 v1.2.15: Added convenience functionality to Job objects, version number aligned with mcritweb.
  * 2023-11-24 v1.2.11: SMDA pinned to version 1.12.7 before we upgrade SMDA and introduce a database migration to recalculate pic + picblock hashes with the improved generalization.

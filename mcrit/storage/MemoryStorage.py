@@ -3,6 +3,7 @@ import operator
 import re
 import uuid
 import logging
+import datetime
 from copy import deepcopy
 from collections import defaultdict
 from itertools import zip_longest
@@ -135,6 +136,7 @@ class MemoryStorage(StorageInterface):
     def _setupEmptyStorage(self) -> None:
         self._mcrit_db_id = str(uuid.uuid4())
         self._db_state = 0
+        self._db_timestamp = self._getCurrentTimestamp()
         self._families = {}
         self._samples = {}
         self._functions = {}
@@ -154,8 +156,12 @@ class MemoryStorage(StorageInterface):
         unknown_family_id = self.addFamily("")
         assert unknown_family_id == 0
 
+    def _getCurrentTimestamp(self) -> datetime.datetime:
+        return datetime.datetime.utcnow()
+
     def _updateDbState(self):
         self._db_state += 1
+        self._db_timestamp = self._getCurrentTimestamp()
 
     def _useCounter(self, name: str) -> int:
         result = self._counters[name]
@@ -753,6 +759,7 @@ class MemoryStorage(StorageInterface):
     def getStats(self) -> Dict[str, Union[int, Dict[int, int]]]:
         stats = {
             "db_state": self._db_state,
+            "db_timestamp": self._db_timestamp,
             "num_families": len(self._families),
             "num_samples": len(self._samples),
             "num_functions": len(self._functions),
