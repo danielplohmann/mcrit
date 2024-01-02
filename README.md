@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2024-01-02 v1.2.22: Introduced data class for UniqueBlocksResult with convenience functionality.
  * 2023-12-28 v1.2.21: McritClient now doing passthrough for binary query matching.
  * 2023-12-28 v1.2.20: Status now provides timestamp of last DB update.
  * 2023-12-13 v1.2.18: Bounds check versus sample_ids passed to getUniqueBlocks.
