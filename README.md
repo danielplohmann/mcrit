@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2024-01-03 v1.2.23: Limit maximum export size to protect the system against OOM crashes.
  * 2024-01-02 v1.2.22: Introduced data class for UniqueBlocksResult with convenience functionality.
  * 2023-12-28 v1.2.21: McritClient now doing passthrough for binary query matching.
  * 2023-12-28 v1.2.20: Status now provides timestamp of last DB update.

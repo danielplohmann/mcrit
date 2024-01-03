@@ -130,6 +130,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         family_mapping = {}
         exported_sample_entries = {}
         exported_function_entries = {}
+        export_size = 0
         # iterate over sample_ids and transform respective data
         for sample_id in self._storage.getSampleIds():
             if sample_ids and sample_id not in sample_ids:
@@ -141,9 +142,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             functions_dict = {function_entry.function_id: function_entry.toDict() for function_entry in function_entries}
             exported_function_entries[sample_entry.sha256] = functions_dict
             if compress_data:
-                exported_function_entries[sample_entry.sha256] = compress_encode(json.dumps(functions_dict))
+                compressed_encoded = compress_encode(json.dumps(functions_dict))
+                exported_function_entries[sample_entry.sha256] = compressed_encoded
+                export_size += len(compressed_encoded)
+            else:
+                export_size += len(json.dumps(functions_dict))
             exported_data["content"]["num_samples"] += 1
             exported_data["content"]["num_functions"] += len(function_entries)
+            if export_size > self._storage_config.STORAGE_MAX_EXPORT_SIZE:
+                raise MemoryError("Export running beyond the allocated maximum, aborting operation.")
         exported_data["content"]["num_families"] = len(family_mapping)
         exported_data["family_mapping"] = family_mapping
         exported_data["sample_entries"] = exported_sample_entries

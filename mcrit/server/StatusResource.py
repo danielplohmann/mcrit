@@ -38,9 +38,13 @@ class StatusResource:
     @timing
     def on_get_export(self, req, resp):
         compress_data = True if "compress" in req.params and req.params["compress"].lower() == "true" else False
-        exported_data = self.index.getExportData(compress_data=compress_data)
-        resp.data = jsonify({"status": "successful", "data": exported_data})
-        db_log_msg(self.index, req, f"StatusResource.on_get_export - success.")
+        try:
+            exported_data = self.index.getExportData(compress_data=compress_data)
+            resp.data = jsonify({"status": "successful", "data": exported_data})
+            db_log_msg(self.index, req, f"StatusResource.on_get_export - success.")
+        except MemoryError:
+            resp.data = jsonify({"status": "failed", "data": {"message": "Export exceeded assigned maximum memory limit and was cancelled."}})
+            db_log_msg(self.index, req, f"StatusResource.on_get_export - failed.")
 
     @timing
     def on_get_export_selection(self, req, resp, comma_separated_sample_ids=None):

@@ -28,6 +28,8 @@ class StorageConfig(ConfigInterface):
     STORAGE_BANDS: Dict[int, int] = default_field(_default_storage_bands)
     # use a hashmap to cache all banding data - very memory intensive, but great speedups.
     STORAGE_CACHE: bool = False
+    # limit maximum export size to protect the system against running OOM, default: 1 GB
+    STORAGE_MAX_EXPORT_SIZE = 1024 * 1024 * 1024
 
     @property
     def STORAGE_NUM_BANDS(self):
