@@ -32,7 +32,7 @@ def isJobTerminated(job):
     return job.is_terminated
 
 def isJobFailed(job):
-    return (job is not None) and (not job.is_failed)
+    return (job is not None) and (job.is_failed)
 
 def isJobFinishedTerminatedOrFailed(job):
     return isJobTerminated(job) or (job.result is not None) or isJobFailed(job)
@@ -676,22 +676,24 @@ class McritClient:
         if data is not None:
             return Job(data, None)
 
-    def getResultForJob(self, job_id):
+    def getResultForJob(self, job_id, compact=False):
         """
         Get the Result for Job with a given <job_id>
         Supported by mcritweb API pass-through
         """
-        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}/result", headers=self.headers)
+        query_string = "?compact=True" if compact else ""
+        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}/result{query_string}", headers=self.headers)
         if self.raw:
             return response
         return handle_response(response)
 
-    def getResult(self, result_id):
+    def getResult(self, result_id, compact=False):
         """
         Get the Result for a given <result_id>
         Supported by mcritweb API pass-through
         """
-        response = requests.get(f"{self.mcrit_server}/results/{result_id}", headers=self.headers)
+        query_string = "?compact=True" if compact else ""
+        response = requests.get(f"{self.mcrit_server}/results/{result_id}{query_string}", headers=self.headers)
         if self.raw:
             return response
         return handle_response(response)
@@ -708,7 +710,7 @@ class McritClient:
         if data is not None:
             return Job(data, None)
 
-    def awaitResult(self, job_id, sleep_time=2):
+    def awaitResult(self, job_id, sleep_time=2, compact=False):
         if job_id is None:
             return None
         job = self.getJobData(job_id)
@@ -718,7 +720,7 @@ class McritClient:
         if isJobTerminated(job):
             raise JobTerminatedError
         result_id = job.result
-        return self.getResult(result_id)
+        return self.getResult(result_id, compact=compact)
 
     ###########################################
     ### Import / Export

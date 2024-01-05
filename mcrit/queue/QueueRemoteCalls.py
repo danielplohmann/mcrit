@@ -55,14 +55,18 @@ class BaseRemoteCallerClass:
 
     def getJobData(self, job_id):
         LOGGER.debug("called GetJobData: %s", job_id)
-        return self.queue.get_job(job_id)._data
+        job_info = self.queue.get_job(job_id)
+        if job_info:
+            return self.queue.get_job(job_id)._data
 
     def getResultForJob(self, job_id):
         result = None
-        res_id = self.queue.get_job(job_id).result
-        if res_id is not None:
-            LOGGER.debug("called GetResultForJob: %s -> %s", job_id, res_id)
-            result = self.queue._grid_to_dicts(res_id)
+        job_info = self.queue.get_job(job_id)
+        if job_info:
+            res_id = self.queue.get_job(job_id).result
+            if res_id is not None:
+                LOGGER.debug("called GetResultForJob: %s -> %s", job_id, res_id)
+                result = self.queue._grid_to_dicts(res_id)
         return result
 
     def getJobIdForResult(self, result_id):

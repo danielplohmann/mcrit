@@ -11,6 +11,7 @@ from mcrit.client.McritClient import McritClient
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.MatchingResult import MatchingResult
 
 
 ### Helper functionality for submissions
@@ -147,7 +148,14 @@ class McritConsole(object):
         client_submit.add_argument("-x", "--executables_only", action="store_true", help="Only process files that are parsable PE or ELF files (default: False).")
         client_submit.add_argument("-o", "--output", type=str, help="Optionally store SMDA reports in folder OUTPUT.")
         client_submit.add_argument("-s", "--smda", action="store_true", help="Do not disassemble, instead only submit files that are recognized as SMDA reports (only works with modes: file/dir).")
-        # client import 
+        # client query
+        client_query = subparser_client.add_parser("query", help="Query MCRIT with a sample incl. disassembly using SMDA if needed.")
+        client_query.add_argument("filepath", type=str, help="Submit the folllowing <filepath>.")
+        client_query.add_argument("-a", "--base_addr", type=str, help="Set a base_addr and treat this file as mapped buffer (0x<addr> as hexadecimal int or <addr> as decimal int.")
+        client_query.add_argument("-b", "--bitness", type=str, help="When processing as buffer, use this bitness ([32, 64] - default: 32 bit)")
+        client_query.add_argument("-o", "--output", type=str, help="Optionally store matching report in folder OUTPUT.")
+        client_query.add_argument("-s", "--smda", action="store_true", help="Assume provided input file is a SMDA report.")
+        # client import / export / search 
         client_import = subparser_client.add_parser("import", help="Import of previously exported data in the MCRIT format.")
         client_import.add_argument("filepath", type=str, help="Import a given <filepath> containing MCRIT data into the storage.")
         client_export = subparser_client.add_parser("export", help="Export of data from MCRIT.")
@@ -170,6 +178,8 @@ class McritConsole(object):
             self._handle_search(ARGS)
         elif ARGS.client_command == "queue":
             self._handle_queue(ARGS)
+        elif ARGS.client_command == "query":
+            self._handle_query(ARGS)
         elif ARGS.client_command == "submit":
             self._handle_submit(ARGS)
         elif ARGS.client_command == "sync":
@@ -179,8 +189,11 @@ class McritConsole(object):
 
     def _handle_status(self, args):
         client = McritClient()
-        result = client.getStatus()
-        print(result)
+        result = client.getStatus(with_pichash=False)
+        print(f"DB:        {result['status']['storage_type']} - {result['status']['db_state']} | {result['status']['db_timestamp']}")
+        print(f"Families:  {result['status']['num_families']}")
+        print(f"Samples:   {result['status']['num_samples']}")
+        print(f"Functions: {result['status']['num_functions']}")
 
     def _handle_import(self, args):
         client = McritClient()
@@ -234,6 +247,59 @@ class McritConsole(object):
             method = entry.parameters
             progress = entry.progress
             print(f"{job_id} {result_id} | {created} {started} {finished} | {method} - {progress}")
+
+    def _handle_query(self, args):
+        # run a number of sanity checks first
+        if not os.path.exists(args.filepath):
+            print("Your <filepath> does not exist.")
+            return
+        base_addr = None
+        if args.base_addr is not None:
+            try:
+                if args.base_addr.startswith("0x"):
+                    base_addr = int(args.base_addr, 16)
+                else:
+                    base_addr = int(args.base_addr)
+            except:
+                print("base_addr has invalid format.")
+                return
+        bitness = 32
+        if args.bitness is not None and not args.bitness in ["32", "64"]:
+            print("Invalid value for bitness provided.")
+            return
+        elif args.bitness is not None:
+            bitness = int(args.bitness)
+        if args.output is not None and (not os.path.exists(args.output) or not os.path.isdir(args.output)):
+            print("Your <output> is not a directory or does not exist.")
+            return
+        client = McritClient()
+        if args.smda:
+            smda_report = SmdaReport.fromFile(args.filepath)
+            job_id = client.requestMatchesForSmdaReport(smda_report)
+        else:
+            if base_addr:
+                job_id = client.requestMatchesForMappedBinary(readFileContent(args.filepath), disassemble_locally=False, base_address=base_addr)
+            else:
+                job_id = client.requestMatchesForUnmappedBinary(readFileContent(args.filepath), disassemble_locally=False)
+        print(f"Started job: {job_id}, waiting for result...")
+        compact_result_dict = client.awaitResult(job_id, sleep_time=2, compact=True)
+        if args.output is not None:
+            with open(args.output + os.sep + f"{job_id}.json", "w") as fout:
+                json.dump(compact_result_dict, fout, indent=1)
+        result = MatchingResult.fromDict(compact_result_dict)
+        print(f"{'Family':>30} | {'Version':>20} | {'Sample':>5} | {'SHA256':>8} | {'Func':>5} | {'Min':>5} | {'Pic':>5} | {'Lib':>5} | {'Direct':>13} | {'Freq':>13} | ")
+        for family_result in result.getBestSampleMatchesPerFamily(limit=20, malware_only=True):
+            result_line = f"{family_result.family:>30} | "
+            result_line += f"{family_result.version:>20} | "
+            result_line += f"{family_result.sample_id:>6} | "
+            result_line += f"{family_result.sha256[:8]} | "
+            result_line += f"{family_result.num_functions:>5} | "
+            result_line += f"{family_result.matched_functions_minhash:>5} | "
+            result_line += f"{family_result.matched_functions_pichash:>5} | "
+            result_line += f"{family_result.matched_functions_library:>5} | "
+            result_line += f"{family_result.matched_percent_score_weighted:>6.2f} {family_result.matched_percent_nonlib_score_weighted:>6.2f} | "
+            result_line += f"{family_result.matched_percent_frequency_weighted:>6.2f} {family_result.matched_percent_nonlib_frequency_weighted:>6.2f} | "
+            print(result_line)
 
     def _handle_submit(self, args):
         # run a number of sanity checks first

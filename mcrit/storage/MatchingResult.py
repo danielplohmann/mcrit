@@ -589,24 +589,25 @@ class MatchingResult(object):
         matching_entry.sample_matches = [MatchedSampleEntry.fromDict(entry) for entry in entry_dict["matches"]["samples"]]
         # expand function matches into individual entries
         list_of_function_matches = []
-        matching_entry.library_matches = {abs(entry["fid"]): [] for entry in entry_dict["matches"]["functions"]}
-        matching_entry.unique_family_scores_per_sample = None
-        for function_match_summary in entry_dict["matches"]["functions"]:
-            num_bytes = function_match_summary["num_bytes"]
-            offset = function_match_summary["offset"]
-            function_id = function_match_summary["fid"]
-            # ensure that we have all function_ids in increasing order, regardless of whether they come from a query or regular match.
-            matching_entry.is_query = True if function_id < 0 else False
-            function_id = abs(function_id)
-            if function_id not in matching_entry.function_id_to_family_ids_matched:
-                matching_entry.function_id_to_family_ids_matched[function_id] = []
-            for match_tuple in function_match_summary["matches"]:
-                list_of_function_matches.append(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
-                if match_tuple[0] not in matching_entry.function_id_to_family_ids_matched[function_id]:
-                    matching_entry.function_id_to_family_ids_matched[function_id].append(match_tuple[0])
-                if match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG:
-                    if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
-                        matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
+        if "functions" in entry_dict["matches"]:
+            matching_entry.library_matches = {abs(entry["fid"]): [] for entry in entry_dict["matches"]["functions"]}
+            matching_entry.unique_family_scores_per_sample = None
+            for function_match_summary in entry_dict["matches"]["functions"]:
+                num_bytes = function_match_summary["num_bytes"]
+                offset = function_match_summary["offset"]
+                function_id = function_match_summary["fid"]
+                # ensure that we have all function_ids in increasing order, regardless of whether they come from a query or regular match.
+                matching_entry.is_query = True if function_id < 0 else False
+                function_id = abs(function_id)
+                if function_id not in matching_entry.function_id_to_family_ids_matched:
+                    matching_entry.function_id_to_family_ids_matched[function_id] = []
+                for match_tuple in function_match_summary["matches"]:
+                    list_of_function_matches.append(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
+                    if match_tuple[0] not in matching_entry.function_id_to_family_ids_matched[function_id]:
+                        matching_entry.function_id_to_family_ids_matched[function_id].append(match_tuple[0])
+                    if match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG:
+                        if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
+                            matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
         matching_entry.function_matches = sorted(list_of_function_matches, key=lambda x: x.function_id)
         # create deep copies for filtering
         matching_entry.filtered_function_matches = deepcopy(matching_entry.function_matches)

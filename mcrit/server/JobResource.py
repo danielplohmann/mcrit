@@ -7,6 +7,7 @@ import falcon
 from mcrit.server.utils import timing, jsonify
 from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.server.utils import db_log_msg
+from mcrit.queue.LocalQueue import Job
 
 # TODO these should also return status and data in their json response
 
@@ -118,8 +119,15 @@ class JobResource:
             resp.status = falcon.HTTP_400
             resp.data = jsonify({"status": "failed", "data": {"message": "Valid ResultIDs are hexstrings with 24 characters."}})
             db_log_msg(self.index, req, f"JobResource.on_get_results - failed - invalid result_id.")
-            return  
+            return 
+        job_id = self.index.getJobIdForResult(result_id)
+        job_data = self.index.getJobData(job_id)
         data = self.index.getResult(result_id)
+        if "compact" in req.params and req.params["compact"].lower().strip() == "true":
+            if job_data:
+                job_info = Job(job_data, None)
+                if job_info.is_matching_job or job_info.is_query_job:
+                    data["matches"].pop("functions")
         # TODO throw 404 if job_id is unknown
         # resp.status = falcon.HTTP_404
         resp.data = jsonify({"status": "successful", "data": data})
@@ -133,7 +141,13 @@ class JobResource:
             resp.data = jsonify()
             db_log_msg(self.index, req, f"JobResource.on_get_job_result - failed - invalid job_id.")
             return  
+        job_data = self.index.getJobData(job_id)
         data = self.index.getResultForJob(job_id)
+        if "compact" in req.params and req.params["compact"].lower().strip() == "true":
+            if job_data:
+                job_info = Job(job_data, None)
+                if job_info.is_matching_job or job_info.is_query_job:
+                    data["matches"].pop("functions")
         # TODO throw 404 if job_id is unknown
         # resp.status = falcon.HTTP_404
         resp.data = jsonify({"status": "successful", "data": data})
