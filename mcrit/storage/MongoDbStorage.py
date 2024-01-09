@@ -167,10 +167,12 @@ class MongoDbStorage(StorageInterface):
         return datetime.datetime.fromtimestamp(timestamp).strftime(self._DATETIME_FORMAT)
 
     def _convertDatetimeToString(self, dt: datetime.datetime) -> str:
-        return dt.strftime(self._DATETIME_FORMAT)
+        if isinstance(dt, datetime.datetime):
+            return dt.strftime(self._DATETIME_FORMAT)
 
     def _convertStringToDatetime(self, date_string: str) -> datetime.datetime:
-        return datetime.datetime.strptime(date_string, self._DATETIME_FORMAT)
+        if isinstance(date_string, str):
+            return datetime.datetime.strptime(date_string, self._DATETIME_FORMAT)
 
     def _toBinary(self, obj):
         """Checks data to be inserted to the database for non-UTF8 strings and escapes these as BSON.Binary"""
@@ -273,16 +275,17 @@ class MongoDbStorage(StorageInterface):
     def _getDbState(self):
         result = self._getDb().settings.find_one({})
         if result is None:
-            raise Exception("Database does not have a db_state field")
-        else:
+            raise Exception("Database does not have a state field yet")
+        elif "db_state" in result:
             return result["db_state"]
         
     def _getDbTimestamp(self):
         result = self._getDb().settings.find_one({})
         if result is None:
-            raise Exception("Database does not have a db_timestamp field")
-        else:
+            raise Exception("Database does not have a state field yet")
+        elif "db_timestamp" in result:
             return result["db_timestamp"]
+            
 
     ###############################################################################
     # Conversion
