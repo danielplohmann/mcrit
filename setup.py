@@ -7,7 +7,7 @@ with open("README.md") as f:
 
 setup(
     name='mcrit',
-    version="1.2.25",
+    version="1.2.26",
     description='MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity.',
     long_description_content_type="text/markdown",
     long_description=README,

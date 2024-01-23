@@ -13,6 +13,7 @@ numpy
 rapidfuzz
 requests
 scipy
+lief==0.13.2
 smda==1.12.7
 tqdm
 waitress
