@@ -72,14 +72,21 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         queue = QueueFactory().getQueue(config, storage=self._storage, consumer_id="index")
         self.search_query_parser = SearchQueryParser()
         super().__init__(queue)
+
+    def _indexCallback(self):
+        """ called whenever other functionality in MinHashIndex is used, intended for scheduling maintainance jobs etc. """
+        pass
     
     #### STORAGE IO ####
     def getStorage(self):
         """Get an interface to the storage"""
+        # use this as a callback in all other functions to trigger functionality
+        self._indexCallback()
         return self._storage
 
     def getStorageData(self):
         """Warning: This is intended for local debugging runs - storage may become huge"""
+        storage = self.getStorage()
         results = {
             "config": {
                 "minhash_config": self._minhash_config.toDict(),
@@ -87,12 +94,13 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 "storage_config": self._storage_config.toDict(),
                 "queue_config": self._queue_config.toDict(),
             },
-            "stats": self._storage.getStats(),
-            "storage": self._storage.getContent(),
+            "stats": storage.getStats(),
+            "storage": storage.getContent(),
         }
         return results
 
     def setStorageData(self, storage_data):
+        storage = self.getStorage()
         self._minhash_config = MinHashConfig.fromDict(storage_data["config"]["minhash_config"])
         self._shingler_config = ShinglerConfig.fromDict(storage_data["config"]["shingler_config"])
         self._storage_config = StorageConfig.fromDict(storage_data["config"]["storage_config"])
@@ -103,10 +111,11 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         mcrit_config.STORAGE_CONFIG = self._storage_config
         mcrit_config.QUEUE_CONFIG = self._queue_config
         # reinitialize
-        self._storage = StorageFactory.getStorage(mcrit_config)
-        self._storage.setContent(storage_data["storage"])
+        storage = StorageFactory.getStorage(mcrit_config)
+        storage.setContent(storage_data["storage"])
 
     def getExportData(self, sample_ids=None, compress_data=False):
+        storage = self.getStorage()
         exported_data = {
             "content": {
                 "is_compressed": compress_data,
@@ -132,13 +141,13 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         exported_function_entries = {}
         export_size = 0
         # iterate over sample_ids and transform respective data
-        for sample_id in self._storage.getSampleIds():
+        for sample_id in storage.getSampleIds():
             if sample_ids and sample_id not in sample_ids:
                 continue
-            sample_entry = self._storage.getSampleById(sample_id)
+            sample_entry = storage.getSampleById(sample_id)
             family_mapping[sample_entry.family_id] = sample_entry.family
             exported_sample_entries[sample_entry.sha256] = sample_entry.toDict()
-            function_entries = self._storage.getFunctionsBySampleId(sample_id)
+            function_entries = storage.getFunctionsBySampleId(sample_id)
             functions_dict = {function_entry.function_id: function_entry.toDict() for function_entry in function_entries}
             exported_function_entries[sample_entry.sha256] = functions_dict
             if compress_data:
@@ -158,6 +167,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return exported_data
 
     def addImportData(self, export_data):
+        storage = self.getStorage()
         import_report = {
             "num_samples_imported": 0,
             "num_samples_skipped": 0,
@@ -180,10 +190,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         is_compressed = export_data["content"]["is_compressed"]
         # create a dictionary for pointing family_ids as contained in the export to family_ids as used in this instance
         family_id_remapping = {}
-        max_family_id_in_storage = max(self._storage.getFamilyIds())
+        max_family_id_in_storage = max(storage.getFamilyIds())
         for exported_family_id, exported_family in export_data["family_mapping"].items():
             exported_family_id = int(exported_family_id)
-            remapped_family_id = self._storage.addFamily(exported_family)
+            remapped_family_id = storage.addFamily(exported_family)
             if remapped_family_id > max_family_id_in_storage:
                 import_report["num_families_imported"] += 1
                 max_family_id_in_storage = remapped_family_id
@@ -199,7 +209,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         for sample_sha256, sample_entry_dict in export_data["sample_entries"].items():
             index += 1
             # check if sample is already present, and skip if yes
-            if self._storage.getSampleBySha256(sample_sha256):
+            if storage.getSampleBySha256(sample_sha256):
                 LOGGER.info(f"Sample with SHA256 {sample_sha256} already present in database, skipping...")
                 import_report["num_samples_skipped"] += 1
                 import_report["num_functions_skipped"] += sample_entry_dict["statistics"]["num_functions"]
@@ -209,7 +219,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             # adjust family_id in sample_entry using our remapping
             sample_entry.family_id = family_id_remapping[sample_entry.family_id]
             # add sample_entry to storage and receive new sample_id
-            remapped_sample_entry = self._storage.importSampleEntry(sample_entry)
+            remapped_sample_entry = storage.importSampleEntry(sample_entry)
             if sample_sha256 in export_data["function_entries"]:
                 function_entries = export_data["function_entries"][sample_sha256]
                 # decompress function_entries if necessary
@@ -224,7 +234,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                     import_report["num_functions_imported"] += 1
             LOGGER.info(f"Sample %d with SHA256 %s added...", index, sample_sha256)
         
-        adjusted_function_entries = self._storage.importFunctionEntries(function_entries_to_import)
+        adjusted_function_entries = storage.importFunctionEntries(function_entries_to_import)
         LOGGER.info(f"{len(adjusted_function_entries)} functions added")
         # we can only start indexing once our imported function_entries had their function_id adjusted to our DB
         minhashes_to_import = []
@@ -234,14 +244,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 minhash = MinHash(function_entry.function_id, function_entry.minhash, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
                 minhashes_to_import.append(minhash)
         # ensure that their minhashes / pichashes are added to the respective indices
-        self._storage.addMinHashes(minhashes_to_import)
+        storage.addMinHashes(minhashes_to_import)
         LOGGER.info(f"{len(minhashes_to_import)} Minhashes added")
         return import_report
 
     def respawn(self):
         """Get an interface to the storage"""
+        storage = self.getStorage()
         self.queue.clear()
-        return self._storage.clearStorage()
+        return storage.clearStorage()
 
     #### REDIRECTED TO WORKER ####
     """
@@ -265,17 +276,18 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
     #### NOT REDIRECTED ####
     def addReport(self, smda_report, calculate_hashes=True, calculate_matches=False, username=None):
-        sample_entry = self._storage.getSampleBySha256(smda_report.sha256)
+        storage = self.getStorage()
+        sample_entry = storage.getSampleBySha256(smda_report.sha256)
         if sample_entry:
             self._storage.updateFunctionLabels(smda_report, username)
             return {"existed": True, "sample_info": sample_entry.toDict()}
-        sample_entry = self._storage.addSmdaReport(smda_report)
+        sample_entry = storage.addSmdaReport(smda_report)
         if not sample_entry:
             return None
         LOGGER.info("Added %s", sample_entry)
         # ensure that original function_names are also added as labels
-        self._storage.updateFunctionLabels(smda_report, username)
-        function_entries = self._storage.getFunctionsBySampleId(sample_entry.sample_id)
+        storage.updateFunctionLabels(smda_report, username)
+        function_entries = storage.getFunctionsBySampleId(sample_entry.sample_id)
         LOGGER.info("Added %d function entries.", len(function_entries))
         job_id = None
         if calculate_hashes:
@@ -283,16 +295,19 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return {"existed": False, "sample_info": sample_entry.toDict(), "job_id": job_id}
 
     def addReportJson(self, report_json, calculate_hashes=True, calculate_matches=False, username=None):
+        storage = self.getStorage()
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches, username=username)
 
     def addReportFile(self, report_filepath, calculate_hashes=True, calculate_matches=False):
+        storage = self.getStorage()
         with open(report_filepath, "r") as fin:
             report_json = json.load(fin)
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches)
     
     def getMatchesCross(self, sample_ids:List[int], force_recalculation=False, **params):
+        storage = self.getStorage()
         sample_to_job_id = {}
         for id in sample_ids:
             job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, **params)
@@ -306,6 +321,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             band_matches_required=None, 
             exclude_self_matches=False
         ):
+        storage = self.getStorage()
         # convert function to FunctionEntry
         smda_report = SmdaReport.fromDict(smda_report_with_function)
         function_offset = None
@@ -326,12 +342,13 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return match_report
 
     def getMatchesFunctionVs(self, function_id_a:int, function_id_b:int):
-        function_entry_a = self._storage.getFunctionById(function_id_a, with_xcfg=True)
-        function_entry_b = self._storage.getFunctionById(function_id_b, with_xcfg=True)
+        storage = self.getStorage()
+        function_entry_a = storage.getFunctionById(function_id_a, with_xcfg=True)
+        function_entry_b = storage.getFunctionById(function_id_b, with_xcfg=True)
         if function_entry_a is None or function_entry_b is None:
             return
-        sample_entry_a = self._storage.getSampleById(function_entry_a.sample_id)
-        sample_entry_b = self._storage.getSampleById(function_entry_b.sample_id)
+        sample_entry_a = storage.getSampleById(function_entry_a.sample_id)
+        sample_entry_b = storage.getSampleById(function_entry_b.sample_id)
         minhash_a = function_entry_a.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
         minhash_b = function_entry_b.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
 
@@ -361,36 +378,37 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
     #### SIMPLE LOOKUPS ####
     def getFamily(self, family_id):
-        return self._storage.getFamily(family_id)
+        return self.getStorage().getFamily(family_id)
 
     def getFunctionsBySampleId(self, sample_id):
-        return self._storage.getFunctionsBySampleId(sample_id)
+        return self.getStorage().getFunctionsBySampleId(sample_id)
 
     def isFunctionId(self, function_id):
-        return self._storage.isFunctionId(function_id)
+        return self.getStorage().isFunctionId(function_id)
 
     def isSampleId(self, sample_id):
-        return self._storage.isSampleId(sample_id)
+        return self.getStorage().isSampleId(sample_id)
 
     def getFunctionById(self, function_id, with_xcfg=False):
-        return self._storage.getFunctionById(function_id, with_xcfg=with_xcfg)
+        return self.getStorage().getFunctionById(function_id, with_xcfg=with_xcfg)
 
     def getFunctions(self, start_index, limit):
-        return self._storage.getFunctions(start_index, limit)
+        return self.getStorage().getFunctions(start_index, limit)
 
     def getSamplesByFamilyId(self, family_id):
-        return self._storage.getSamplesByFamilyId(family_id)
+        return self.getStorage().getSamplesByFamilyId(family_id)
 
     def getSampleById(self, sample_id):
-        return self._storage.getSampleById(sample_id)
+        return self.getStorage().getSampleById(sample_id)
 
     def getSamples(self, start_index, limit):
-        return self._storage.getSamples(start_index, limit)
+        return self.getStorage().getSamples(start_index, limit)
 
     def getFamilies(self) -> Dict[int, FamilyEntry]:
+        storage = self.getStorage()
         family_overview = {}
-        for family_id in self._storage.getFamilyIds():
-            family_overview[family_id] = self._storage.getFamily(family_id)
+        for family_id in storage.getFamilyIds():
+            family_overview[family_id] = storage.getFamily(family_id)
         return family_overview
 
     def getFunctionGraph(self, function_id):
@@ -402,12 +420,12 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
     def getAllSampleInfos(self):
         infos = []
-        for sample_id in sorted(self._storage.getSampleIds()):
+        for sample_id in sorted(self.getStorage().getSampleIds()):
             infos.append(self.getSampleById(sample_id))
         return infos
 
     def getStatus(self, with_pichash=True):
-        storage_stats = self._storage.getStats(with_pichash=with_pichash)
+        storage_stats = self.getStorage().getStats(with_pichash=with_pichash)
         status = {
             "status": {
                 "db_state": storage_stats["db_state"],
@@ -423,16 +441,17 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return status
 
     def getVersion(self):
+        storage = self.getStorage()
         return {"version": self.config.VERSION}
 
     def getMatchesForPicHash(self, pichash):
-        return self._storage.getMatchesForPicHash(pichash)
+        return self.getStorage().getMatchesForPicHash(pichash)
         
     def getMatchesForPicBlockHash(self, picblockhash):
-        return self._storage.getMatchesForPicBlockHash(picblockhash)
+        return self.getStorage().getMatchesForPicBlockHash(picblockhash)
 
     def getSampleBySha256(self, sample_sha256): 
-        return self._storage.getSampleBySha256(sample_sha256)
+        return self.getStorage().getSampleBySha256(sample_sha256)
 
     #### SEARCH ####
 
@@ -522,6 +541,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return sort_by_list 
 
     def getFamilySearchResults(self, search_term, sort_by="family_id", is_ascending=True, cursor=None, limit=100):
+        storage = self.getStorage()
         term_as_int = None
         id_match = None
         try:
@@ -530,8 +550,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             else:
                 term_as_int = int(search_term)
             if term_as_int <= 0xFFFFFFFF:
-                if self._storage.isFamilyId(term_as_int):
-                    id_match = self._storage.getFamily(term_as_int).toDict()
+                if storage.isFamilyId(term_as_int):
+                    id_match = storage.getFamily(term_as_int).toDict()
             else:
                 LOGGER.warning("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
         except Exception:
@@ -548,7 +568,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
         sort_data = self._get_sort_data("family_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(
-            self._storage.findFamilyByString,
+            storage.findFamilyByString,
             search_term,
             sort_data,
             cursor,
@@ -558,6 +578,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return result
 
     def getFunctionSearchResults(self, search_term, sort_by="function_id", is_ascending=True, cursor=None, limit=100):
+        storage = self.getStorage()
         term_as_int = None
         id_match = None
         try:
@@ -566,8 +587,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             else:
                 term_as_int = int(search_term)
             if term_as_int <= 0xFFFFFFFF:
-                if self._storage.isFunctionId(term_as_int):
-                    id_match = self._storage.getFunctionById(term_as_int).toDict()
+                if storage.isFunctionId(term_as_int):
+                    id_match = storage.getFunctionById(term_as_int).toDict()
             else:
                 LOGGER.warning("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
         except Exception:
@@ -587,7 +608,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         
         sort_data = self._get_sort_data("function_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(
-            self._storage.findFunctionByString,
+            storage.findFunctionByString,
             search_term,
             sort_data,
             cursor,
@@ -597,6 +618,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return result
 
     def getSampleSearchResults(self, search_term, sort_by="sample_id", is_ascending=True, cursor=None, limit=100):
+        storage = self.getStorage()
         term_as_int = None
         id_match = None
         try:
@@ -605,15 +627,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             else:
                 term_as_int = int(search_term)
             if term_as_int <= 0xFFFFFFFF:
-                if self._storage.isSampleId(term_as_int):
-                    id_match = self._storage.getSampleById(term_as_int).toDict()
+                if storage.isSampleId(term_as_int):
+                    id_match = storage.getSampleById(term_as_int).toDict()
             else:
                 LOGGER.warning("Can only handle family/sample/function IDs up to 0xFFFFFFFF.")
         except Exception:
             pass
 
         if re.match("^[a-fA-F0-9]{64}$", search_term) is not None:
-            sample_entry = self._storage.getSampleBySha256(search_term)
+            sample_entry = storage.getSampleBySha256(search_term)
             sha_match = sample_entry.toDict()
         else:
             sha_match = None
@@ -640,7 +662,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         
         sort_data = self._get_sort_data("sample_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(
-            self._storage.findSampleByString,
+            storage.findSampleByString,
             search_term,
             sort_data,
             cursor,
@@ -653,14 +675,17 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
     ##### CONFIG CHANGES ####
     def updateMinHashThreshold(self, threshold):
+        storage = self.getStorage()
         self.config.MINHASH_CONFIG.MINHASH_MATCHING_THRESHOLD = threshold
         self._minhash_config.MINHASH_MATCHING_THRESHOLD = threshold
 
     def updatePicHashSize(self, size):
+        storage = self.getStorage()
         self.config.MINHASH_CONFIG.PICHASH_SIZE = size
         self._minhash_config.PICHASH_SIZE = size
 
     def updateMinHasherConfig(self, config):
+        storage = self.getStorage()
         self._storage_config = config.STORAGE_CONFIG
         self._minhash_config = config.MINHASH_CONFIG
         self._shingler_config = config.SHINGLER_CONFIG
