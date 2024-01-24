@@ -180,8 +180,18 @@ class Worker(QueueRemoteCallee):
     # Reports PROGRESS
     @Remote(progress=True)
     def rebuildIndex(self, progress_reporter=NoProgressReporter()):
-        self._storage.rebuildMinhashBandIndex(progress_reporter=progress_reporter)
-        return
+        return self._storage.rebuildMinhashBandIndex(progress_reporter=progress_reporter)
+    
+    # Reports PROGRESS
+    @Remote(progress=True)
+    def recalculatePicHashes(self, progress_reporter=NoProgressReporter()):
+        return self._storage.recalculateAllPicHashes(progress_reporter=progress_reporter)
+    
+     # Reports PROGRESS
+    @Remote(progress=True)
+    def recalculateMinHashes(self, progress_reporter=NoProgressReporter()):
+        return self._storage.recalculateAllMinHashes(progress_reporter=progress_reporter)
+        
 
     # Reports PROGRESS
     @Remote(progress=True)

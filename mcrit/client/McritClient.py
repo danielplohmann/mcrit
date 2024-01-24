@@ -92,10 +92,26 @@ class McritClient:
     
     def completeMinhashes(self):
         response = requests.get(f"{self.mcrit_server}/complete_minhashes", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def rebuildIndex(self):
         response = requests.get(f"{self.mcrit_server}/rebuild_index", headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+    
+    def recalculatePicHashes(self):
+        response = requests.get(f"{self.mcrit_server}/recalculate_pichashes", headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+
+    def recalculateMinHashes(self):
+        response = requests.get(f"{self.mcrit_server}/recalculate_minhashes", headers=self.headers)
+        if self.raw:
+            return response
         return handle_response(response)
 
     def addReport(self, smda_report: SmdaReport) -> Tuple[SampleEntry, Optional[str]]:

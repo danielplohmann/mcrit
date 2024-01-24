@@ -96,6 +96,20 @@ class StatusResource:
         db_log_msg(self.index, req, f"StatusResource.on_get_rebuild_index - success.")
         return
 
+    @timing
+    def on_get_recalculate_pichashes(self, req, resp):
+        index_report = self.index.recalculatePicHashes(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": index_report})
+        db_log_msg(self.index, req, f"StatusResource.on_get_recalculate_pichashes - success.")
+        return
+
+    @timing
+    def on_get_recalculate_minhashes(self, req, resp):
+        index_report = self.index.recalculateMinHashes(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": index_report})
+        db_log_msg(self.index, req, f"StatusResource.on_get_recalculate_minhashes - success.")
+        return
+
     @staticmethod
     def _get_search_args(params):
         result = {

@@ -641,6 +641,23 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def recalculateAllPicHashes(self) -> int:
+        """ Iterate across all SampleEntries and check if the SMDA version is older than the one currently available
+            If yes, process all FunctionEntries and use this SMDA version to recalculate and update the PicHash
+            In the end, rebuild the PicHashIndex 
+        Returns:
+            the number of minhashes indexed
+        """
+        raise NotImplementedError
+    
+    def recalculateAllMinHashes(self) -> int:
+        """ Process all FunctionEntries and use this SMDA version and MCRIT config to recalculate and update the MinHashes
+            In the end, call rebuildMinhashBandIndex
+        Returns:
+            the number of minhashes indexed
+        """
+        raise NotImplementedError
+
     def createBandhashProjection(self, minhash):
         """Calculate a projection for index permutation based on a given minhash
         Args:

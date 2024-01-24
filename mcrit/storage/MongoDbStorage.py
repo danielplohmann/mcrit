@@ -4,9 +4,10 @@ import json
 import logging
 import datetime
 import traceback
-from collections import defaultdict
+from packaging import version
 from operator import itemgetter
 from itertools import zip_longest
+from collections import defaultdict
 from typing import Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 LOGGER = logging.getLogger(__name__)
@@ -17,6 +18,9 @@ except:
     LOGGER.warning("pymongo package import failed - MongoDB backend will not be available.")
 
 from picblocks.blockhasher import BlockHasher
+from smda.SmdaConfig import SmdaConfig
+from smda.common.BinaryInfo import BinaryInfo
+from smda.common.SmdaFunction import SmdaFunction
 
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, NotNode, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver, SearchTermNode
@@ -1096,7 +1100,88 @@ class MongoDbStorage(StorageInterface):
             minhash_functions += len(minhashes)
             if progress_reporter:
                 progress_reporter.step()
-        return minhash_functions
+        return {"minhash_functions_indexed": minhash_functions}
+    
+    def recalculateAllPicHashes(self, progress_reporter=None):
+        # get current SMDA version
+        smda_config = SmdaConfig()
+        smda_version = smda_config.VERSION
+        smda_downward_compatibility = getattr(smda_config, "ESCAPER_DOWNWARD_COMPATIBILITY", None)
+        if smda_downward_compatibility is None:
+            LOGGER.warn("SMDA downward compatibility version unknown, using current SMDA version as threshold...")
+            smda_downward_compatibility = smda_version
+        compatibility_threshold = version.parse(smda_downward_compatibility)
+        # get samples where recalculation is necessary
+        samples_to_be_updated = {}
+        for sample_document in self._getDb().samples.find({}, {"sample_id": 1, "smda_version": 1, "architecture": 1, "base_addr": 1, "binary_size": 1, "bitness": 1, "_id": 0}):
+            report_version = sample_document["smda_version"]
+            if report_version.startswith("MCRIT4IDA"):
+                report_version = report_version.rsplit(" ", 1)[-1]
+            if version.parse(report_version) < compatibility_threshold:
+                samples_to_be_updated[sample_document["sample_id"]] = sample_document
+        # reprocess functions on a per sample level
+        total_samples = len(samples_to_be_updated)
+        if progress_reporter:
+            progress_reporter.set_total((total_samples))
+        functions_updatable = 0
+        functions_updated = 0
+        picblockhashes_updatable = 0
+        picblockhashes_updated = 0
+        xcfg_missing = 0
+        for sample_id, sample_info in samples_to_be_updated.items():
+            pic_hash_updates = []
+            for function_document in self._getDb().functions.find({"sample_id": sample_id}, {"function_id": 1, "_pichash": 1, "_picblockhashes": 1, "_xcfg": 1, "_id": 0}):
+                update_document = {}
+                functions_updatable += 1
+                # create all relevant objects
+                binary_info = BinaryInfo(b"")
+                binary_info.architecture = sample_info["architecture"]
+                binary_info.base_addr = sample_info["base_addr"]
+                binary_info.binary_size = sample_info["binary_size"]
+                binary_info.bitness = sample_info["bitness"]
+                if "_xcfg" not in function_document or not function_document["_xcfg"]:
+                    xcfg_missing += 1
+                    continue
+                smda_xcfg = json.loads(function_document["_xcfg"])
+                old_pichash = int(function_document["_pichash"], 16)
+                old_blockhashes = []
+                if "_picblockhashes" in function_document:
+                    for blockhash in function_document["_picblockhashes"]:
+                        blockhash["hash"] = int(blockhash["hash"], 16)
+                        old_blockhashes.append(blockhash)
+                    picblockhashes_updatable += len(old_blockhashes)
+                smda_function = SmdaFunction.fromDict(smda_xcfg, binary_info=binary_info)
+                new_pichash = smda_function.getPicHash(binary_info)
+                if old_pichash != new_pichash:
+                    functions_updated += 1
+                    update_document["pichash"] = new_pichash
+                # check if any blockhashes changed and possibly stage for update
+                picblockhashes = []
+                for hash_entry in self.blockhasher.getBlockhashesForFunction(smda_function, binary_info.base_addr, binary_info.base_addr + binary_info.binary_size, hash_size=8):
+                    for block_entry in hash_entry["offset_tuples"]:
+                        block_entry["hash"] = hash_entry["hash"]
+                        picblockhashes.append(block_entry)
+                set_old = set([(pbh['offset'],pbh["hash"])  for pbh in old_blockhashes])
+                set_new = set([(pbh['offset'],pbh["hash"]) for pbh in picblockhashes])
+                if len(set_new) != len(set_old.intersection(set_new)):
+                    picblockhashes_updated += len(picblockhashes)
+                    update_document["picblockhashes"] = picblockhashes
+                # prepare single function entry update
+                if update_document:
+                    self._encodePichash(update_document)
+                    update_command = {"$set": update_document}
+                    pic_hash_updates.append(UpdateOne({"function_id": function_document["function_id"]}, update_command, upsert=True))
+            # batch insert updates for function_entries
+            if pic_hash_updates:
+                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"smda_version": smda_version}})
+                self._getDb().functions.bulk_write(pic_hash_updates, ordered=False)
+            if progress_reporter:
+                progress_reporter.step()
+        self._getDb().command("reIndex", "functions")
+        LOGGER.info(f"Found {total_samples} outdated samples, {functions_updated}/{functions_updatable} PicHashes and {picblockhashes_updated}/{picblockhashes_updatable} PicBlockHashes were updated.")
+        if xcfg_missing:
+            LOGGER.warn(f"{xcfg_missing} functions could not be updated as there was not CFG available.")
+        return {"outdated_samples": total_samples, "functions_updatable": functions_updatable, "functions_updated": functions_updated, "picblockhashes_updatable": picblockhashes_updatable, "picblockhashes_updated": picblockhashes_updated, "xcfg_missing": xcfg_missing}
 
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples

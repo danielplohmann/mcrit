@@ -258,6 +258,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     """
     def updateMinHashes(self, function_ids):
     def rebuildIndex(self):
+    def recalculatePicHashes(self):
+    def recalculateMinHashes(self):
     def getMatchesForReport(self, report):
     def getMatchesForSmdaReport(self, report_json, minhash_threshold=None):
     def getMatchesForMappedBinary(self, binary, base_address, minhash_threshold=None):

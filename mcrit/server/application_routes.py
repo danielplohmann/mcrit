@@ -93,8 +93,12 @@ def get_app():
     _app.add_route("/respawn", status_resource, suffix="respawn")  # post
     # schedule a job that calculates all missing minhashes for all samples/functions, in case the respective jobs failed before
     _app.add_route("/complete_minhashes", status_resource, suffix="complete_minhashes")  # get
-        # schedule a job that drops all minhash bands and rebuilds the index using all existing minhashes
+    # schedule a job that drops all minhash bands and rebuilds the index using all existing minhashes
     _app.add_route("/rebuild_index", status_resource, suffix="rebuild_index")  # get
+    # schedule a job that updates all function_entries where the pichash was possibly calculated with an outdated SMDA version
+    _app.add_route("/recalculate_pichashes", status_resource, suffix="recalculate_pichashes")  # get
+    # schedule a job that updates all function_entries where the minhash was possibly calculated with an outdated SMDA version
+    _app.add_route("/recalculate_minhashes", status_resource, suffix="recalculate_minhashes")  # get
 
     # search suitable fields based on query
     _app.add_route("/search/families", status_resource, suffix="search_families")
