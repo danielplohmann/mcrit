@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2024-01-24 v1.3.0:  BREAKING: Milestone release with indexing improvements for PicHash and MinHash. To ensure full backward compatibility, recalculation of all hashes is recommended. Check this [migration guide](https://github.com/danielplohmann/mcrit/blob/main/docs/migration-v1.3.0.md). 
  * 2024-01-23 v1.2.26: Pinning lief to 0.13.2 in order to ensure that the pinned SMDA remains compatible.
  * 2024-01-09 v1.2.25: Ensure that we can deliver system status regardless of whether there is a `db_state` and `db_timestamp` or not.
  * 2024-01-05 v1.2.24: Now supporting "query" argument in CLI, as well as compact MatchingResults (without function match info) to reduce file footprint.
@@ -132,19 +133,19 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
  * 2023-12-05 v1.2.15: Added convenience functionality to Job objects, version number aligned with mcritweb.
  * 2023-11-24 v1.2.11: SMDA pinned to version 1.12.7 before we upgrade SMDA and introduce a database migration to recalculate pic + picblock hashes with the improved generalization.
  * 2023-11-17 v1.2.10: Added ability to set an authorization token for the server via header field: `apitoken`; added ability to filter by job groups; added ability to fail orphaned jobs.
- * 2023-10-17 v1.2.8: Minor fix in job groups.
- * 2023-10-16 v1.2.6: Summarized queue statistics, refined Job classification.
- * 2023-10-13 v1.2.4: Exposed Queue/Job Deletion to REST interface, improved query speed for various queue lookups via indexing and parameterized mongodb queries.
- * 2023-10-13 v1.2.3: Workers will now de-register from in-progress jobs in case they crash (THX to @yankovs for the code template).
- * 2023-10-03 v1.2.2: MatchingResult filtering for min/max num samples (incl. fix).
- * 2023-10-02 v1.2.0: Milestone release for Virus Bulletin 2023.
- * 2023-09-18 v1.1.7: Bugfix: Tasking matching with 0 bands now deactivates minhash matching as it was supposed to be before. Also matching job progress percentage fixed.
- * 2023-09-15 v1.1.6: Bugfix in BlockMatching, convenience functionality for interacting with Job objects.
- * 2023-09-14 v1.1.5: Deactivated gunicorn as default WSGI handler for the time being due to issues with non-returning calls when handling compute-heavy calls.
- * 2023-09-14 v1.1.4: BUGFIX: Added `requirements.txt` to `data_files` in `setup.py` to ensure it's available for the package.
- * 2023-09-13 v1.1.3: Extracted some performance critical constants into parameters configurable in MinHashConfig and StorageConfig, fixed progress reporting for batched matching, BUGFIX: usage of GunicornConfig to proper dataclass.
- * 2023-09-13 v1.1.1: Streamlined requirements / setup, excluded `gunicorn` for Windows (THX to @yankovs!!).
- * 2023-09-12 v1.1.0: For Linux deployments, MCRIT now uses `gunicorn` instead of `waitress` as WSGI server because of [much better performance](https://github.com/danielplohmann/mcrit/pull/39). As gunicorn needs its own config, this required bumping the minor versions (THX to @yankovs!!).
+ * 2023-10-17 v1.2.8:  Minor fix in job groups.
+ * 2023-10-16 v1.2.6:  Summarized queue statistics, refined Job classification.
+ * 2023-10-13 v1.2.4:  Exposed Queue/Job Deletion to REST interface, improved query speed for various queue lookups via indexing and parameterized mongodb queries.
+ * 2023-10-13 v1.2.3:  Workers will now de-register from in-progress jobs in case they crash (THX to @yankovs for the code template).
+ * 2023-10-03 v1.2.2:  MatchingResult filtering for min/max num samples (incl. fix).
+ * 2023-10-02 v1.2.0:  Milestone release for Virus Bulletin 2023.
+ * 2023-09-18 v1.1.7:  Bugfix: Tasking matching with 0 bands now deactivates minhash matching as it was supposed to be before. Also matching job progress percentage fixed.
+ * 2023-09-15 v1.1.6:  Bugfix in BlockMatching, convenience functionality for interacting with Job objects.
+ * 2023-09-14 v1.1.5:  Deactivated gunicorn as default WSGI handler for the time being due to issues with non-returning calls when handling compute-heavy calls.
+ * 2023-09-14 v1.1.4:  BUGFIX: Added `requirements.txt` to `data_files` in `setup.py` to ensure it's available for the package.
+ * 2023-09-13 v1.1.3:  Extracted some performance critical constants into parameters configurable in MinHashConfig and StorageConfig, fixed progress reporting for batched matching, BUGFIX: usage of GunicornConfig to proper dataclass.
+ * 2023-09-13 v1.1.1:  Streamlined requirements / setup, excluded `gunicorn` for Windows (THX to @yankovs!!).
+ * 2023-09-12 v1.1.0:  For Linux deployments, MCRIT now uses `gunicorn` instead of `waitress` as WSGI server because of [much better performance](https://github.com/danielplohmann/mcrit/pull/39). As gunicorn needs its own config, this required bumping the minor versions (THX to @yankovs!!).
  * 2023-09-08 v1.0.21: All methods of McritClient now forward apitokens/usernames to the backend.
  * 2023-09-05 v1.0.20: Use two-complement to represent addresses in SampleEntry, FunctionEntry when storing in MongoDB to address BSON limitations (THX to @yankovs).
  * 2023-09-05 v1.0.19: Statistics are now using the internal counters that had been created a while ago (THX to @yankovs).
@@ -154,13 +155,13 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
  * 2023-08-23 v1.0.12: Added the ability to rebuild the minhash bands used for indexing.
  * 2023-08-22 v1.0.11: Fixed a bug where when importing bulk data, the `function_name` was not also added as a `function_label`.
  * 2023-08-11 v1.0.10: Fixed a bug where when importing bulk data, the function_id would not be adjusted prior to adding MinHashes to bands, possibly leading to non-existing function_ids.
- * 2023-08-02 v1.0.9: IDA plugin can now filter by block size and minhash score, optimized layout and user experience (THX for the feedback to @r0ny123!!)
- * 2023-07-28 v1.0.8: IDA plugin can now display colored graphs for remote functions and do queries for PicBlockHashes (for basic blocks) for the currently viewed function.
- * 2023-06-06 v1.0.7: Extended filtering capabilities on MatchingResult.
- * 2023-06-02 v1.0.6: IDA plugin can now task matching jobs, show their results and batch import labels. Harmonization of MatchingResult.
- * 2023-05-22 v1.0.3: More robustness for path verification when using MCRIT CLI on Malpedia repo folder.
- * 2023-05-12 v1.0.1: Some progress on label import for the IDA plugin. Reflected API extension of MCRITweb in McritClient.
- * 2023-04-10 v1.0.0: Milestone release for Botconf 2023.
+ * 2023-08-02 v1.0.9:  IDA plugin can now filter by block size and minhash score, optimized layout and user experience (THX for the feedback to @r0ny123!!)
+ * 2023-07-28 v1.0.8:  IDA plugin can now display colored graphs for remote functions and do queries for PicBlockHashes (for basic blocks) for the currently viewed function.
+ * 2023-06-06 v1.0.7:  Extended filtering capabilities on MatchingResult.
+ * 2023-06-02 v1.0.6:  IDA plugin can now task matching jobs, show their results and batch import labels. Harmonization of MatchingResult.
+ * 2023-05-22 v1.0.3:  More robustness for path verification when using MCRIT CLI on Malpedia repo folder.
+ * 2023-05-12 v1.0.1:  Some progress on label import for the IDA plugin. Reflected API extension of MCRITweb in McritClient.
+ * 2023-04-10 v1.0.0:  Milestone release for Botconf 2023.
  * 2023-04-10 v0.25.0: IDA plugin can now do function queries for the currently viewed function.
  * 2023-03-24 v0.24.2: McritClient can forward username/apitoken, addJsonReport is now forwardable.
  * 2023-03-21 v0.24.0: FunctionEntries now can store additional FunctionLabelEntries, along submitting user/date.

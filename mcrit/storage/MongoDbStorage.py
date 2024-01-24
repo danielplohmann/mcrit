@@ -1102,6 +1102,20 @@ class MongoDbStorage(StorageInterface):
                 progress_reporter.step()
         return {"minhash_functions_indexed": minhash_functions}
     
+    def deleteAllMinHashes(self, progress_reporter=None):
+        # delete all minhashes
+        self._getDb().functions.update_many({}, {"$set": {"minhash": ""}})
+        # reset bands
+        collections = []
+        for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
+            collections.append("band_%d" % band_id)
+        for c in collections:
+            self._getDb()[c].drop()
+            col = self._getDb()[c]
+            self._getDb()[c].create_index("band_hash")
+        LOGGER.info("Dropped all Minhashes and created a fresh banding index.")
+        return
+    
     def recalculateAllPicHashes(self, progress_reporter=None):
         # get current SMDA version
         smda_config = SmdaConfig()

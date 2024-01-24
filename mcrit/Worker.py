@@ -190,8 +190,8 @@ class Worker(QueueRemoteCallee):
      # Reports PROGRESS
     @Remote(progress=True)
     def recalculateMinHashes(self, progress_reporter=NoProgressReporter()):
-        return self._storage.recalculateAllMinHashes(progress_reporter=progress_reporter)
-        
+        self._storage.deleteAllMinHashes(progress_reporter=progress_reporter)
+        return self.updateMinHashes(None, progress_reporter=progress_reporter)
 
     # Reports PROGRESS
     @Remote(progress=True)

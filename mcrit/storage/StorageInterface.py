@@ -650,11 +650,10 @@ class StorageInterface:
         """
         raise NotImplementedError
     
-    def recalculateAllMinHashes(self) -> int:
-        """ Process all FunctionEntries and use this SMDA version and MCRIT config to recalculate and update the MinHashes
-            In the end, call rebuildMinhashBandIndex
+    def deleteAllMinHashes(self) -> int:
+        """ drop every minhash in all function_entries as a preparation for a full rebuild
         Returns:
-            the number of minhashes indexed
+            the number of minhashes dropped
         """
         raise NotImplementedError
 
