@@ -15,6 +15,9 @@ class StorageConfig(ConfigInterface):
     # By default, MongoDbStorage's DB's name and MongoQueue's DB's name are both "mcrit"
     # Changing one DB name here or at runtime DOES NOT change the other name!
     STORAGE_MONGODB_DBNAME: str = "mcrit"
+    STORAGE_MONGODB_USERNAME: str = None
+    STORAGE_MONGODB_PASSWORD: str = None
+    STORAGE_MONGODB_FLAGS: str = ""
     STORAGE_PORT: ... = None
     # Once MinHashes have been calculated, discard disassembly from function entries
     STORAGE_DROP_DISASSEMBLY: bool = False

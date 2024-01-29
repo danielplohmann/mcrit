@@ -117,11 +117,22 @@ class MongoDbStorage(StorageInterface):
     def _getDb(self):
         # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
         if self._database is None:
-            self._initDb(self._storage_config.STORAGE_SERVER, self._storage_config.STORAGE_PORT, self._storage_config.STORAGE_MONGODB_DBNAME)
+            self._initDb(self._storage_config.STORAGE_SERVER, 
+                         self._storage_config.STORAGE_PORT, 
+                         self._storage_config.STORAGE_MONGODB_DBNAME, 
+                         self._storage_config.STORAGE_MONGODB_USERNAME, 
+                         self._storage_config.STORAGE_MONGODB_PASSWORD, 
+                         self._storage_config.STORAGE_MONGODB_FLAGS)
         return self._database
 
-    def _initDb(self, server, port, db_name):
-        self._database = MongoClient(server, port=port, connect=False)[db_name]
+    def _initDb(self, server, port, db_name, username="", password="", flags=""):
+        userpw_url = f"{username}:{password}@" if username and len(username) > 0 and password and len(password) > 0 else ""
+        port_url = f":{port}" if port and len(port) > 0 else ""
+        flags_url = f"?{flags}" if flags and len(flags) > 0 else ""
+
+        mongo_uri = f"mongodb://{userpw_url}{server}{port_url}/{db_name}{flags_url}"
+
+        self._database = MongoClient(mongo_uri, connect=False)[db_name]
         self._ensureIndexAndUnknownFamily()
 
     def _ensureIndexAndUnknownFamily(self) -> None:

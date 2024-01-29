@@ -70,7 +70,13 @@ class MongoQueue(object):
     def _getCollection(self):
         # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
         if self.collection is None:
-            db = MongoClient(host=self.queue_config.QUEUE_SERVER, port=self.queue_config.QUEUE_PORT, connect=False)
+            userpw_url = f"{self.queue_config.QUEUE_MONGODB_USERNAME}:{self.queue_config.QUEUE_MONGODB_PASSWORD}@" if self.queue_config.QUEUE_MONGODB_USERNAME and len(self.queue_config.QUEUE_MONGODB_USERNAME) > 0 and self.queue_config.QUEUE_MONGODB_PASSWORD and len(self.queue_config.QUEUE_MONGODB_PASSWORD) > 0 else ""
+            port_url = f":{self.queue_config.QUEUE_PORT}" if self.queue_config.QUEUE_PORT else ""
+            flags_url = f"?{self.queue_config.QUEUE_MONGODB_FLAGS}" if self.queue_config.QUEUE_MONGODB_FLAGS and len(self.queue_config.QUEUE_MONGODB_FLAGS) > 0 else ""
+
+            mongo_uri = f"mongodb://{userpw_url}{self.queue_config.QUEUE_SERVER}{port_url}/{self.queue_config.QUEUE_MONGODB_DBNAME}{flags_url}"
+
+            db = MongoClient(mongo_uri, connect=False)
             self.collection = db[self.queue_config.QUEUE_MONGODB_DBNAME][self.queue_config.QUEUE_MONGODB_COLLECTION_NAME]
             self.fs = gridfs.GridFS(self.collection.database)
             self.fs_files = self.collection.database["fs.files"]
