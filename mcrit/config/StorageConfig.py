@@ -21,6 +21,7 @@ class StorageConfig(ConfigInterface):
     STORAGE_MONGODB_FLAGS: str = ""
     STORAGE_MONGODB_ENABLE_CLEANUP: bool = False
     STORAGE_MONGODB_CLEANUP_DELTA: int = 60 * 60 * 24 * 7
+    STORAGE_MONGODB_CLEANUP_TTL: int = 60 * 60 * 24 * 7
     # Once MinHashes have been calculated, discard disassembly from function entries
     STORAGE_DROP_DISASSEMBLY: bool = False
     # random seed to be used when deriving sequences used as bands

@@ -6,6 +6,7 @@ import json
 import logging
 import hashlib
 from random import sample
+from datetime import datetime, timedelta
 from collections import defaultdict
 from itertools import zip_longest
 from multiprocessing import Pool, cpu_count
@@ -179,8 +180,11 @@ class Worker(QueueRemoteCallee):
         
     # Reports PROGRESS
     @Remote(progress=True)
-    def doDbCleanup(self, last_timestamp, progress_reporter=NoProgressReporter()):
-        relevant_samples = self._storage.getQuerySamplesByDate(last_timestamp)
+    def doDbCleanup(self, progress_reporter=NoProgressReporter()):
+        now = datetime.now()
+        delta = timedelta(seconds=self._storage_config.STORAGE_MONGODB_CLEANUP_TTL)
+        time_cutoff = now - delta
+        relevant_samples = self._storage.getQuerySamplesByDate(time_cutoff)
         if not relevant_samples:
             return
         for sample_id in relevant_samples:

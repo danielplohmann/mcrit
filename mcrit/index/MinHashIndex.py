@@ -92,7 +92,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             now = datetime.now()
             last_timestamp = datetime.fromisoformat(last_timestamp)
             if last_timestamp + self._cleanup_delta < now:
-                self.doDbCleanup(last_timestamp)
+                self.doDbCleanup()
                 self._storage.updateDbCleanupTimestamp()
         else:
             LOGGER.info("Couldn't determine last db cleanup time")
