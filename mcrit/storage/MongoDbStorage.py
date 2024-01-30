@@ -300,7 +300,21 @@ class MongoDbStorage(StorageInterface):
             raise Exception("Database does not have a state field yet")
         elif "db_timestamp" in result:
             return result["db_timestamp"]
-            
+        
+    def updateDbCleanupTimestamp(self):
+        result = self._getDb().settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
+        result = self._getDb().settings.find_one_and_update({}, { "$set": {"db_cleanup_timestamp": self._getCurrentTimestamp()}}, upsert=True)
+        if result is None:
+            raise Exception("Database does not have a db_state field")
+        else:
+            return result["db_cleanup_state"]
+    
+    def getDbCleanupTimestamp(self):
+        result = self._getDb().settings.find_one({})
+        if result is None:
+            raise Exception("Database does not have a state field yet")
+        elif "db_cleanup_timestamp" in result:
+            return result["db_cleanup_timestamp"]
 
     ###############################################################################
     # Conversion
@@ -386,6 +400,12 @@ class MongoDbStorage(StorageInterface):
         if function_document is None:
             return None
         return function_document["sample_id"]
+    
+    def getQuerySamplesByDate(self, date: datetime.datetime) -> Optional[List[int]]:
+        samples = self._getDb().query_samples.find({"finished_at": { "$lt": date }})
+        if not samples:
+            return
+        return list(map(lambda x: x["sample_id"], samples)) 
 
     def deleteSample(self, sample_id: int) -> bool:
         sample_entry = self.getSampleById(sample_id)

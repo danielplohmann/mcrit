@@ -176,6 +176,15 @@ class Worker(QueueRemoteCallee):
             return {"sample_info": sample_entry.toDict()}
         else:
             return None
+        
+    # Reports PROGRESS
+    @Remote(progress=True)
+    def doDbCleanup(self, last_timestamp, progress_reporter=NoProgressReporter()):
+        relevant_samples = self._storage.getQuerySamplesByDate(last_timestamp)
+        if not relevant_samples:
+            return
+        for sample_id in relevant_samples:
+            self._storage.deleteSample(sample_id)
 
     # Reports PROGRESS
     @Remote(progress=True)
