@@ -307,7 +307,7 @@ class MongoDbStorage(StorageInterface):
         if result is None:
             raise Exception("Database does not have a db_state field")
         else:
-            return result["db_cleanup_state"]
+            return result["db_cleanup_timestamp"]
     
     def getDbCleanupTimestamp(self):
         result = self._getDb().settings.find_one({})
