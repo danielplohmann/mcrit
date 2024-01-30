@@ -12,10 +12,13 @@ class StorageConfig(ConfigInterface):
     STORAGE_METHOD: ... = StorageFactory.STORAGE_METHOD_MONGODB
     # Use this as endpoint for our server
     STORAGE_SERVER: str = "127.0.0.1"
+    STORAGE_PORT: str = "27017"
     # By default, MongoDbStorage's DB's name and MongoQueue's DB's name are both "mcrit"
     # Changing one DB name here or at runtime DOES NOT change the other name!
     STORAGE_MONGODB_DBNAME: str = "mcrit"
-    STORAGE_PORT: ... = None
+    STORAGE_MONGODB_USERNAME: str = None
+    STORAGE_MONGODB_PASSWORD: str = None
+    STORAGE_MONGODB_FLAGS: str = ""
     # Once MinHashes have been calculated, discard disassembly from function entries
     STORAGE_DROP_DISASSEMBLY: bool = False
     # random seed to be used when deriving sequences used as bands

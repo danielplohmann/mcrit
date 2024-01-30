@@ -310,9 +310,13 @@ import pytest
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
     def setUp(self):
+        mongodb_server = os.environ.get("TEST_MONGODB")
+        # assume localhost if no explicit test server is set
+        if not mongodb_server:
+            mongodb_server = "127.0.0.1"
         self._storage_config = StorageConfig(
             STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB,
-            STORAGE_SERVER=os.environ.get("TEST_MONGODB"),
+            STORAGE_SERVER=mongodb_server,
             STORAGE_MONGODB_DBNAME="test_mongodbstorage_mcrit",
             STORAGE_DROP_DISASSEMBLY=False,
         )
