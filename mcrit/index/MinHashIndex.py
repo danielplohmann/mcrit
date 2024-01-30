@@ -100,7 +100,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
     def _indexCallback(self):
         """ called whenever other functionality in MinHashIndex is used, intended for scheduling maintainance jobs etc. """
-        pass
+        self._cleanupCallback()
     
     #### STORAGE IO ####
     def getStorage(self):
