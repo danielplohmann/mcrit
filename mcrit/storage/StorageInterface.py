@@ -1,3 +1,4 @@
+import datetime
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -271,6 +272,20 @@ class StorageInterface:
         Returns:
             the respective SampleEntries
 
+        """
+        raise NotImplementedError
+    
+    def getQuerySamplesByDate(self, date: datetime.datetime) -> Optional[List[int]]:
+        """Returns sample_ids from the query_samples collection that have a
+        finished_at date field that is compared to the given date by some
+        comparison operator
+
+        Args:
+            date: the datetime object to compare to
+            op: the comparison operator to base the query on
+
+        Returns:
+            A list of sample_ids matching to the query
         """
         raise NotImplementedError
 
