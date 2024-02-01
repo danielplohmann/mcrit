@@ -222,9 +222,14 @@ class MatcherInterface(object):
             packed_tuple: List[Tuple[int, int, bytes, int, int, bytes]]
             for packed_tuple in tqdm.tqdm(packed_tuples, total=num_packed_tuples):
                 pool_result = calculation_function(packed_tuple)
-                for key, new_value in pool_result.items():
-                    original_value = organized_matching_results[key]
-                    organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
+                for single_result in pool_result:
+                    sample_id_a, function_id_a, sample_id_b, function_id_b, score = single_result
+                    counted_scores[score] += 1
+                    if score > self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_THRESHOLD:
+                        key = (sample_id_a, function_id_a, sample_id_b)
+                        new_value = (function_id_b, score)
+                        original_value = organized_matching_results[key]
+                        organized_matching_results[key] = max([original_value, new_value], key=lambda x: x[1])
                 if single_batch:
                     self._progress_reporter.step()
         full_score_counts = sorted([(item[0]*64/100, item[1]) for item in dict(counted_scores).items()])
