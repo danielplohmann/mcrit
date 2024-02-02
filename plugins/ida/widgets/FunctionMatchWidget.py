@@ -223,10 +223,11 @@ class FunctionMatchWidget(QMainWindow):
             else:
                 self.label_current_function_matches.setText("Matches for Function: 0x%x -- %d families, %d samples, %d functions." % (self.parent.current_function, match_report.num_original_family_matches, match_report.num_original_sample_matches, num_all_functions))
                 self.current_function_offset = self.parent.current_function
-        # populate tables with data
-        self.populateFunctionMatchTable(match_report)
-        # TODO fetch all labels to populate lower table as soon as we support this 
-        self.populateFunctionNameTable(match_report)
+        if match_report:
+            # populate tables with data
+            self.populateFunctionMatchTable(match_report)
+            # TODO fetch all labels to populate lower table as soon as we support this 
+            self.populateFunctionNameTable(match_report)
 
     def populateFunctionMatchTable(self, match_report: MatchingResult):
         """
