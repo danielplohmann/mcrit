@@ -423,6 +423,9 @@ class NoProgressReporter:
 
     def get_total(self):
         return 1
+    
+    def has_total_set(self):
+        return True
 
 
 class JobProgressReporter:
@@ -432,15 +435,20 @@ class JobProgressReporter:
         self._last_update = time.time()
         self._report_interval = report_interval
         self._count = 0
+        self._has_total_set = False
         self._submit_progress(0)
 
     # Total should be set after creation of this object, in the called function.
     # If total is not set, progress will be reported as absolute number of steps.
     def set_total(self, total):
+        self._has_total_set = True
         self._total = total
 
     def get_total(self):
         return self._total
+
+    def has_total_set(self):
+        return self._has_total_set
 
     def step(self):
         self._count += 1

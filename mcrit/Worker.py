@@ -202,6 +202,8 @@ class Worker(QueueRemoteCallee):
             unhashed_function_ids = self._storage.getUnhashedFunctions(None, only_function_ids=True)
             # to up to 10.000 function per batch
             LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_function_ids))
+            total_batches = len(unhashed_function_ids) // self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE + (1 if len(unhashed_function_ids) % self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE else 0)
+            progress_reporter.set_total(total_batches)
             for sliced_ids in zip_longest(*[iter(unhashed_function_ids)]*self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
                 unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
@@ -209,8 +211,11 @@ class Worker(QueueRemoteCallee):
                 if minhashes:
                     self._storage.addMinHashes(minhashes)
                     LOGGER.info("Updated minhashes for %d function entries.", len(minhashes))
+                progress_reporter.step()
         else:
             LOGGER.info("Updating MinHashes: %d function entries considered.", len(function_ids))
+            total_batches = len(function_ids) // self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE + (1 if len(function_ids) % self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE else 0)
+            progress_reporter.set_total(total_batches)
             for sliced_ids in zip_longest(*[iter(function_ids)]*self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
                 unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
@@ -219,6 +224,7 @@ class Worker(QueueRemoteCallee):
                 if minhashes:
                     self._storage.addMinHashes(minhashes)
                     LOGGER.info("Updated minhashes for %d function entries.", len(minhashes))
+                progress_reporter.step()
         # TODO if we do deferred calculation for a batch of minhashes, we might have to clear them here or address this where else updateMinHashes is used
         return len(minhashes)
 
@@ -452,22 +458,29 @@ class Worker(QueueRemoteCallee):
             if self.minhasher.isMinHashableFunction(smda_function)
         ]
         LOGGER.info("Calculating MinHashes: %d function entries are indexable.", len(smda_functions))
+        is_stepping = False
         if smda_functions:
             if self._minhash_config.MINHASH_POOL_INDEXING:
                 packed_smda_functions = self._groupItems(smda_functions)
-                progress_reporter.set_total(len(packed_smda_functions))
+                if not progress_reporter.has_total_set():
+                    progress_reporter.set_total(len(packed_smda_functions))
+                    is_stepping = True
                 with Pool(cpu_count()) as pool:
                     for result in tqdm.tqdm(
                         pool.imap_unordered(self.minhasher.calculateMinHashesFromStorage, packed_smda_functions),
                         total=len(packed_smda_functions),
                     ):
                         minhashes.extend(result)
-                        progress_reporter.step()
+                        if is_stepping:
+                            progress_reporter.step()
             else:
-                progress_reporter.set_total(len(smda_functions))
+                if not progress_reporter.has_total_set():
+                    progress_reporter.set_total(len(smda_functions))
+                    is_stepping = True
                 for smda_function in tqdm.tqdm(smda_functions, total=len(smda_functions)):
                     minhashes.append(self.minhasher.calculateMinHashFromStorage(smda_function))
-                    progress_reporter.step()
+                    if is_stepping:
+                        progress_reporter.step()
             LOGGER.info("Calculated minhashes for %d function entries!", len(minhashes))
         return minhashes
 
