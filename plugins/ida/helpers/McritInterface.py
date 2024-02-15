@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import traceback
 import requests
 
 try:
@@ -33,6 +34,7 @@ class McritInterface(object):
         self.json = json
         self.os = os
         self.os_path = os.path
+        self._withTraceback = False
 
     def _getMcritServerAddress(self):
         return self._mcrit_server
@@ -54,8 +56,7 @@ class McritInterface(object):
                 self.parent.local_widget.updateActivityInfo("Connection check failed (status code).")
                 self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("Connection check failed (unreachable).")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -70,8 +71,7 @@ class McritInterface(object):
             else:
                 self.parent.local_widget.updateActivityInfo("querySampleSha256 failed")
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("querySampleSha256 failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -90,8 +90,7 @@ class McritInterface(object):
             else:
                 self.parent.local_widget.updateActivityInfo("Upload failed.")
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("Upload failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -113,8 +112,7 @@ class McritInterface(object):
                 self.parent.local_widget.updateActivityInfo("No jobs available yet.")
             return jobs
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("Job query failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -127,8 +125,7 @@ class McritInterface(object):
             else:
                 self.parent.local_widget.updateActivityInfo("Match query failed.")
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("Match query failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -143,8 +140,7 @@ class McritInterface(object):
             else:
                 self.parent.local_widget.updateActivityInfo("Result query failed.")
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("Result query failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -158,8 +154,7 @@ class McritInterface(object):
             else:
                 self.parent.local_widget.updateActivityInfo("queryAllFamilyEntries failed")
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("queryAllFamilyEntries failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -171,8 +166,7 @@ class McritInterface(object):
                 if match_report:
                     self.parent.function_matches.update({smda_function.offset: match_report})
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("querySmdaFunctionMatches failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -184,8 +178,7 @@ class McritInterface(object):
                     self.parent.matched_function_entries = {}
                 self.parent.matched_function_entries.update(function_entries)
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("queryFunctionEntriesById failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -199,8 +192,7 @@ class McritInterface(object):
                 if pichash_match_summary:
                     self.parent.pichash_match_summaries.update({pichash: pichash_match_summary})
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("queryPicHashMatches failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -214,8 +206,7 @@ class McritInterface(object):
             else:
                 self.parent.local_widget.updateActivityInfo("queryAllSampleEntries query failed")
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("queryAllSampleEntries failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -229,8 +220,7 @@ class McritInterface(object):
             else:
                 self.parent.local_widget.updateActivityInfo("queryFunctionEntriesBySampleId query failed.")
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("queryFunctionEntriesBySampleId failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -238,8 +228,7 @@ class McritInterface(object):
         try:
             return self.mcrit_client.getFunctionById(function_id, with_xcfg=True)
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("queryFunctionEntryById failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -247,8 +236,7 @@ class McritInterface(object):
         try:
             return self.mcrit_client.getSampleById(sample_id)
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("querySampleEntryById failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
@@ -257,7 +245,6 @@ class McritInterface(object):
         try:
             return self.mcrit_client.getMatchesForPicBlockHash(picblockhash)
         except Exception as exc:
-            import traceback
-            print(traceback.format_exc(exc))
+            if self._withTraceback: traceback.print_exc()
             self.parent.local_widget.updateActivityInfo("querySampleEntryById failed, error on connection :(")
             self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
