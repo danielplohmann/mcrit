@@ -82,22 +82,20 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 timestamp = self._storage.updateDbCleanupTimestamp()
             return timestamp
         except Exception as e:
-            LOGGER.error(f"Failed getting last cleanup: {e}")
+            LOGGER.error(f"Failed getting last cleanup: {e}, this should no automatically fix itself with the next request.")
     
     def _cleanupCallback(self):
         if not self._storage_config.STORAGE_MONGODB_ENABLE_CLEANUP:
             return
         last_timestamp = self._getLastCleanup()
-        LOGGER.info(f"last cleanup: {last_timestamp}")
         if last_timestamp:
             now = datetime.now()
-            LOGGER.info(f"last cleanup diff: {now - last_timestamp}")
             if last_timestamp + self._cleanup_delta < now:
                 LOGGER.info("Scheduling a cleanup for query samples.")
                 self.doDbCleanup(force_recalculation=True)
                 self._storage.updateDbCleanupTimestamp()
         else:
-            LOGGER.info("Couldn't determine last db cleanup time")
+            LOGGER.info("Couldn't determine last db cleanup time, this should no automatically fix itself with the next request.")
             # Should we do cleanup anyway in such cases?
 
     def _indexCallback(self):

@@ -186,7 +186,6 @@ class Worker(QueueRemoteCallee):
         now = datetime.now()
         delta = timedelta(seconds=self._storage_config.STORAGE_MONGODB_CLEANUP_TTL)
         time_cutoff = now - delta
-        LOGGER.info(f"Using time_cutoff for cleanup: {time_cutoff}")
         unmapped_finished = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="finished")
         mapped_finished = self.getQueueData(0, 0, method="getMatchesForMappedBinary", state="finished")
         smda_finished = self.getQueueData(0, 0, method="getMatchesForSmdaReport", state="finished")
@@ -230,13 +229,10 @@ class Worker(QueueRemoteCallee):
             LOGGER.info(f"Deleting {sample_entry.sample_id}.")
             self._storage.deleteSample(sample_entry.sample_id)
         # now remove the respective data also from the queue, which also deletes the results from GridFS
-        LOGGER.info(f"Found {len(jobs_to_be_deleted)} query jobs that can be deleted")
+        LOGGER.info(f"Found {len(jobs_to_be_deleted)} query jobs that can be deleted.")
         for job in jobs_to_be_deleted:
-            LOGGER.info(f"Deleting job with ID: {job.job_id}.")
             self.queue.delete_job(job.job_id)
         
-
-
     # Reports PROGRESS
     @Remote(progress=True)
     def rebuildIndex(self, progress_reporter=NoProgressReporter()):
