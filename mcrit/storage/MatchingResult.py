@@ -507,6 +507,7 @@ class MatchingResult(object):
         binfo = BinaryInfo(b"")
         all_function_links = {}
         for function_entry in function_entries:
+            binfo.architecture = function_entry.architecture
             smda_function = SmdaFunction.fromDict(function_entry.xcfg, binfo)
             for _, to_offsets in smda_function.outrefs.items():
                 for to_offset in [o for o in to_offsets if o in function_offsets]:
