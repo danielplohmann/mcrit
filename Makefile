@@ -4,7 +4,7 @@ package:
 	rm -rf dist/*
 	python setup.py sdist
 publish:
-	python -m twine upload dist/*
+	python -m twine upload dist/* -u __token__
 pylint:
 	python -m pylint --rcfile=.pylintrc mcrit
 test:
