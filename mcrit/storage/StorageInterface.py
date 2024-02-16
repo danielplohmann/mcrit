@@ -1,3 +1,4 @@
+import datetime
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -52,6 +53,24 @@ class StorageInterface:
             username: (optional) a username tied to this event
             details: a dict with arbitrary additional information
         """
+        raise NotImplementedError
+
+    def updateDbCleanupTimestamp(self) -> datetime.datetime:
+        """ Update a timestamp indicating the last time queried samples were deleted
+
+        Returns:
+            db_cleanup_timestamp: a datetime.datetime when the DB was last cleaned
+        """
+        raise NotImplementedError
+
+    def getDbCleanupTimestamp(self) -> datetime.datetime:
+        """ Get a timestamp indicating the last time queried samples were deleted
+
+        Returns:
+            db_cleanup_timestamp: a datetime.datetime when the DB was last cleaned
+        """
+        raise NotImplementedError
+
 
     # -> Set[function_id]
     def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
@@ -106,11 +125,12 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getSampleBySha256(self, sha256: str) -> Optional["SampleEntry"]:
+    def getSampleBySha256(self, sha256: str, is_query=False) -> Optional["SampleEntry"]:
         """Check if the given SHA256 is already associated with a sample in the storage
 
         Args:
             sha256: The SHA256 value to look up.
+            is_query: look in collection for query_samples instead of samples
 
         Returns:
             A SampleEntry with the specified SHA256 or None, if no such SampleEntry exists.

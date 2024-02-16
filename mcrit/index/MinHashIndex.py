@@ -3,6 +3,7 @@ import re
 import json
 import time
 import logging
+from datetime import datetime, timedelta
 from typing import Dict, List
 
 from smda.common.SmdaReport import SmdaReport
@@ -68,14 +69,38 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         self._queue_config = config.QUEUE_CONFIG
         self.minhasher = MinHasher(self._minhash_config, self._shingler_config)
         self._storage = StorageFactory.getStorage(config)
+        self._cleanup_delta = timedelta(seconds=int(self._storage_config.STORAGE_MONGODB_CLEANUP_DELTA))
         # config.QUEUE_CONFIG.QUEUE_METHOD = QueueFactory.QUEUE_METHOD_FAKE
         queue = QueueFactory().getQueue(config, storage=self._storage, consumer_id="index")
         self.search_query_parser = SearchQueryParser()
         super().__init__(queue)
 
+    def _getLastCleanup(self):
+        try:
+            timestamp = self._storage.getDbCleanupTimestamp()
+            if not timestamp:
+                timestamp = self._storage.updateDbCleanupTimestamp()
+            return timestamp
+        except Exception as e:
+            LOGGER.error(f"Failed getting last cleanup: {e}, this should no automatically fix itself with the next request.")
+    
+    def _cleanupCallback(self):
+        if not self._storage_config.STORAGE_MONGODB_ENABLE_CLEANUP:
+            return
+        last_timestamp = self._getLastCleanup()
+        if last_timestamp:
+            now = datetime.now()
+            if last_timestamp + self._cleanup_delta < now:
+                LOGGER.info("Scheduling a cleanup for query samples.")
+                self.doDbCleanup(force_recalculation=True)
+                self._storage.updateDbCleanupTimestamp()
+        else:
+            LOGGER.info("Couldn't determine last db cleanup time, this should no automatically fix itself with the next request.")
+            # Should we do cleanup anyway in such cases?
+
     def _indexCallback(self):
         """ called whenever other functionality in MinHashIndex is used, intended for scheduling maintainance jobs etc. """
-        pass
+        self._cleanupCallback()
     
     #### STORAGE IO ####
     def getStorage(self):

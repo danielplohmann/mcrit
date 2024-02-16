@@ -300,7 +300,21 @@ class MongoDbStorage(StorageInterface):
             raise Exception("Database does not have a state field yet")
         elif "db_timestamp" in result:
             return result["db_timestamp"]
-            
+        
+    def updateDbCleanupTimestamp(self):
+        result = self._getDb().settings.find_one_and_update({}, { "$inc": { "db_state": 1}})
+        result = self._getDb().settings.find_one_and_update({}, { "$set": {"db_cleanup_timestamp": self._getCurrentTimestamp()}}, upsert=True)
+        if result is None:
+            raise Exception("Database does not have a db_state field")
+        else:
+            return result["db_cleanup_timestamp"]
+    
+    def getDbCleanupTimestamp(self):
+        result = self._getDb().settings.find_one({})
+        if result is None:
+            raise Exception("Database does not have a state field yet")
+        elif "db_cleanup_timestamp" in result:
+            return result["db_cleanup_timestamp"]
 
     ###############################################################################
     # Conversion
@@ -561,13 +575,19 @@ class MongoDbStorage(StorageInterface):
             self._getDb()[c].drop()
         self._ensureIndexAndUnknownFamily()
 
-    def getSampleBySha256(self, sha256: str) -> Optional["SampleEntry"]:
-        if self._getDb().samples.count_documents(filter={}):
-            report_dict = self._getDb().samples.find_one({"sha256": sha256})
-            if not report_dict:
-                return None
-            return SampleEntry.fromDict(report_dict)
-        return None
+    def getSampleBySha256(self, sha256: str, is_query=False) -> Optional["SampleEntry"]:
+        target_sample = None
+        if is_query:
+            if self._getDb().query_samples.count_documents(filter={}):
+                report_dict = self._getDb().query_samples.find_one({"sha256": sha256})
+                if report_dict:
+                    target_sample = SampleEntry.fromDict(report_dict)
+        else:
+            if self._getDb().samples.count_documents(filter={}):
+                report_dict = self._getDb().samples.find_one({"sha256": sha256})
+                if report_dict:
+                    target_sample = SampleEntry.fromDict(report_dict)
+        return target_sample
 
     def updateFunctionLabels(self, smda_report: "SmdaReport", username) -> Optional["SampleEntry"]:
         sample_entry = self.getSampleBySha256(smda_report.sha256)
