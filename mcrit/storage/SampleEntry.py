@@ -127,3 +127,7 @@ class SampleEntry(object):
         return "Sample {} ({}, {} bit) - {} ({}): ".format(
             self.sample_id, self.architecture, self.bitness, self.filename, self.family
         )
+
+    def __hash__(self):
+        """Override the default hash behavior"""
+        return hash(f"{self.sample_id}_{self.sha256}")

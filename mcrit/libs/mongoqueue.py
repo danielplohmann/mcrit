@@ -338,7 +338,6 @@ class MongoQueue(object):
             # we go with an inefficient implementation for now to see if this is a desired feature and revise the query in case we deem this useful.
             # TODO improve performance of these queries, we probably want to find a query_filter for the different possible states to allow use of skip/limit
             all_jobs = []
-            print(start_index, limit, method, state, ascending)
             if ascending:
                 for job_document in self._getCollection().find(query_filter):
                     if self._identifyJobState(job_document) == state:
@@ -358,15 +357,18 @@ class MongoQueue(object):
         job_id = ObjectId(job_id)
         return self._wrap_one(self._getCollection().find_one({"_id": job_id}))
 
-    def delete_job(self, job_id):
+    def delete_job(self, job_id, with_result=True):
         job_id = ObjectId(job_id)
-        job = self._getCollection().find_one({"_id": job_id})
-        if job:
-            self.updateQueueCounter(job["payload"]["method"], self._identifyJobState(job), -1)
-        result = self._getCollection().delete_one({"_id": job_id})
-        return result.deleted_count
+        deletable_job = self._getCollection().find_one({"_id": job_id})
+        if deletable_job:
+            self.updateQueueCounter(deletable_job["payload"]["method"], self._identifyJobState(deletable_job), -1)
+            if with_result:
+                # delete result from GridFS  
+                self._getFs().delete(ObjectId(deletable_job["result"]))
+        job_deletion_result = self._getCollection().delete_one({"_id": job_id})
+        return job_deletion_result.deleted_count
 
-    def delete_jobs(self, method=None, created_before=None, finished_before=None):
+    def delete_jobs(self, method=None, created_before=None, finished_before=None, with_results=True):
         filter_count = len([1 for item in [method, created_before, finished_before] if item is not None])
         combined_filter = {"$and": []} if filter_count > 1 else {}
         method_filter = {}
@@ -390,11 +392,18 @@ class MongoQueue(object):
                 combined_filter["$and"].append(finished_filter)
             else:
                 combined_filter = finished_filter
-        print(f"delete_jobs: {combined_filter}")
-        # run find() first to determine how many jobs of which method will be deleted
-        result = self._getCollection().delete_many(combined_filter)
-        # TODO update counters - accordingly to find result, if result.deleted_count matches expectation
-        return result.deleted_count
+        # run find() first to determine how many jobs of which method will be deleted and what their results are
+        jobs_to_be_deleted = [j for j in self._getCollection().find(combined_filter)]
+        # delete results
+        for deletable_job in jobs_to_be_deleted:
+            self.updateQueueCounter(deletable_job["payload"]["method"], self._identifyJobState(deletable_job), -1)
+            if with_results and deletable_job["result"]:
+                    # delete result from GridFS  
+                    self._getFs().delete(ObjectId(deletable_job["result"]))
+        job_deletion_result = self._getCollection().delete_many(combined_filter)
+        if len(jobs_to_be_deleted) != job_deletion_result.deleted_count:
+            raise Exception("Number of deleted jobs was unequal to number of jobs to delete!")
+        return job_deletion_result.deleted_count
 
     def _file_to_grid(self, binary, metadata=None):
         object_id = self._getFs().put(binary, metadata=metadata)
@@ -445,8 +454,10 @@ class MongoQueue(object):
         )
         return job and job.job_id or None
 
-    def _get_file_by_hash(self, sha256):
+    def getFileByHash(self, sha256, max_bytes=-1):
         file = self._getFs().find_one({"metadata.sha256": sha256})
+        if file:
+            return file.read(max_bytes)
 
     def get_file_by_hash_inc_lock(self, sha256):
         file = self._getFsFiles().find_one_and_update({"metadata.sha256": sha256}, {"$inc": {"metadata.tmp_lock": 1}})

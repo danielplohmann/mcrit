@@ -400,12 +400,6 @@ class MongoDbStorage(StorageInterface):
         if function_document is None:
             return None
         return function_document["sample_id"]
-    
-    def getQuerySamplesByDate(self, date: datetime.datetime) -> Optional[List[int]]:
-        samples = self._getDb().query_samples.find({"finished_at": { "$lt": date }})
-        if not samples:
-            return
-        return list(map(lambda x: x["sample_id"], samples)) 
 
     def deleteSample(self, sample_id: int) -> bool:
         sample_entry = self.getSampleById(sample_id)
@@ -581,13 +575,19 @@ class MongoDbStorage(StorageInterface):
             self._getDb()[c].drop()
         self._ensureIndexAndUnknownFamily()
 
-    def getSampleBySha256(self, sha256: str) -> Optional["SampleEntry"]:
-        if self._getDb().samples.count_documents(filter={}):
-            report_dict = self._getDb().samples.find_one({"sha256": sha256})
-            if not report_dict:
-                return None
-            return SampleEntry.fromDict(report_dict)
-        return None
+    def getSampleBySha256(self, sha256: str, is_query=False) -> Optional["SampleEntry"]:
+        target_sample = None
+        if is_query:
+            if self._getDb().query_samples.count_documents(filter={}):
+                report_dict = self._getDb().query_samples.find_one({"sha256": sha256})
+                if report_dict:
+                    target_sample = SampleEntry.fromDict(report_dict)
+        else:
+            if self._getDb().samples.count_documents(filter={}):
+                report_dict = self._getDb().samples.find_one({"sha256": sha256})
+                if report_dict:
+                    target_sample = SampleEntry.fromDict(report_dict)
+        return target_sample
 
     def updateFunctionLabels(self, smda_report: "SmdaReport", username) -> Optional["SampleEntry"]:
         sample_entry = self.getSampleBySha256(smda_report.sha256)

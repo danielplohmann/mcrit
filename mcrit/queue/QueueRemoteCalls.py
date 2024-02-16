@@ -1,11 +1,12 @@
-from datetime import datetime
-import hashlib
-import json
 import os
-from sqlite3 import Timestamp
 import time
-from functools import wraps
+import json
+import hashlib
 import logging
+from datetime import datetime
+from functools import wraps
+
+from typing import Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 
 # Only do basicConfig if no handlers have been configured
@@ -34,7 +35,7 @@ class BaseRemoteCallerClass:
         LOGGER.debug(f"called getQueueStats()")
         return self.queue.getQueueStatistics(refresh=refresh)
 
-    def getQueueData(self, start_index: int, limit: int, method=None, state=None, filter=None, ascending=False):
+    def getQueueData(self, start_index: int, limit: int, method=None, state=None, filter=None, ascending=False) -> List["Job"]:
         LOGGER.debug(f"called getQueueData(start_index={start_index}, limit={method}, method={method}, state={state}, filter={filter}, ascending={ascending}):")
         if filter is not None:
             # TODO apply filter to more fields

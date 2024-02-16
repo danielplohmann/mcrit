@@ -88,11 +88,13 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         if not self._storage_config.STORAGE_MONGODB_ENABLE_CLEANUP:
             return
         last_timestamp = self._getLastCleanup()
+        LOGGER.info(f"last cleanup: {last_timestamp}")
         if last_timestamp:
             now = datetime.now()
-            last_timestamp = datetime.fromisoformat(last_timestamp)
+            LOGGER.info(f"last cleanup diff: {now - last_timestamp}")
             if last_timestamp + self._cleanup_delta < now:
-                self.doDbCleanup()
+                LOGGER.info("Scheduling a cleanup for query samples.")
+                self.doDbCleanup(force_recalculation=True)
                 self._storage.updateDbCleanupTimestamp()
         else:
             LOGGER.info("Couldn't determine last db cleanup time")
