@@ -186,14 +186,16 @@ class Worker(QueueRemoteCallee):
         now = datetime.now()
         delta = timedelta(seconds=self._storage_config.STORAGE_MONGODB_CLEANUP_TTL)
         time_cutoff = now - delta
+        LOGGER.info(f"Fetching data from the queues.")
         unmapped_finished = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="finished")
         mapped_finished = self.getQueueData(0, 0, method="getMatchesForMappedBinary", state="finished")
         smda_finished = self.getQueueData(0, 0, method="getMatchesForSmdaReport", state="finished")
         recent_samples = set([])
         samples_to_be_deleted = {}
         jobs_to_be_deleted = []
+        LOGGER.info(f"Fetching data from the queues, iterating {len(unmapped_finished) + len(unmapped_finished) + len(smda_finished)} items.")
         for job_collection in [unmapped_finished, mapped_finished]:
-            for job_dict in unmapped_finished:
+            for job_dict in job_collection:
                 job = Job(job_dict, None)
                 # we keep those query samples that have been submitted since the cutoff
                 if job.finished_at > time_cutoff:
@@ -204,6 +206,7 @@ class Worker(QueueRemoteCallee):
                         sample_entry = self._storage.getSampleBySha256(job.sha256, is_query=True)
                         if sample_entry:
                             samples_to_be_deleted[job.sha256] = sample_entry
+        LOGGER.info(f"Decoding SMDA reports for SHA256 hashes.")
         for job_dict in smda_finished:
             job = Job(job_dict, None)
             # find sample info based on smda report, extract sha256 via regex
@@ -225,9 +228,11 @@ class Worker(QueueRemoteCallee):
         for sha256 in recent_samples:
             samples_to_be_deleted.pop(sha256, None)
         LOGGER.info(f"Found {len(samples_to_be_deleted)} query samples that can be deleted")
+        progress_reporter.set_total(len(samples_to_be_deleted))
         for sample_sha256, sample_entry in samples_to_be_deleted.items():
             LOGGER.info(f"Deleting {sample_entry.sample_id}.")
             self._storage.deleteSample(sample_entry.sample_id)
+            progress_reporter.step()
         # now remove the respective data also from the queue, which also deletes the results from GridFS
         LOGGER.info(f"Found {len(jobs_to_be_deleted)} query jobs that can be deleted.")
         for job in jobs_to_be_deleted:
