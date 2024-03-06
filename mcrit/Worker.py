@@ -223,7 +223,7 @@ class Worker(QueueRemoteCallee):
             else:
                 LOGGER.warn(f"Target SHA256 not found in first 2048 bytes of SMDA report with file hash {job.sha256}.")
         for sha256 in recent_samples:
-            samples_to_be_deleted.pop(sha256)
+            samples_to_be_deleted.pop(sha256, None)
         LOGGER.info(f"Found {len(samples_to_be_deleted)} query samples that can be deleted")
         for sample_sha256, sample_entry in samples_to_be_deleted.items():
             LOGGER.info(f"Deleting {sample_entry.sample_id}.")
