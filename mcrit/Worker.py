@@ -189,11 +189,15 @@ class Worker(QueueRemoteCallee):
         LOGGER.info(f"Fetching data from the queues.")
         unmapped_finished = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="finished")
         mapped_finished = self.getQueueData(0, 0, method="getMatchesForMappedBinary", state="finished")
+        unmapped_failed = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="failed")
+        mapped_failed = self.getQueueData(0, 0, method="getMatchesForMappedBinary", state="failed")
         smda_finished = self.getQueueData(0, 0, method="getMatchesForSmdaReport", state="finished")
         recent_samples = set([])
         samples_to_be_deleted = {}
         jobs_to_be_deleted = []
-        LOGGER.info(f"Fetching data from the queues, iterating {len(unmapped_finished) + len(unmapped_finished) + len(smda_finished)} items.")
+        LOGGER.info(
+            f"Fetching data from the queues, iterating {len(unmapped_finished) + len(unmapped_finished) + len(unmapped_failed) + len(mapped_failed) + len(smda_finished)} items."
+        )
         for job_collection in [unmapped_finished, mapped_finished]:
             for job_dict in job_collection:
                 job = Job(job_dict, None)
@@ -206,6 +210,15 @@ class Worker(QueueRemoteCallee):
                         sample_entry = self._storage.getSampleBySha256(job.sha256, is_query=True)
                         if sample_entry:
                             samples_to_be_deleted[job.sha256] = sample_entry
+        for failed_job_collection in [unmapped_failed, mapped_failed]:
+            for failed_job_dict in failed_job_collection:
+                job = Job(job_dict, None)
+                # failed job doesn't have finished_at, delete anyway
+                jobs_to_be_deleted.append(job)
+                if job.sha256 not in samples_to_be_deleted:
+                    sample_entry = self._storage.getSampleBySha256(job.sha256, is_query=True)
+                    if sample_entry:
+                        samples_to_be_deleted[job.sha256] = sample_entry
         LOGGER.info(f"Decoding SMDA reports for SHA256 hashes.")
         for job_dict in smda_finished:
             job = Job(job_dict, None)
