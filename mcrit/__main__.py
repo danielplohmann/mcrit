@@ -1,3 +1,4 @@
+import re
 import os
 import sys
 
@@ -6,6 +7,18 @@ def runWorker(profiling=False):
     from mcrit.Worker import Worker
     with Worker(profiling=profiling) as worker:
         worker.run()
+
+
+def runSpawningWorker(profiling=False):
+    from mcrit.SpawningWorker import SpawningWorker
+    with SpawningWorker(profiling=profiling) as spawning_worker:
+        spawning_worker.run()
+
+
+def runSingleJobWorker(job_id, profiling=False):
+    from mcrit.SingleJobWorker import SingleJobWorker
+    with SingleJobWorker(job_id, profiling=profiling) as single_job_worker:
+        single_job_worker.run()
 
 
 def runServer(profiling=False, uses_gunicorn=False):
@@ -79,11 +92,22 @@ if len(sys.argv) >= 2:
         runServer(profiling=is_profiling, uses_gunicorn=uses_gunicorn)
     elif sys.argv[1] == "worker":
         runWorker(profiling=is_profiling)
+    elif sys.argv[1] == "spawningworker":
+        runSpawningWorker(profiling=is_profiling)
+    elif sys.argv[1] == "singlejobworker":
+        # parse job_id directly from full command line string
+        job_id = None
+        match = re.search("--job_id (?P<job_id>[0-9a-fA-F]{24})", " ".join(sys.argv))
+        if match:
+            job_id = match.group("job_id")
+            runSingleJobWorker(job_id, profiling=is_profiling)
+        else:
+            print("Was not able to recognize a job_id (24char hex string), did you pass it using --job_id?")
     elif sys.argv[1] == "client":
         runClient()
     else:
-        print("Unrecognized command, please use {{server, worker, client}}")
+        print("Unrecognized command, please use {{server, worker, spawningworker, client}}")
 else:
-    print(f"Usage: {sys.argv[0]} {{server, worker, client}}")
-    print("Optionally use --profiling for {server, worker}")
+    print(f"Usage: {sys.argv[0]} {{server, worker, spawningworker, client}}")
+    print("Optionally use --profiling for {server, worker, spawningworker}")
     sys.exit()
