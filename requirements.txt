@@ -14,7 +14,7 @@ rapidfuzz
 requests
 scipy
 lief==0.14.0
-smda>=1.13.16
+smda>=1.13.19
 tqdm
 waitress
 werkzeug
