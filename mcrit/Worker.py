@@ -206,19 +206,37 @@ class Worker(QueueRemoteCallee):
                     recent_samples.add(job.sha256)
                 else:
                     jobs_to_be_deleted.append(job)
+                    sample_entry = self._storage.getSampleBySha256(job.sha256, is_query=True)
+                    if not sample_entry:
+                        continue
                     if job.sha256 not in samples_to_be_deleted:
-                        sample_entry = self._storage.getSampleBySha256(job.sha256, is_query=True)
-                        if sample_entry:
-                            samples_to_be_deleted[job.sha256] = sample_entry
+                        samples_to_be_deleted[job.sha256] = []
+                    sample_entry_timestamp = sample_entry.get("timestamp", None)
+                    if sample_entry_timestamp is None:
+                        LOGGER.warning(f"Found query_samples entry without timestamp: {sample_entry}")
+                        continue
+                    sample_entry_timestamp = datetime.strptime(sample_entry_timestamp, "%Y-%m-%dT%H-%M-%S")
+                    if sample_entry_timestamp < time_cutoff:
+                        samples_to_be_deleted[job.sha256].append(sample_entry)
         for failed_job_collection in [unmapped_failed, mapped_failed]:
             for failed_job_dict in failed_job_collection:
                 job = Job(job_dict, None)
-                # failed job doesn't have finished_at, delete anyway
-                jobs_to_be_deleted.append(job)
-                if job.sha256 not in samples_to_be_deleted:
+                if job.started_at > time_cutoff:
+                    recent_samples.add(job.sha256)
+                else:
+                    jobs_to_be_deleted.append(job)
                     sample_entry = self._storage.getSampleBySha256(job.sha256, is_query=True)
-                    if sample_entry:
-                        samples_to_be_deleted[job.sha256] = sample_entry
+                    if not sample_entry:
+                        continue
+                    if job.sha256 not in samples_to_be_deleted:
+                        samples_to_be_deleted[job.sha256] = []
+                    sample_entry_timestamp = sample_entry.get("timestamp", None)
+                    if sample_entry_timestamp is None:
+                        LOGGER.warning(f"Found query_samples entry without timestamp: {sample_entry}")
+                        continue
+                    sample_entry_timestamp = datetime.strptime(sample_entry_timestamp, "%Y-%m-%dT%H-%M-%S")
+                    if sample_entry_timestamp < time_cutoff:
+                        samples_to_be_deleted[job.sha256].append(sample_entry)
         LOGGER.info(f"Decoding SMDA reports for SHA256 hashes.")
         for job_dict in smda_finished:
             job = Job(job_dict, None)
@@ -242,9 +260,10 @@ class Worker(QueueRemoteCallee):
             samples_to_be_deleted.pop(sha256, None)
         LOGGER.info(f"Found {len(samples_to_be_deleted)} query samples that can be deleted")
         progress_reporter.set_total(len(samples_to_be_deleted))
-        for sample_sha256, sample_entry in samples_to_be_deleted.items():
+        for sample_sha256, sample_entries in samples_to_be_deleted.items():
             LOGGER.info(f"Deleting {sample_entry.sample_id}.")
-            self._storage.deleteSample(sample_entry.sample_id)
+            for sample_entry in sample_entries:
+                self._storage.deleteSample(sample_entry.sample_id)
             progress_reporter.step()
         # now remove the respective data also from the queue, which also deletes the results from GridFS
         LOGGER.info(f"Found {len(jobs_to_be_deleted)} query jobs that can be deleted.")
