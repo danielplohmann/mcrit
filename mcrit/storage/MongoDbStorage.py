@@ -561,10 +561,14 @@ class MongoDbStorage(StorageInterface):
         samples = self._getDb().samples.find({"family_id": family_id}, {"_id":0})
         return [SampleEntry.fromDict(sample_document) for sample_document in samples]
 
-    def getSamples(self, start_index: int, limit: int) -> Optional["SampleEntry"]:
+    def getSamples(self, start_index: int, limit: int, is_query=False) -> Optional["SampleEntry"]:
         sample_entries = []
-        for sample_document in self._getDb().samples.find().skip(start_index).limit(limit):
-            sample_entries.append(SampleEntry.fromDict(sample_document))
+        if is_query:
+            for sample_document in self._getDb().query_samples.find().skip(start_index).limit(limit):
+                sample_entries.append(SampleEntry.fromDict(sample_document))
+        else:
+            for sample_document in self._getDb().samples.find().skip(start_index).limit(limit):
+                sample_entries.append(SampleEntry.fromDict(sample_document))
         return sample_entries
 
     def clearStorage(self) -> None:

@@ -280,13 +280,14 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getSamples(self, start_index: int, limit: int) -> Optional["SampleEntry"]:
+    def getSamples(self, start_index: int, limit: int, is_query=False) -> Optional["SampleEntry"]:
         """Iterate the sample collection and provide a slice (regardless of sample_id), 
         covering up to <limit> items, starting from start_index
 
         Args:
             start_index: <n>th sample in the collection
             limit: number of entries to return at most
+            is_query: search through query_sampes instead
 
         Returns:
             the respective SampleEntries
