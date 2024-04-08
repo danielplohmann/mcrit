@@ -212,7 +212,7 @@ class Worker(QueueRemoteCallee):
                             samples_to_be_deleted[job.sha256] = sample_entry
         for failed_job_collection in [unmapped_failed, mapped_failed]:
             for failed_job_dict in failed_job_collection:
-                job = Job(job_dict, None)
+                job = Job(failed_job_dict, None)
                 # failed job doesn't have finished_at, delete anyway
                 jobs_to_be_deleted.append(job)
                 if job.sha256 not in samples_to_be_deleted:
