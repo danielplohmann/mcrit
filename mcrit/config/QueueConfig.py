@@ -22,3 +22,5 @@ class QueueConfig(ConfigInterface):
     QUEUE_MAX_ATTEMPTS: int = 3
     # QUEUE_CLEAN_INTERVAL is the time EACH WORKER waits between cleaning
     QUEUE_CLEAN_INTERVAL: int = 20 * 60  # Clean every 20 minutes
+    # timeout in seconds for child processes spawned by SpawningWorker
+    QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT: int = 60 * 60

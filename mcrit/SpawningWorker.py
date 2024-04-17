@@ -91,14 +91,17 @@ class SpawningWorker(Worker):
         # instead of execution within our own context, spawn a new process as worker for this job payload
         console_handle = subprocess.Popen(["python", "-m", "mcrit", "singlejobworker", "--job_id", str(job.job_id)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # extract result_id from console_output
-        stdout_result, stderr_result = console_handle.communicate()
-        stdout_result = stdout_result.strip().decode("utf-8")
-        last_line = stdout_result.split("\n")[-1]
-        # successful output should be just the result_id in a single line
         result_id = None
-        match = re.match("(?P<result_id>[0-9a-fA-F]{24})", last_line)
-        if match:
-            result_id = match.group("result_id")
+        try:
+            stdout_result, stderr_result = console_handle.communicate(timeout=self._queue_config.QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT)
+            stdout_result = stdout_result.strip().decode("utf-8")
+            last_line = stdout_result.split("\n")[-1]
+            # successful output should be just the result_id in a single line
+            match = re.match("(?P<result_id>[0-9a-fA-F]{24})", last_line)
+            if match:
+                result_id = match.group("result_id")
+        except subprocess.TimeoutExpired:
+            LOGGER.error(f"Job {str(job.job_id)} running as child from SpawningWorker timed out during processing.")
         return result_id
 
     def _executeJob(self, job):
