@@ -362,6 +362,12 @@ class MongoQueue(object):
         deletable_job = self._getCollection().find_one({"_id": job_id})
         if deletable_job:
             self.updateQueueCounter(deletable_job["payload"]["method"], self._identifyJobState(deletable_job), -1)
+            # if job has file parameters, we need to remove them from GridFS as well
+            print(deletable_job)
+            if "file_params" in deletable_job["payload"]:
+                file_params_dict = json.loads(deletable_job["payload"]["file_params"])
+                for k, file_object_id in file_params_dict.items():
+                    self._getFs().delete(ObjectId(file_object_id))
             if with_result:
                 # delete result from GridFS  
                 self._getFs().delete(ObjectId(deletable_job["result"]))
