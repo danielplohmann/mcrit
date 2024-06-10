@@ -377,7 +377,7 @@ class MongoQueue(object):
                     if self._getFs().count_documents(
                         {"_id": file_object_id, "metadata.jobs": [], "metadata.tmp_lock": 0}
                     ) > 0:
-                        self._getFs().delete(ObjectId(file_object_id))
+                        self._getFs().delete(file_object_id)
             if with_result:
                 # delete result from GridFS  
                 self._getFs().delete(ObjectId(deletable_job["result"]))
