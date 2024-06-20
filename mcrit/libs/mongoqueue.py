@@ -366,8 +366,18 @@ class MongoQueue(object):
             print(deletable_job)
             if "file_params" in deletable_job["payload"]:
                 file_params_dict = json.loads(deletable_job["payload"]["file_params"])
-                for k, file_object_id in file_params_dict.items():
-                    self._getFs().delete(ObjectId(file_object_id))
+                for _, file_object_id in file_params_dict.items():
+                    file_object_id = ObjectId(file_object_id)
+                    # update gridFs entry of file to not link
+                    # to this job anymore
+                    self._getFs().update_one(
+                        {"_id": file_object_id}, {"$pull": {"metadata.jobs": str(job_id)}}
+                    )
+                    # check if file is safe to delete
+                    if self._getFs().count_documents(
+                        {"_id": file_object_id, "metadata.jobs": [], "metadata.tmp_lock": 0}
+                    ) > 0:
+                        self._getFs().delete(file_object_id)
             if with_result:
                 # delete result from GridFS  
                 self._getFs().delete(ObjectId(deletable_job["result"]))
