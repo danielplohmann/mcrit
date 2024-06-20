@@ -121,6 +121,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 
 ## Version History
+ * 2024-06-20 v1.3.17: Job deletion and cleanup are now [more robust](https://github.com/danielplohmann/mcrit/pull/77) and won't accidentally purge samples unwantedly - @yankovs - THX!!
  * 2024-05-10 v1.3.16: Queue cleanup has been extended to also purge files uploaded during all 3 types of queries (mapped, unmapped, smda).
  * 2024-04-17 v1.3.15: Worker type `spawningworker` will now terminate children after QueueConfig.QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT seconds.
  * 2024-04-02 v1.3.14: Experimental: Introduction of new worker type `spawningworker` - this variant will consume jobs from the queue as usual but defer the actual job execution into a separate (sub)process, which should reduce issues with locked memory allocations.
