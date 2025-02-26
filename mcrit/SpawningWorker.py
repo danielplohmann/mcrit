@@ -117,8 +117,10 @@ class SpawningWorker(Worker):
             self.queue.clean()
             self.t_last_cleanup = time.time()
         try:
-            LOGGER.info("Processing Remote Job: %s", job)
-            result_id = self._executeJobPayload(j["payload"], job)
+            result_id = None
+            with job as j:
+                LOGGER.info("Processing Remote Job: %s", job)
+                result_id = self._executeJobPayload(j["payload"], job)
             if result_id:
                 # result should have already been persisted by the child process,we repeat it here to close the job for the queue
                 job.result = result_id
