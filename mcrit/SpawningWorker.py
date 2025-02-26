@@ -95,6 +95,14 @@ class SpawningWorker(Worker):
         try:
             stdout_result, stderr_result = console_handle.communicate(timeout=self._queue_config.QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT)
             stdout_result = stdout_result.strip().decode("utf-8")
+             # TODO: log output from subprocess in the order it arrived
+            # instead of the split to stdout, stderr
+            if stdout_result:
+                LOGGER.info("STDOUT logs from subprocess: %s", stdout_result)
+            if stderr_result:
+                stderr_result = stderr_result.strip().decode("utf-8")
+                LOGGER.info("STDERR logs from subprocess: %s", stderr_result)
+
             last_line = stdout_result.split("\n")[-1]
             # successful output should be just the result_id in a single line
             match = re.match("(?P<result_id>[0-9a-fA-F]{24})", last_line)
@@ -109,12 +117,16 @@ class SpawningWorker(Worker):
             self.queue.clean()
             self.t_last_cleanup = time.time()
         try:
+            result_id = None
             with job as j:
                 LOGGER.info("Processing Remote Job: %s", job)
                 result_id = self._executeJobPayload(j["payload"], job)
+            if result_id:
                 # result should have already been persisted by the child process,we repeat it here to close the job for the queue
                 job.result = result_id
                 LOGGER.info("Finished Remote Job with result_id: %s", result_id)
+            else:
+                LOGGER.info("Failed Running Remote Job: %s", job)
         except Exception as exc:
             pass
 
