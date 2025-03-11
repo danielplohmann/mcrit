@@ -4,6 +4,8 @@ import json
 import hashlib
 import argparse
 
+import subprocess
+
 from smda.Disassembler import Disassembler
 from smda.common.SmdaReport import SmdaReport
 
@@ -126,6 +128,36 @@ def getSmdaReportFromFilepath(args, filepath):
                 json.dump(smda_report.toDict(), f_smda, sort_keys=True, indent=1)
     return smda_report
 
+def submitViaSubprocess(args, filepath):
+    command = ["python", "-m", "mcrit", "client", "submit"]
+    if args.server:
+        command.extend(["--server", args.server])
+    if args.apitoken:
+        command.extend(["--apitoken", args.apitoken])
+    if args.family:
+        command.extend(["--family", args.family])
+    if args.version:
+        command.extend(["--version", args.version])
+    if args.library:
+        command.extend(["--library"])
+    if args.executables_only:
+        command.extend(["--executables_only"])
+    if args.output:
+        command.extend(["--output", args.output])
+    if args.smda:
+        command.extend(["--smda"])
+    command.append(filepath)
+    console_handle = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        stdout_result, stderr_result = console_handle.communicate(timeout=args.worker_timeout)
+        stdout_result = stdout_result.strip().decode("utf-8")
+        if stdout_result:
+            print("STDOUT logs from subprocess: ", stdout_result)
+        if stderr_result:
+            stderr_result = stderr_result.strip().decode("utf-8")
+            print("STDERR logs from subprocess: ", stderr_result)
+    except subprocess.TimeoutExpired:
+        print(f"Processing {str(filepath)} with a spawned worker timed out during processing.")
 
 
 ### Main Processing 
@@ -150,6 +182,8 @@ class McritConsole(object):
         client_submit.add_argument("-x", "--executables_only", action="store_true", help="Only process files that are parsable PE or ELF files (default: False).")
         client_submit.add_argument("-o", "--output", type=str, help="Optionally store SMDA reports in folder OUTPUT.")
         client_submit.add_argument("-s", "--smda", action="store_true", help="Do not disassemble, instead only submit files that are recognized as SMDA reports (only works with modes: file/dir).")
+        client_submit.add_argument("-w", "--worker", action="store_true", help="Spawn workers to process the submission (only in modes: dir/recursive/malpedia, default: False).")
+        client_submit.add_argument("-t", "--worker-timeout", type=int, default=300, help="Timeout for workers to conclude the submission (default: 300 seconds).")
         # client query
         client_query = subparser_client.add_parser("query", help="Query MCRIT with a sample incl. disassembly using SMDA if needed.")
         client_query.add_argument("filepath", type=str, help="Submit the folllowing <filepath>.")
@@ -320,6 +354,9 @@ class McritConsole(object):
         if args.smda and args.mode in ["recursive", "malpedia"]:
             print("Modes <recursive|malpedia> are not compatible with SMDA report loading.")
             return
+        if args.worker and args.mode not in ["dir", "recursive", "malpedia"]:
+            print("Mode <worker> only works with modes: dir/recursive/malpedia.")
+            return
         # behavior according to the modes offered
         if args.mode == "file":
             self._handle_submit_file(args)
@@ -351,10 +388,13 @@ class McritConsole(object):
                 if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
                     print(f"SKIPPING: {filepath} - already in MCRIT.")
                     continue
-                smda_report = getSmdaReportFromFilepath(args, filepath)
-                if smda_report:
-                    print(smda_report)
-                    self.client.addReport(smda_report)
+                if args.worker:
+                    submitViaSubprocess(args, filepath)
+                else:
+                    smda_report = getSmdaReportFromFilepath(args, filepath)
+                    if smda_report:
+                        print(smda_report)
+                        self.client.addReport(smda_report)
 
     def _handle_submit_recursive(self, args):
         mcrit_samples = self.client.getSamples()
@@ -369,13 +409,18 @@ class McritConsole(object):
                     if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
                         print(f"SKIPPING: {filepath} - already in MCRIT.")
                         continue
-                    smda_report = getSmdaReportFromFilepath(args, filepath)
-                    if smda_report:
-                        smda_report.family = getFamilyName(folder_relative_path)
-                        smda_report.version = getSampleVersion(folder_relative_path, smda_report.family)
-                        print(filepath)
-                        print(smda_report)
-                        self.client.addReport(smda_report)
+                    if args.worker:
+                        args.family = getFamilyName(folder_relative_path)
+                        args.version = getSampleVersion(folder_relative_path, args.family)
+                        submitViaSubprocess(args, filepath)
+                    else:
+                        smda_report = getSmdaReportFromFilepath(args, filepath)
+                        if smda_report:
+                            smda_report.family = getFamilyName(folder_relative_path)
+                            smda_report.version = getSampleVersion(folder_relative_path, smda_report.family)
+                            print(filepath)
+                            print(smda_report)
+                            self.client.addReport(smda_report)
 
     def _handle_submit_malpedia(self, args):
         # verify that we have a malpedia root
@@ -413,13 +458,18 @@ class McritConsole(object):
                     print(f"* MCRIT: {mcrit_family}|{mcrit_version}")
             # directly add all files in Malpedia but missing in MCRIT
             else:
-                smda_report = getSmdaReportFromFilepath(args, malpedia_filepath)
-                if smda_report:
-                    smda_report.family = malpedia_family
-                    smda_report.version = malpedia_version
-                    print(malpedia_filepath)
-                    print(smda_report)
-                    self.client.addReport(smda_report)
+                if args.worker:
+                    args.family = malpedia_family
+                    args.version = malpedia_version
+                    submitViaSubprocess(args, malpedia_filepath)
+                else:
+                    smda_report = getSmdaReportFromFilepath(args, malpedia_filepath)
+                    if smda_report:
+                        smda_report.family = malpedia_family
+                        smda_report.version = malpedia_version
+                        print(malpedia_filepath)
+                        print(smda_report)
+                        self.client.addReport(smda_report)
         # warn about files that appear deleted because not present in Malpedia but in MCRIT (based on name schema)
         for filename, mcrit_sample in mcrit_samples_by_filename.items():
             if self._isMalpediaFilename(filename) and filename not in malpedia_samples_by_filename:

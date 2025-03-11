@@ -122,6 +122,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 ## Version History
 
+ * 2025-03-11 v1.3.21: McritCLI now supports submissions with a a spawned worker (requires --worker flag).
  * 2025-02-26 v1.3.20: Fixed a bug where crashing SpawningWorker would not be properly handled - THX to @yankovs!.
  * 2025-02-26 v1.3.18: Added server and API token support for the CLI.
  * 2024-06-20 v1.3.17: Job deletion and cleanup are now [more robust](https://github.com/danielplohmann/mcrit/pull/77) and won't accidentally purge samples unwantedly - @yankovs - THX!!
