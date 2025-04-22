@@ -28,4 +28,9 @@ setup(
         "Topic :: Security",
         "Topic :: Scientific/Engineering :: Information Analysis",
     ],
+    entry_points={
+        'console_scripts': [
+            'mcrit=mcrit.__main__:main'
+        ]
+    },
 )

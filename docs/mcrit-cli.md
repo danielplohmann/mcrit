@@ -8,26 +8,35 @@ The `submit` command supports 4 methods of data submission, supported by a numbe
 Here is its documentation:
 
 ```
-usage: __main__.py client submit [-h] [--mode {file,dir,recursive,malpedia}] [-f FAMILY] [-v VERSION] [-l] [-x] [-o OUTPUT] [-s] filepath
+usage: mcrit client submit [-h] [--mode {file,dir,recursive,malpedia}] [-f FAMILY] [-v VERSION] [-l] [-x] [-o OUTPUT]
+                           [-s] [-w] [-t WORKER_TIMEOUT]
+                           filepath
 
 positional arguments:
   filepath              Submit the folllowing <filepath>, indicating a (file/dir).
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   --mode {file,dir,recursive,malpedia}
-                        Submit a single <file> or all files in a <dir>. Use <recursive> submission for a folder structured as ./family_name/version/version/files. Synchronize <malpedia>
-                        into MCRIT. Default: <file>.
+                        Submit a single <file> or all files in a <dir>. Use <recursive> submission for a folder
+                        structured as ./family_name/version/version/files. Synchronize <malpedia> into MCRIT. Default:
+                        <file>.
   -f FAMILY, --family FAMILY
                         Set/Override SmdaReport with this family (only in modes: file/dir)
   -v VERSION, --version VERSION
                         Set/Override SmdaReport with this version (only in modes: file/dir)
-  -l, --library         Set/Override SmdaReport with the library flag (only in modes: file/dir/recursive, default: False).
+  -l, --library         Set/Override SmdaReport with the library flag (only in modes: file/dir/recursive, default:
+                        False).
   -x, --executables_only
                         Only process files that are parsable PE or ELF files (default: False).
   -o OUTPUT, --output OUTPUT
                         Optionally store SMDA reports in folder OUTPUT.
-  -s, --smda            Do not disassemble, instead only submit files that are recognized as SMDA reports (only works with modes: file/dir).
+  -s, --smda            Do not disassemble, instead only submit files that are recognized as SMDA reports (only works
+                        with modes: file/dir).
+  -w, --worker          Spawn workers to process the submission (only in modes: dir/recursive/malpedia, default:
+                        False).
+  -t WORKER_TIMEOUT, --worker-timeout WORKER_TIMEOUT
+                        Timeout for workers to conclude the submission (default: 300 seconds).
 ```
 
 ### File
