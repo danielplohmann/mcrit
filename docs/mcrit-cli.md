@@ -8,26 +8,35 @@ The `submit` command supports 4 methods of data submission, supported by a numbe
 Here is its documentation:
 
 ```
-usage: __main__.py client submit [-h] [--mode {file,dir,recursive,malpedia}] [-f FAMILY] [-v VERSION] [-l] [-x] [-o OUTPUT] [-s] filepath
+usage: mcrit client submit [-h] [--mode {file,dir,recursive,malpedia}] [-f FAMILY] [-v VERSION] [-l] [-x] [-o OUTPUT]
+                           [-s] [-w] [-t WORKER_TIMEOUT]
+                           filepath
 
 positional arguments:
   filepath              Submit the folllowing <filepath>, indicating a (file/dir).
 
-optional arguments:
+options:
   -h, --help            show this help message and exit
   --mode {file,dir,recursive,malpedia}
-                        Submit a single <file> or all files in a <dir>. Use <recursive> submission for a folder structured as ./family_name/version/version/files. Synchronize <malpedia>
-                        into MCRIT. Default: <file>.
+                        Submit a single <file> or all files in a <dir>. Use <recursive> submission for a folder
+                        structured as ./family_name/version/version/files. Synchronize <malpedia> into MCRIT. Default:
+                        <file>.
   -f FAMILY, --family FAMILY
                         Set/Override SmdaReport with this family (only in modes: file/dir)
   -v VERSION, --version VERSION
                         Set/Override SmdaReport with this version (only in modes: file/dir)
-  -l, --library         Set/Override SmdaReport with the library flag (only in modes: file/dir/recursive, default: False).
+  -l, --library         Set/Override SmdaReport with the library flag (only in modes: file/dir/recursive, default:
+                        False).
   -x, --executables_only
                         Only process files that are parsable PE or ELF files (default: False).
   -o OUTPUT, --output OUTPUT
                         Optionally store SMDA reports in folder OUTPUT.
-  -s, --smda            Do not disassemble, instead only submit files that are recognized as SMDA reports (only works with modes: file/dir).
+  -s, --smda            Do not disassemble, instead only submit files that are recognized as SMDA reports (only works
+                        with modes: file/dir).
+  -w, --worker          Spawn workers to process the submission (only in modes: dir/recursive/malpedia, default:
+                        False).
+  -t WORKER_TIMEOUT, --worker-timeout WORKER_TIMEOUT
+                        Timeout for workers to conclude the submission (default: 300 seconds).
 ```
 
 ### File
@@ -35,7 +44,7 @@ optional arguments:
 Submit a single file.  
 If the provided path ends with `0x[0-9a-fA-F]{8,16}`, the client will assume that this is a mapped file (no evaluation of PE header) and use the given addr as IMAGEBASE. 
 ```bash
-$ python -m mcrit client submit --mode file ~/malpedia/win.wannacryptor/vt-2017-05-05/0345782378ee7a8b48c296a120625fd439ed8699ae857c4f84befeb56e727366_dump_0x00400000 
+$ mcrit client submit --mode file ~/malpedia/win.wannacryptor/vt-2017-05-05/0345782378ee7a8b48c296a120625fd439ed8699ae857c4f84befeb56e727366_dump_0x00400000 
  0.906s -> (architecture: intel.32bit, base_addr: 0x00400000): 922 functions
 ```
 
@@ -44,7 +53,7 @@ $ python -m mcrit client submit --mode file ~/malpedia/win.wannacryptor/vt-2017-
 Submit all files in a directory (no recursion).
 
 ```bash
-$ python -m mcrit client submit --mode dir ~/malpedia/win.wannacryptor/vt-2017-05-12/
+$ mcrit client submit --mode dir ~/malpedia/win.wannacryptor/vt-2017-05-12/
  0.763s -> (architecture: intel.32bit, base_addr: 0x00400000): 926 functions
  0.884s -> (architecture: intel.32bit, base_addr: 0x00400000): 926 functions
  1.378s -> (architecture: intel.32bit, base_addr: 0x00400000): 165 functions
@@ -67,7 +76,7 @@ If files from Malpedia are already available in MCRIT, they will be skipped on t
 Only ELF and PE (win.*) families and only files labeled as `_unpacked` or `_dump_0x...`  will be considered and processed.
 
  ```
- $ python -m mcrit client submit --mode malpedia ~/malpedia
+ $ mcrit client submit --mode malpedia ~/malpedia
 /home/analyst/work/Repositories/malpedia/win.3cx_backdoor/11be1803e2e307b647a8a7e02d128335c448ff741bf06bf52b332e0bbf423b03_unpacked
  1.625s -> (architecture: intel.64bit, base_addr: 0x180000000): 717 functions
 /home/analyst/work/Repositories/malpedia/win.8t_dropper/2019-01-23/b541e0e29c34800a067b060d9ee18d8d35c75f056f4246b1ce9561a5441d5a0f_unpacked
@@ -81,9 +90,9 @@ Only ELF and PE (win.*) families and only files labeled as `_unpacked` or `_dump
 This command can be used to export samples into MCRIT-compatible files, e.g.:
 
 ```bash
-usage: __main__.py client export [-h] [--sample_ids SAMPLE_IDS] filepath
+usage: mcrit client export [-h] [--sample_ids SAMPLE_IDS] filepath
 
-$ python -m mcrit client export --sample_ids 0 sample_0.mcrit
+$ mcrit client export --sample_ids 0 sample_0.mcrit
 wrote export to sample_0.mcrit.
 
 $ head sample_0.mcrit 
@@ -105,9 +114,9 @@ $ head sample_0.mcrit
 This command can be used to import previously exported sample(s), e.g.:
 
 ```bash
-usage: __main__.py client import [-h] filepath
+usage: mcrit client import [-h] filepath
 
-$ python -m mcrit client import sample_0.mcrit               
+$ mcrit client import sample_0.mcrit               
 {'num_samples_imported': 0, 'num_samples_skipped': 1, 'num_functions_imported': 0, 'num_functions_skipped': 214, 'num_families_imported': 0, 'num_families_skipped': 1}
 
 ```
@@ -117,9 +126,9 @@ $ python -m mcrit client import sample_0.mcrit
 This command can be used to search across families, samples, and functions, e.g.:
 
 ```bash
-usage: __main__.py client search [-h] search_term
+usage: mcrit client search [-h] search_term
 
-$ python -m mcrit client search wanna                                               
+$ mcrit client search wanna                                               
 Family Search Results
 Famliy 2 (win.wannacry): 
 ********************
@@ -134,7 +143,7 @@ Sample 2 (intel, 32 bit) - 3e6de9e2baacf930949647c399818e7a2caea2626df6a46840785
 This command can be used to get a view on all queued jobs and their processing status, e.g.:
 
 ```bash
-$ python -m mcrit client queue
+$ mcrit client queue
 64243b27f3876416bffad86e 64243b28cbc77c2df4d8d79f | 2023-03-29T13:20:39.065Z 2023-03-29T13:20:39.114Z 2023-03-29T13:20:40.593Z | updateMinHashesForSample(2) - 1
 64131888fbb4d9d4a029164d 6413188c15e4f20d519b35ba | 2023-03-16T13:24:24.707Z 2023-03-16T13:24:24.755Z 2023-03-16T13:24:28.366Z | addBinarySample(None, ca29de1dc8817868c93e54b09f557fe14e40083c0955294df5bd91f52ba469c8_unpacked, win.wannacry, , False, 0, 32) - 1
 641316eefbb4d9d4a029164a 641316f115e4f20d519b322b | 2023-03-16T13:17:34.834Z 2023-03-16T13:17:34.859Z 2023-03-16T13:17:37.238Z | addBinarySample(None, 766d7d591b9ec1204518723a1e5940fd6ac777f606ed64e731fd91b0b4c3d9fc_dump_0x10000000, win.contopee, , True, 268435456, 32) - 1

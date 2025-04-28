@@ -29,7 +29,7 @@ def runServer(profiling=False, uses_gunicorn=False):
     try:
         import gunicorn
         from gunicorn.app.base import BaseApplication
-    except:
+    except Exception:
         gunicorn = None
 
     class gunicornServer(BaseApplication):
@@ -80,34 +80,38 @@ def runClient():
     console_client.run()
 
 
-# do not use argparse for processing here to allow using argparse help for the more intricate things in McritConsole
-if len(sys.argv) >= 2:
-    is_profiling = False
-    uses_gunicorn = False
-    if len(sys.argv) >= 3 and "--profile" in sys.argv[2:]:
-        is_profiling = True
-    if len(sys.argv) >= 3 and "--gunicorn" in sys.argv[2:]:
-        uses_gunicorn = True
-    if sys.argv[1] == "server":
-        runServer(profiling=is_profiling, uses_gunicorn=uses_gunicorn)
-    elif sys.argv[1] == "worker":
-        runWorker(profiling=is_profiling)
-    elif sys.argv[1] == "spawningworker":
-        runSpawningWorker(profiling=is_profiling)
-    elif sys.argv[1] == "singlejobworker":
-        # parse job_id directly from full command line string
-        job_id = None
-        match = re.search("--job_id (?P<job_id>[0-9a-fA-F]{24})", " ".join(sys.argv))
-        if match:
-            job_id = match.group("job_id")
-            runSingleJobWorker(job_id, profiling=is_profiling)
+def main():
+    # do not use argparse for processing here to allow using argparse help for the more intricate things in McritConsole
+    if len(sys.argv) >= 2:
+        is_profiling = False
+        uses_gunicorn = False
+        if len(sys.argv) >= 3 and "--profile" in sys.argv[2:]:
+            is_profiling = True
+        if len(sys.argv) >= 3 and "--gunicorn" in sys.argv[2:]:
+            uses_gunicorn = True
+        if sys.argv[1] == "server":
+            runServer(profiling=is_profiling, uses_gunicorn=uses_gunicorn)
+        elif sys.argv[1] == "worker":
+            runWorker(profiling=is_profiling)
+        elif sys.argv[1] == "spawningworker":
+            runSpawningWorker(profiling=is_profiling)
+        elif sys.argv[1] == "singlejobworker":
+            # parse job_id directly from full command line string
+            job_id = None
+            match = re.search("--job_id (?P<job_id>[0-9a-fA-F]{24})", " ".join(sys.argv))
+            if match:
+                job_id = match.group("job_id")
+                runSingleJobWorker(job_id, profiling=is_profiling)
+            else:
+                print("Was not able to recognize a job_id (24char hex string), did you pass it using --job_id?")
+        elif sys.argv[1] == "client":
+            runClient()
         else:
-            print("Was not able to recognize a job_id (24char hex string), did you pass it using --job_id?")
-    elif sys.argv[1] == "client":
-        runClient()
+            print("Unrecognized command, please use {{server, worker, spawningworker, client}}")
     else:
-        print("Unrecognized command, please use {{server, worker, spawningworker, client}}")
-else:
-    print(f"Usage: {sys.argv[0]} {{server, worker, spawningworker, client}}")
-    print("Optionally use --profiling for {server, worker, spawningworker}")
-    sys.exit()
+        print(f"Usage: {sys.argv[0]} {{server, worker, spawningworker, client}}")
+        print("Optionally use --profiling for {server, worker, spawningworker}")
+        sys.exit()
+
+if __name__ == "__main__":
+    main()

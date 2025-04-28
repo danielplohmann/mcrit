@@ -61,13 +61,13 @@ The MCRIT backend is generally divided into two components, a server providing a
 They can be started in seperate shells using:
 
 ```bash
-$ python -m mcrit server
+$ mcrit server
 ```
 
 and
 
 ```bash
-$ python -m mcrit worker
+$ mcrit worker
 ```
 
 By default, the REST API server will be listening on [http://127.0.0.1:8000/](http://127.0.0.1:8000/).
@@ -89,10 +89,10 @@ There is also a CLI which is based on this client package, examples:
 
 ```bash
 # query some stats of the data stored in the backend 
-$ python -m mcrit client status
+$ mcrit client status
 {'status': {'db_state': 187, 'storage_type': 'mongodb', 'num_bands': 20, 'num_samples': 137, 'num_families': 14, 'num_functions': 129110, 'num_pichashes': 25385}}
 # submit a malware sample with filename sample_unpacked, using family name "some_family"
-$ python -m mcrit client submit sample_unpacked -f some_family
+$ mcrit client submit sample_unpacked -f some_family
  1.039s -> (architecture: intel.32bit, base_addr: 0x10000000): 634 functions
 ```
 
