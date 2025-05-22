@@ -1,5 +1,6 @@
 coverage
 dataclasses
+dotenv
 falcon>=2.0.0
 fastcluster
 gunicorn; platform_system != "Windows"

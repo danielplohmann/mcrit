@@ -6,6 +6,8 @@ import argparse
 
 import subprocess
 
+from dotenv import load_dotenv
+
 from smda.Disassembler import Disassembler
 from smda.common.SmdaReport import SmdaReport
 
@@ -169,8 +171,8 @@ class McritConsole(object):
         subparsers = self.parser.add_subparsers(dest="command")
         self.parser_client = subparsers.add_parser("client")
         subparser_client = self.parser_client.add_subparsers(dest="client_command")
-        self.parser_client.add_argument("--server", type=str, default=None, help="The MCRIT server to connect to.")
-        self.parser_client.add_argument("--apitoken", type=str, default=None, help="API token to use for the connection.")
+        self.parser_client.add_argument("--server", type=str, default=None, help="The MCRIT server to connect to (overrides dotnev/env).")
+        self.parser_client.add_argument("--apitoken", type=str, default=None, help="API token to use for the connection (overrides dotnev/env).")
         client_status = subparser_client.add_parser("status")
         # client submit
         client_submit = subparser_client.add_parser("submit", help="Various ways of file submission incl. disassembly using SMDA if needed.")
@@ -204,7 +206,21 @@ class McritConsole(object):
 
     def run(self):
         ARGS = self.parser.parse_args()
-        self.client = McritClient(ARGS.server, ARGS.apitoken)
+        # try to load .env file first
+        THIS_FILE_PATH = str(os.path.abspath(__file__))
+        PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", "..", ".."])))
+        env_path = os.path.join(PROJECT_ROOT, '.env')
+        if os.path.exists(env_path):
+            load_dotenv(env_path)
+        # regardless of outcome for dotenv, try to load from env
+        server = os.environ.get('MCRIT_CLI_SERVER')
+        apitoken = os.environ.get('MCRIT_CLI_APITOKEN')
+        # always override with command line arguments
+        if ARGS.server:
+            server = ARGS.server
+        if ARGS.apitoken:
+            apitoken = ARGS.apitoken
+        self.client = McritClient(server, apitoken)
         if ARGS.client_command == "status":
             self._handle_status(ARGS)
         elif ARGS.client_command == "import":
