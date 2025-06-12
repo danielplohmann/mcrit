@@ -6,6 +6,7 @@ from datetime import datetime
 from unittest import TestCase, main
 
 import pymongo
+from bson import ObjectId
 from mcrit.config.McritConfig import McritConfig
 from mcrit.config.StorageConfig import StorageConfig
 from mcrit.config.MinHashConfig import MinHashConfig
@@ -38,6 +39,13 @@ class MemoryStorageTest(TestCase):
         mcrit_config.SHINGLER_CONFIG = ShinglerConfig()
         mcrit_config.QUEUE_CONFIG = QueueConfig()
         self.storage = StorageFactory.getStorage(mcrit_config)
+        # Ensure database is created and fs is initialized
+        self.storage._getDb()
+        # Clean up GridFS before each test
+        if self.storage.fs:
+            for grid_file in self.storage.fs.find():
+                self.storage.fs.delete(grid_file._id)
+        self.storage.clearStorage() # also clears other collections
         # get example_file_path
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
@@ -332,6 +340,121 @@ class MongoDbStorageTest(MemoryStorageTest):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
+
+    def _create_mock_smda_report(self, sha256_val, binary_content, filename_val="test.exe"):
+        # Load a base valid SmdaReport an
+        report = SmdaReport.fromFile(self.example_file_path)
+        # Override key fields
+        report.sha256 = sha256_val
+        report.filename = filename_val
+        report.buffer = binary_content
+        # Ensure other necessary fields are present, even if default from example
+        report.family = "test_family"
+        report.version = "1.0"
+        report.component = "test_component"
+        report.is_library = False
+        # Ensure statistics is a dict, SmdaReport.statistics is a DotDict
+        report.statistics = dict(report.statistics) if report.statistics else {"num_functions": 0}
+        if not report.timestamp:
+            report.timestamp = datetime.now()
+        # For this test, we primarily care about the binary blob and its link.
+        # If full function processing were tested, getFunctions would need more care.
+        # report.functions = {} # Clearing functions if they cause issues, or mock them
+        # For now, assume existing functions in example_report are fine or not impactful
+        # Or, ensure getFunctions() returns an empty list if that simplifies things:
+        # report.getFunctions = lambda: []
+        return report
+
+    def test_sample_storage_with_gridfs(self):
+        mock_sha256 = "a" * 64
+        mock_binary_data = b"This is a test binary blob for GridFS."
+
+        report = self._create_mock_smda_report(mock_sha256, mock_binary_data)
+
+        # Add the report
+        sample_entry = self.storage.addSmdaReport(report)
+        self.assertIsNotNone(sample_entry, "addSmdaReport should return a SampleEntry.")
+        self.assertIsNotNone(sample_entry.gridfs_id, "SampleEntry should have a gridfs_id after being added.")
+
+        # Retrieve the sample by SHA256
+        retrieved_sample = self.storage.getSampleBySha256(mock_sha256)
+        self.assertIsNotNone(retrieved_sample, "Should retrieve sample by SHA256.")
+        self.assertEqual(sample_entry.sample_id, retrieved_sample.sample_id)
+        self.assertEqual(mock_binary_data, retrieved_sample.binary_data, "Retrieved binary data does not match original.")
+        self.assertEqual(sample_entry.gridfs_id, retrieved_sample.gridfs_id)
+
+        # Retrieve the sample by ID
+        retrieved_sample_by_id = self.storage.getSampleById(sample_entry.sample_id)
+        self.assertIsNotNone(retrieved_sample_by_id, "Should retrieve sample by ID.")
+        self.assertEqual(sample_entry.sample_id, retrieved_sample_by_id.sample_id)
+        self.assertEqual(mock_binary_data, retrieved_sample_by_id.binary_data, "Retrieved binary data by ID does not match original.")
+        self.assertEqual(sample_entry.gridfs_id, retrieved_sample_by_id.gridfs_id)
+
+        # Check if GridFS file exists
+        self.assertTrue(self.storage.fs.exists(ObjectId(sample_entry.gridfs_id)), "GridFS file should exist.")
+
+        # Delete the sample
+        delete_success = self.storage.deleteSample(sample_entry.sample_id)
+        self.assertTrue(delete_success, "deleteSample should return True for existing sample.")
+
+        # Verify GridFS file is deleted
+        self.assertFalse(self.storage.fs.exists(ObjectId(sample_entry.gridfs_id)), "GridFS file should be deleted after sample deletion.")
+
+        # Verify sample is deleted
+        self.assertIsNone(self.storage.getSampleById(sample_entry.sample_id), "Sample should be deleted.")
+
+    def test_cleanup_orphan_gridfs_objects(self):
+        # Scenario 1: Manually inserted orphan
+        orphan_data_s1 = b"orphan data scenario 1"
+        orphan_id_s1 = self.storage.fs.put(orphan_data_s1, filename="orphan_s1.dat")
+
+        # Add a legitimate sample that should not be deleted
+        legit_sha256_s1 = "b" * 64
+        legit_binary_s1 = b"legitimate binary data s1"
+        legit_report_s1 = self._create_mock_smda_report(legit_sha256_s1, legit_binary_s1, "legit_s1.exe")
+        legit_sample_entry_s1 = self.storage.addSmdaReport(legit_report_s1)
+        self.assertIsNotNone(legit_sample_entry_s1.gridfs_id)
+
+        # Run cleanup
+        deleted_count_s1 = self.storage.cleanup_orphan_gridfs_objects()
+        self.assertEqual(1, deleted_count_s1, "Should have deleted 1 orphan in scenario 1.")
+
+        # Verify orphan is deleted and legitimate file still exists
+        self.assertFalse(self.storage.fs.exists(orphan_id_s1), "Manually added orphan (s1) should be deleted.")
+        self.assertTrue(self.storage.fs.exists(ObjectId(legit_sample_entry_s1.gridfs_id)), "Legitimate GridFS file (s1) should still exist.")
+
+        # Scenario 2: SampleEntry deleted manually, creating an orphan
+        mock_sha256_s2 = "c" * 64
+        mock_binary_data_s2 = b"binary for sample to be orphaned s2"
+        report_s2 = self._create_mock_smda_report(mock_sha256_s2, mock_binary_data_s2, "report_s2.exe")
+
+        sample_entry_s2 = self.storage.addSmdaReport(report_s2)
+        self.assertIsNotNone(sample_entry_s2, "Sample for s2 should be added.")
+        self.assertIsNotNone(sample_entry_s2.gridfs_id, "Sample s2 should have a gridfs_id.")
+        gridfs_id_s2_str = sample_entry_s2.gridfs_id
+
+        # Manually delete the SampleEntry from the DB to create an orphan
+        # Ensure _getDb is called if not already (it is in setUp)
+        db = self.storage._getDb()
+        delete_result = db.samples.delete_one({"sample_id": sample_entry_s2.sample_id})
+        self.assertEqual(1, delete_result.deleted_count, "SampleEntry s2 should be manually deleted from DB.")
+
+        # Verify GridFS file still exists before cleanup
+        self.assertTrue(self.storage.fs.exists(ObjectId(gridfs_id_s2_str)), "GridFS file for s2 should exist before cleanup.")
+
+        # Run cleanup again
+        deleted_count_s2 = self.storage.cleanup_orphan_gridfs_objects()
+        self.assertEqual(1, deleted_count_s2, "Should have deleted 1 orphan in scenario 2.")
+
+        # Verify the GridFS file (now an orphan) is deleted
+        self.assertFalse(self.storage.fs.exists(ObjectId(gridfs_id_s2_str)), "Orphaned GridFS file for s2 should be deleted.")
+
+    def tearDown(self):
+        # Clean up GridFS after each test
+        if hasattr(self.storage, "fs") and self.storage.fs:
+            for grid_file in self.storage.fs.find():
+                self.storage.fs.delete(grid_file._id)
+        self.storage.clearStorage()
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ LOGGER = logging.getLogger(__name__)
 try:
     from pymongo import InsertOne, MongoClient, UpdateOne
     from pymongo.collection import ReturnDocument
+    from gridfs import GridFS
 except:
     LOGGER.warning("pymongo package import failed - MongoDB backend will not be available.")
 
@@ -113,6 +114,7 @@ class MongoDbStorage(StorageInterface):
         self._matching_cache = None
         self.blockhasher = BlockHasher()
         self._database = None
+        self.fs = None
         
     def _getDb(self):
         # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
@@ -133,6 +135,7 @@ class MongoDbStorage(StorageInterface):
         mongo_uri = f"mongodb://{userpw_url}{server}{port_url}/{db_name}{flags_url}"
 
         self._database = MongoClient(mongo_uri, connect=False)[db_name]
+        self.fs = GridFS(self._database)
         self._ensureIndexAndUnknownFamily()
 
     def _ensureIndexAndUnknownFamily(self) -> None:
@@ -405,6 +408,12 @@ class MongoDbStorage(StorageInterface):
         sample_entry = self.getSampleById(sample_id)
         if sample_entry is None:
             return False
+        # Delete from GridFS if applicable
+        if sample_entry.gridfs_id and self.fs:
+            try:
+                self.fs.delete(sample_entry.gridfs_id)
+            except Exception as e:
+                LOGGER.error(f"Failed to delete from GridFS (id: {sample_entry.gridfs_id}): {e}")
         if sample_id < 0:
             # remove functions
             self._getDb().query_functions.delete_many({"sample_id": sample_id})
@@ -586,11 +595,19 @@ class MongoDbStorage(StorageInterface):
                 report_dict = self._getDb().query_samples.find_one({"sha256": sha256})
                 if report_dict:
                     target_sample = SampleEntry.fromDict(report_dict)
+                    # Note: Query samples are not expected to have GridFS data currently
         else:
             if self._getDb().samples.count_documents(filter={}):
                 report_dict = self._getDb().samples.find_one({"sha256": sha256})
                 if report_dict:
                     target_sample = SampleEntry.fromDict(report_dict)
+                    if target_sample and target_sample.gridfs_id and self.fs:
+                        try:
+                            gridfs_file = self.fs.get(target_sample.gridfs_id)
+                            target_sample.binary_data = gridfs_file.read()
+                        except Exception as e:
+                            LOGGER.error(f"Failed to retrieve from GridFS (id: {target_sample.gridfs_id}): {e}")
+                            target_sample.binary_data = None # Ensure it's None if retrieval fails
         return target_sample
 
     def updateFunctionLabels(self, smda_report: "SmdaReport", username) -> Optional["SampleEntry"]:
@@ -643,6 +660,10 @@ class MongoDbStorage(StorageInterface):
                 sample_entry = SampleEntry(
                     smda_report, sample_id=self._useCounter("samples"), family_id=family_id
                 )
+                # Store binary in GridFS
+                binary_data = smda_report.buffer # Assuming smda_report.buffer contains the binary
+                gridfs_id = self.fs.put(binary_data, filename=smda_report.sha256, sha256=smda_report.sha256)
+                sample_entry.gridfs_id = str(gridfs_id)
                 self._dbInsert("samples", sample_entry.toDict())
                 function_ids = self._useCounterBulk("functions",  smda_report.num_functions)
                 function_dicts = []
@@ -1065,7 +1086,15 @@ class MongoDbStorage(StorageInterface):
             sample_document = self._getDb().samples.find_one({"sample_id": sample_id}, {"_id": 0})
         if not sample_document:
             return None
-        return SampleEntry.fromDict(sample_document)
+        sample_entry = SampleEntry.fromDict(sample_document)
+        if sample_entry and sample_entry.gridfs_id and self.fs and sample_id >= 0: # only for non-query samples
+            try:
+                gridfs_file = self.fs.get(sample_entry.gridfs_id)
+                sample_entry.binary_data = gridfs_file.read()
+            except Exception as e:
+                LOGGER.error(f"Failed to retrieve from GridFS (id: {sample_entry.gridfs_id}): {e}")
+                sample_entry.binary_data = None # Ensure it's None if retrieval fails
+        return sample_entry
 
     # TODO add types
     def getStats(self, with_pichash=True) -> Dict:
@@ -1371,3 +1400,49 @@ class MongoDbStorage(StorageInterface):
             entry = FunctionEntry.fromDict(function_document)
             result_dict[entry.function_id] = entry
         return result_dict
+
+    def cleanup_orphan_gridfs_objects(self) -> int:
+        """
+        Finds and deletes orphan GridFS objects that are no longer referenced by any SampleEntry.
+        Returns the number of deleted orphan objects.
+        """
+        if not self.fs:
+            LOGGER.error("GridFS not initialized. Cannot cleanup orphans.")
+            return 0
+
+        db = self._getDb()
+        if db is None:
+            LOGGER.error("Database not initialized. Cannot cleanup orphans.")
+            return 0
+
+        orphan_count = 0
+        try:
+            # Ensure fs.files exists before trying to find()
+            if "fs.files" not in db.list_collection_names():
+                LOGGER.info("No GridFS files collection found (fs.files). Nothing to cleanup.")
+                return 0
+
+            gridfs_files_cursor = self.fs.find()
+            for grid_file in gridfs_files_cursor:
+                file_id_str = str(grid_file._id)
+                # Check if any sample references this gridfs_id
+                # Use count_documents for efficiency
+                count = db.samples.count_documents({"gridfs_id": file_id_str})
+                if count == 0:
+                    try:
+                        self.fs.delete(grid_file._id)
+                        orphan_count += 1
+                        LOGGER.info(f"Deleted orphan GridFS file: {file_id_str} (filename: {grid_file.filename if hasattr(grid_file, 'filename') else 'N/A'})")
+                    except Exception as e:
+                        LOGGER.error(f"Error deleting GridFS file {file_id_str}: {e}")
+
+            if orphan_count > 0:
+                LOGGER.info(f"Successfully deleted {orphan_count} orphan GridFS objects.")
+            else:
+                LOGGER.info("No orphan GridFS objects found to delete.")
+
+        except Exception as e:
+            LOGGER.error(f"An error occurred during GridFS orphan cleanup: {e}", exc_info=True)
+            return -1 # Indicate error
+
+        return orphan_count
