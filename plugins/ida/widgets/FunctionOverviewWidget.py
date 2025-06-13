@@ -136,10 +136,14 @@ class FunctionOverviewWidget(QMainWindow):
             if result_label == "-":
                 continue
             # extract the actual name from the score|name pair
+            label_fields = result_label.split("|")
+            if len(label_fields) < 2:
+                self.parent.local_widget.updateActivityInfo(f"Error: Could not parse label '{result_label}' for function at 0x{offset:x}.")
+                continue
             result_label = result_label.split("|")[1]
             # check if IDA function has default name
             ida_function_name = ida_funcs.get_func_name(offset)
-            if re.match("sub_[0-9A-Fa-f]+$", ida_function_name):
+            if ida_function_name and re.match("sub_[0-9A-Fa-f]+$", ida_function_name):
                 # apply label
                 self.cc.ida_proxy.set_name(offset, result_label, self.cc.ida_proxy.SN_NOWARN)
                 num_names_applied += 1

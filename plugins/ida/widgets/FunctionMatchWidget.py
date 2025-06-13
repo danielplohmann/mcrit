@@ -359,7 +359,7 @@ class FunctionMatchWidget(QMainWindow):
         if mi.column() == 0:
             smda_function_a = self.parent.local_smda_report.getFunction(self.current_function_offset)
             smda_report_a = self.parent.local_smda_report
-            remote_function_id = int(self.table_function_matches.item(mi.row(), 0).text())
+            remote_function_id = int(self.table_function_names.item(mi.row(), 0).text())
             function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(remote_function_id)
             smda_function_b = function_entry_b.toSmdaFunction()
             sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
