@@ -365,6 +365,16 @@ class MatcherInterface(object):
         own_functions_with_library_matches: Set[int] = set()
         foreign_functions_matched: Set[int] = set()
 
+        # create entries for all functions, to later also show unmatched functions and calculate statistics based on function sizes
+        for function_entry in self._function_entries:
+            if function_entry.function_id not in match_function_mapping:
+                match_function_mapping[function_entry.function_id] = {
+                    "num_bytes": function_entry.binweight,
+                    "num_instructions": function_entry.num_instructions,
+                    "offset": function_entry.offset,
+                    "matches": [],
+                }
+
         for match_ids, match_strength in matches.items():
             own_function_id, foreign_sample_id, foreign_function_id = match_ids
             minhash_score, is_pichash_match, is_minhash_match = match_strength
@@ -382,13 +392,6 @@ class MatcherInterface(object):
                 if foreign_sample_id not in self._sample_id_to_entry:
                     self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
                 foreign_family_id = self._sample_id_to_entry[foreign_sample_id].family_id
-
-                if own_function_id not in match_function_mapping:
-                    match_function_mapping[own_function_id] = {
-                        "num_bytes": sample_fid_to_binweight[own_function_id],
-                        "offset": sample_fid_to_offset[own_function_id],
-                        "matches": [],
-                    }
 
                 flags = (
                     is_pichash_match * IS_PICHASH_FLAG
@@ -440,8 +443,13 @@ class MatcherInterface(object):
         return adjustments
 
     def _aggregateMatchSampleSummary(self, match_report, own_sample_info, num_library_bytes):
-        own_sample_num_bytes = own_sample_info["binweight"]
-        own_sample_num_nonlibrary_bytes = own_sample_num_bytes - num_library_bytes
+        # calculate number of bytes that are actuall matchable (i.e. functions whose size exceeds threshold)
+        own_sample_num_matchable_bytes = 0
+        own_sample_function_entries = self._storage.getFunctionsBySampleId(own_sample_info["sample_id"])
+        for function_entry in own_sample_function_entries:
+            if function_entry.num_instructions >= self._worker._minhash_config.MINHASH_FN_MIN_INS:
+                own_sample_num_matchable_bytes += function_entry.binweight
+        own_sample_num_nonlibrary_bytes = own_sample_num_matchable_bytes - num_library_bytes
         # aggregate sample byte sizes
         function_num_bytes = {}
         for own_function_id, function_data in match_report.items():
@@ -514,7 +522,7 @@ class MatcherInterface(object):
                     current_matched["bytes"]["nonlib_frequency_weighted"] += frequency_weighted_inc
 
             for kind in "unweighted", "score_weighted", "frequency_weighted":
-                current_matched["percent"][kind] = 100.0 * current_matched["bytes"][kind] / own_sample_num_bytes
+                current_matched["percent"][kind] = 100.0 * current_matched["bytes"][kind] / own_sample_num_matchable_bytes
                 current_matched["percent"]["nonlib_" + kind] = (
                     100.0 * current_matched["bytes"]["nonlib_" + kind] / own_sample_num_nonlibrary_bytes
                 )
