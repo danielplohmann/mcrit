@@ -67,7 +67,15 @@ class MatcherTestSuite(unittest.TestCase):
                 (2, 3, 22, 84.375, IS_MINHASH_FLAG),
             ],
             "num_bytes": 354.0,
+            "num_instructions": 120,
             "offset": 0,
+        },
+        {
+                "num_bytes": 35.0,
+                "num_instructions": 11,
+                "offset": 2220,
+                "matches": [],
+                "fid": 10
         },
         {
             "fid": 11,
@@ -76,40 +84,60 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 1, 92.1875, IS_MINHASH_FLAG),
             ],
             "num_bytes": 638.0,
+            "num_instructions": 207,
             "offset": 364,
+        },
+        {
+            "fid": 12,
+            "matches": [
+                (0, 2, 21, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
+                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG)
+            ],
+            "num_bytes": 166.0,
+            "num_instructions": 64,
+            "offset": 1004,
         },
         {
             "fid": 13,
             "matches": [(1, 0, 3, 67.1875, IS_MINHASH_FLAG)],
             "num_bytes": 1047.0,
+            "num_instructions": 365,
             "offset": 1172,
+        },
+        {
+            "num_bytes": 35.0,
+            "num_instructions": 11,
+            "offset": 2220,
+            "matches": [],
+            "fid": 14
+        },
+        {
+            "num_bytes": 524.0,
+            "num_instructions": 159,
+            "offset": 2256,
+            "matches": [],
+            "fid": 15
         },
         {
             "fid": 16,
             "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
             "num_bytes": 915.0,
+            "num_instructions": 287,
             "offset": 2780,
         },
         {
             "fid": 17,
             "matches": [(1, 0, 6, 98.4375, IS_MINHASH_FLAG)],
             "num_bytes": 727.0,
+            "num_instructions": 226,
             "offset": 3696,
         },
         {
             "fid": 18,
             "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
             "num_bytes": 1850.0,
+            "num_instructions": 543,
             "offset": 4424,
-        },
-        {
-            "fid": 12,
-            "matches": [
-                (0, 2, 21, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
-                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
-            ],
-            "num_bytes": 166.0,
-            "offset": 1004,
         },
     ]
 
@@ -120,7 +148,15 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 0, 84.375, IS_MINHASH_FLAG),
             ],
             "num_bytes": 354.0,
+            "num_instructions": 120,
             "offset": 0,
+        },
+        {
+            "num_bytes": 35.0,
+            "num_instructions": 11,
+            "offset": 2220,
+            "matches": [],
+            "fid": 10
         },
         {
             "fid": 11,
@@ -128,31 +164,8 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 1, 92.1875, IS_MINHASH_FLAG),
             ],
             "num_bytes": 638.0,
+            "num_instructions": 207,
             "offset": 364,
-        },
-        {
-            "fid": 13,
-            "matches": [(1, 0, 3, 67.1875, IS_MINHASH_FLAG)],
-            "num_bytes": 1047.0,
-            "offset": 1172,
-        },
-        {
-            "fid": 16,
-            "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
-            "num_bytes": 915.0,
-            "offset": 2780,
-        },
-        {
-            "fid": 17,
-            "matches": [(1, 0, 6, 98.4375, IS_MINHASH_FLAG)],
-            "num_bytes": 727.0,
-            "offset": 3696,
-        },
-        {
-            "fid": 18,
-            "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
-            "num_bytes": 1850.0,
-            "offset": 4424,
         },
         {
             "fid": 12,
@@ -160,7 +173,50 @@ class MatcherTestSuite(unittest.TestCase):
                 (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG),
             ],
             "num_bytes": 166.0,
+            "num_instructions": 64,
             "offset": 1004,
+        },
+        {
+            "fid": 13,
+            "matches": [(1, 0, 3, 67.1875, IS_MINHASH_FLAG)],
+            "num_bytes": 1047.0,
+            "num_instructions": 365,
+            "offset": 1172,
+        },
+        {
+            "num_bytes": 35.0,
+            "num_instructions": 11,
+            "offset": 2220,
+            "matches": [],
+            "fid": 14
+        },
+        {
+            "num_bytes": 524.0,
+            "num_instructions": 159,
+            "offset": 2256,
+            "matches": [],
+            "fid": 15
+        },
+        {
+            "fid": 16,
+            "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
+            "num_bytes": 915.0,
+            "num_instructions": 287,
+            "offset": 2780,
+        },
+        {
+            "fid": 17,
+            "matches": [(1, 0, 6, 98.4375, IS_MINHASH_FLAG)],
+            "num_bytes": 727.0,
+            "num_instructions": 226,
+            "offset": 3696,
+        },
+        {
+            "fid": 18,
+            "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
+            "num_bytes": 1850.0,
+            "num_instructions": 543,
+            "offset": 4424,
         },
     ]
 
@@ -229,15 +285,15 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 4337.59375,
                 "nonlib_unweighted": 4539.0,
                 "nonlib_score_weighted": 3434.09375,
-                "nonlib_frequency_weighted": 3434.09375,
+                "nonlib_frequency_weighted": 3434.09375
             },
             "percent": {
-                "unweighted": 90.977323538805493453,
-                "score_weighted": 71.653425423187480038,
-                "frequency_weighted": 69.268504471414883424,
-                "nonlib_unweighted": 88.930250783699059561,
-                "nonlib_score_weighted": 67.282401057993730408,
-                "nonlib_frequency_weighted": 67.282401057993730408,
+                "unweighted": 90.55793991416309,
+                "score_weighted": 71.32312033063106,
+                "frequency_weighted": 68.94919329200445,
+                "nonlib_unweighted": 88.42781998831093,
+                "nonlib_score_weighted": 66.90227449834404,
+                "nonlib_frequency_weighted": 66.90227449834404,
             },
         },
     }
@@ -266,15 +322,15 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 149.34375,
                 "nonlib_unweighted": 0,
                 "nonlib_score_weighted": 0,
-                "nonlib_frequency_weighted": 0,
+                "nonlib_frequency_weighted": 0
             },
             "percent": {
-                "unweighted": 5.6531459597572660492,
-                "score_weighted": 4.769841903545193229,
-                "frequency_weighted": 2.3849209517725966145,
+                "unweighted": 5.627086313781593,
+                "score_weighted": 4.747854077253219,
+                "frequency_weighted": 2.3739270386266096,
                 "nonlib_unweighted": 0.0,
                 "nonlib_score_weighted": 0.0,
-                "nonlib_frequency_weighted": 0.0,
+                "nonlib_frequency_weighted": 0.0
             },
         },
     }
@@ -303,16 +359,16 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 4486.9375,
                 "nonlib_unweighted": 5697.0,
                 "nonlib_score_weighted": 4486.9375,
-                "nonlib_frequency_weighted": 4486.9375,
+                "nonlib_frequency_weighted": 4486.9375
             },
             "percent": {
-                "unweighted": 90.977323538805493453,
-                "score_weighted": 71.653425423187480038,
-                "frequency_weighted": 71.653425423187480038,
-                "nonlib_unweighted": 90.977323538805493453,
-                "nonlib_score_weighted": 71.653425423187480038,
-                "nonlib_frequency_weighted": 71.653425423187480038,
-            },
+                "unweighted": 90.55793991416309,
+                "score_weighted": 71.32312033063106,
+                "frequency_weighted": 71.32312033063106,
+                "nonlib_unweighted": 90.55793991416309,
+                "nonlib_score_weighted": 71.32312033063106,
+                "nonlib_frequency_weighted": 71.32312033063106
+            }
         },
     }
 
@@ -343,12 +399,12 @@ class MatcherTestSuite(unittest.TestCase):
                 "nonlib_frequency_weighted": 0,
             },
             "percent": {
-                "unweighted": 18.49249441073139572,
-                "score_weighted": 18.49249441073139572,
-                "frequency_weighted": 15.665921430852762696,
+                "unweighted": 18.407248450166904,
+                "score_weighted": 18.407248450166904,
+                "frequency_weighted": 15.593705293276109,
                 "nonlib_unweighted": 0.0,
                 "nonlib_score_weighted": 0.0,
-                "nonlib_frequency_weighted": 0.0,
+                "nonlib_frequency_weighted": 0.0
             },
         },
     }
@@ -490,6 +546,7 @@ class MatcherTestSuite(unittest.TestCase):
 
         self.assertEqual(result["matches"]["aggregation"]["pichash"], self.pichash_aggregation_expected_query)
         self.assertEqual(result["matches"]["aggregation"]["minhash"], self.minhash_aggregation_expected_query)
+        json.dumps(sorted(result["matches"]["functions"], key=lambda x: x["fid"]), indent=1)
         self.assertEqual(
             sorted(result["matches"]["functions"], key=lambda x: x["fid"]),
             sorted(function_matches_expected, key=lambda x: x["fid"]),
@@ -497,8 +554,8 @@ class MatcherTestSuite(unittest.TestCase):
         self.assertEqual(
             result["matches"]["samples"],
             [
-                self.sample_summary_entry_2_expected,
                 self.sample_summary_lib_entry_expected,
+                self.sample_summary_entry_2_expected,
                 self.sample_summary_entry_3_expected,
             ],
         )

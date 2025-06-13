@@ -122,6 +122,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 ## Version History
 
+ * 2025-06-13 v1.4.0:  Changed the way how percentages for matching are calculated, now using only matchable code vs. all code as baseline. Minor IDA plugin fixes.
  * 2025-05-22 v1.3.22: McritCLI now supports ENV variables (`MCRIT_CLI_SERVER` and `MCRIT_CLI_APITOKEN`) and a `.env` file for setting server and apitoken  - THX to @r0ny123 for the suggestion!
  * 2025-03-11 v1.3.21: McritCLI now supports submissions with a a spawned worker (requires --worker flag).
  * 2025-02-26 v1.3.20: Fixed a bug where crashing SpawningWorker would not be properly handled - THX to @yankovs!.
