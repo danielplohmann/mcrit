@@ -86,6 +86,8 @@ class MatchingResult(object):
     def applyFilterValues(self):
         """ use the filter_values that have been set before to reduce the data """
         # filter family/sample
+        if self.filter_values.get("filter_unique_only", None):
+            self.filterToUniqueMatchesOnly()
         if self.filter_values.get("filter_direct_min_score", None):
             self.filterToDirectMinScore(self.filter_values["filter_direct_min_score"])
         if self.filter_values.get("filter_direct_nonlib_min_score", None):
@@ -94,8 +96,6 @@ class MatchingResult(object):
             self.filterToFrequencyMinScore(self.filter_values["filter_frequency_min_score"])
         if self.filter_values.get("filter_frequency_nonlib_min_score", None):
             self.filterToFrequencyMinScore(self.filter_values["filter_frequency_nonlib_min_score"], nonlib=True)
-        if self.filter_values.get("filter_unique_only", None):
-            self.filterToUniqueMatchesOnly()
         if self.filter_values.get("filter_exclude_own_family", None):
             self.excludeOwnFamily()
         if self.filter_values.get("filter_family_name", None):
