@@ -82,11 +82,61 @@ def getFolderFilePath(input_root, input_path):
     return relative_filepath
 
 
+def is_smda_report(filepath):
+    filename = os.path.basename(filepath)
+    return filename.endswith(".smda")
+
+
+def get_primary_smda_meta_data(filepath):
+    if not is_smda_report(filepath):
+        return None
+    try:
+        primary_smda_meta_data = {
+            "sha256": None,
+            "filename": None,
+            "family": None,
+            "version": None,
+        }
+        # do not parse as JSON because it's expensive, instead do a line-by-line search 
+        # in the beginning until xcfg is found and extract via regex
+        success = False
+        with open(filepath) as f_smda:
+            while (line := f_smda.readline()):
+                if "sha256" in line:
+                    sha256_match = re.search(re.compile('"sha256": "(?P<sha256>[0-9a-fA-F]{64})"'), line)
+                    if sha256_match:
+                        primary_smda_meta_data["sha256"] = sha256_match.group("sha256")
+                elif "filename" in line:
+                    filename_match = re.search(re.compile('"filename": "(?P<filename>.*)"'), line)
+                    if filename_match:
+                        primary_smda_meta_data["filename"] = filename_match.group("filename")
+                elif "family" in line:
+                    family_match = re.search(re.compile('"family": "(?P<family>.*)"'), line)
+                    if family_match:
+                        primary_smda_meta_data["family"] = family_match.group("family")
+                elif "version" in line:
+                    version_match = re.search(re.compile('"version": "(?P<version>.*)"'), line)
+                    if version_match:
+                        primary_smda_meta_data["version"] = version_match.group("version")
+                # stop searching after we found all 4 fields
+                if (primary_smda_meta_data["sha256"] is not None and
+                        primary_smda_meta_data["filename"] is not None and
+                        primary_smda_meta_data["family"] is not None and
+                        primary_smda_meta_data["version"] is not None):
+                    success = True
+                    break
+                elif "xcfg" in line:
+                    break
+        return primary_smda_meta_data if success else None
+    except:
+        return None
+
+
 def getSmdaReportFromFilepath(args, filepath):
     filename = os.path.basename(filepath)
     smda_report = None
     if args.smda:
-        if not filename.endswith(".smda"):
+        if not is_smda_report(filepath):
             print(f"Skipping a file not recognized as SMDA report: {filepath}")
         else:
             try:
@@ -125,9 +175,13 @@ def getSmdaReportFromFilepath(args, filepath):
                 smda_report.version = args.version
         if args.mode in ["file", "dir", "recursive"] and args.library:
             smda_report.is_library = True
-        if args.output:
-            with open() as f_smda:
-                json.dump(smda_report.toDict(), f_smda, sort_keys=True, indent=1)
+        if args.output and not args.smda:
+            if not os.path.exists(args.output):
+                os.makedirs(args.output)
+            output_filepath = os.sep.join([args.output, f"{smda_report.sha256}.smda"])
+            if not os.path.exists(output_filepath):
+                with open(output_filepath, "w") as f_smda:
+                    json.dump(smda_report.toDict(), f_smda, sort_keys=True, indent=1)
     return smda_report
 
 def submitViaSubprocess(args, filepath):
@@ -182,7 +236,7 @@ class McritConsole(object):
         client_submit.add_argument("-v", "--version", type=str, help="Set/Override SmdaReport with this version (only in modes: file/dir)")
         client_submit.add_argument("-l", "--library", action="store_true", help="Set/Override SmdaReport with the library flag (only in modes: file/dir/recursive, default: False).")
         client_submit.add_argument("-x", "--executables_only", action="store_true", help="Only process files that are parsable PE or ELF files (default: False).")
-        client_submit.add_argument("-o", "--output", type=str, help="Optionally store SMDA reports in folder OUTPUT.")
+        client_submit.add_argument("-o", "--output", type=str, help="Optionally store SMDA reports in folder OUTPUT, which is created if not existing.")
         client_submit.add_argument("-s", "--smda", action="store_true", help="Do not disassemble, instead only submit files that are recognized as SMDA reports (only works with modes: file/dir).")
         client_submit.add_argument("-w", "--worker", action="store_true", help="Spawn workers to process the submission (only in modes: dir/recursive/malpedia, default: False).")
         client_submit.add_argument("-t", "--worker-timeout", type=int, default=300, help="Timeout for workers to conclude the submission (default: 300 seconds).")
@@ -193,6 +247,7 @@ class McritConsole(object):
         client_query.add_argument("-b", "--bitness", type=str, help="When processing as buffer, use this bitness ([32, 64] - default: 32 bit)")
         client_query.add_argument("-o", "--output", type=str, help="Optionally store matching report in folder OUTPUT.")
         client_query.add_argument("-s", "--smda", action="store_true", help="Assume provided input file is a SMDA report.")
+        client_query.add_argument("-f", "--force-recalculation", action="store_true", help="Do not rely on cached results, instead always recalculate the matching.")
         # client import / export / search 
         client_import = subparser_client.add_parser("import", help="Import of previously exported data in the MCRIT format.")
         client_import.add_argument("filepath", type=str, help="Import a given <filepath> containing MCRIT data into the storage.")
@@ -327,21 +382,22 @@ class McritConsole(object):
             return
         if args.smda:
             smda_report = SmdaReport.fromFile(args.filepath)
-            job_id = self.client.requestMatchesForSmdaReport(smda_report)
+            job_id = self.client.requestMatchesForSmdaReport(smda_report, force_recalculation=args.force_recalculation)
         else:
             if base_addr:
-                job_id = self.client.requestMatchesForMappedBinary(readFileContent(args.filepath), disassemble_locally=False, base_address=base_addr)
+                job_id = self.client.requestMatchesForMappedBinary(readFileContent(args.filepath), disassemble_locally=False, base_address=base_addr, force_recalculation=args.force_recalculation)
             else:
-                job_id = self.client.requestMatchesForUnmappedBinary(readFileContent(args.filepath), disassemble_locally=False)
+                job_id = self.client.requestMatchesForUnmappedBinary(readFileContent(args.filepath), disassemble_locally=False, force_recalculation=args.force_recalculation)
         print(f"Started job: {job_id}, waiting for result...")
         compact_result_dict = self.client.awaitResult(job_id, sleep_time=2, compact=True)
         if args.output is not None:
             with open(args.output + os.sep + f"{job_id}.json", "w") as fout:
                 json.dump(compact_result_dict, fout, indent=1)
         result = MatchingResult.fromDict(compact_result_dict)
-        print(f"{'Family':>30} | {'Version':>20} | {'Sample':>5} | {'SHA256':>8} | {'Func':>5} | {'Min':>5} | {'Pic':>5} | {'Lib':>5} | {'Direct':>13} | {'Freq':>13} | ")
+        print(f"| {'Family':>30} | {'Version':>20} | {'Sample':>6} | {'SHA256':>8} | {'Func':>5} | {'Min':>5} | {'Pic':>5} | {'Lib':>5} | {'Direct':>13} | {'Freq':>13} |")
+        print("|" + "-"*32 + "|" + "-"*22 + "|" + "-"*8 + "|" + "-"*10 + "|" + "-"*7 + "|" + "-"*7 + "|" + "-"*7 + "|" + "-"*7 + "|" + "-"*15 + "|" + "-"*15 + "|")
         for family_result in result.getBestSampleMatchesPerFamily(limit=20, malware_only=True):
-            result_line = f"{family_result.family:>30} | "
+            result_line = f"| {family_result.family:>30} | "
             result_line += f"{family_result.version:>20} | "
             result_line += f"{family_result.sample_id:>6} | "
             result_line += f"{family_result.sha256[:8]} | "
@@ -401,14 +457,29 @@ class McritConsole(object):
         for filename in os.listdir(args.filepath):
             filepath = os.sep.join([args.filepath, filename])
             if os.path.isfile(filepath):
-                if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
-                    print(f"SKIPPING: {filepath} - already in MCRIT.")
-                    continue
                 if args.worker:
                     submitViaSubprocess(args, filepath)
                 else:
+                    if args.smda:
+                        if not is_smda_report(filepath):
+                            print(f"Skipping a file not recognized as SMDA report: {filepath}")
+                            continue
+                        primary_meta = get_primary_smda_meta_data(filepath)
+                        if not primary_meta:
+                            print(f"Skipping a file that where SMDA meta data extraction failed: {filepath}")
+                            continue
+                        if primary_meta["sha256"] in mcrit_samples_by_sha256:
+                            if primary_meta["family"] is not None and primary_meta["family"] == mcrit_samples_by_sha256[primary_meta["sha256"]].family and primary_meta["version"] is not None and primary_meta["version"] == mcrit_samples_by_sha256[primary_meta["sha256"]].version:
+                                print(f"SKIPPING: {os.path.basename(filepath)} - with SHA256: {primary_meta['sha256']} - already in MCRIT as ({primary_meta['family']}|{primary_meta['version']}).")
+                                continue
+                            else:
+                                print(f"WARNING/SKIPPING: SHA256: {primary_meta['sha256']} - already in MCRIT but different family/version (FILE: ({primary_meta['family']}|{primary_meta['version']}) - MCRIT: ({mcrit_samples_by_sha256[primary_meta['sha256']].family}|{mcrit_samples_by_sha256[primary_meta['sha256']].version}).")
+                                continue
+                    elif sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
+                        print(f"SKIPPING: {filepath} - already in MCRIT.")
+                        continue
                     smda_report = getSmdaReportFromFilepath(args, filepath)
-                    if smda_report:
+                    if smda_report and smda_report.xcfg:
                         print(smda_report)
                         self.client.addReport(smda_report)
 

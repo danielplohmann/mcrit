@@ -345,7 +345,7 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
             with job as j:
                 LOGGER.info("Processing Remote Job: %s", job)
                 result = self._executeJobPayload(j["payload"], job)
-                LOGGER.debug("Remote Job Result: %s", result)
+                LOGGER.info("Remote Job Result: %s", result)
                 # ensure we always have a job_id for finished job payloads
                 job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
                 LOGGER.info("Finished Remote Job: %s", job)
