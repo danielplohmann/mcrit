@@ -122,6 +122,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 ## Version History
 
+ * 2025-09-12 v1.4.2:  QoL improvements and bugfixes to console client (proper markdown for result tables in queries and force recalculation option, faster skipping for dir mode submission).
  * 2025-07-30 v1.4.1:  Filtering for unique matches now takes precedence over scores.
  * 2025-06-13 v1.4.0:  Changed the way how percentages for matching are calculated, now using only matchable code vs. all code as baseline. Minor IDA plugin fixes.
  * 2025-05-22 v1.3.22: McritCLI now supports ENV variables (`MCRIT_CLI_SERVER` and `MCRIT_CLI_APITOKEN`) and a `.env` file for setting server and apitoken  - THX to @r0ny123 for the suggestion!
