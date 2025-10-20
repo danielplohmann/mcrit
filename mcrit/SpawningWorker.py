@@ -121,14 +121,14 @@ class SpawningWorker(Worker):
             with job as j:
                 LOGGER.info("Processing Remote Job: %s", job)
                 result_id = self._executeJobPayload(j["payload"], job)
-            if result_id:
-                # result should have already been persisted by the child process, we repeat it here to close the job for the queue
-                job.result = result_id
-                LOGGER.info("Finished Remote Job with result_id: %s", result_id)
-            else:
-                LOGGER.info("Failed Running Remote Job: %s", job)
+                if result_id:
+                    # result should have already been persisted by the child process, we repeat it here to close the job for the queue
+                    job.result = result_id
+                    LOGGER.info("Finished Remote Job with result_id: %s", result_id)
+                else:
+                    LOGGER.info("Failed Running Remote Job: %s", job)
         except Exception as exc:
-            pass
+            LOGGER.error("Error occurred while executing job: %s", job, exc_info=True)
 
     def run(self):
         self._alive = True

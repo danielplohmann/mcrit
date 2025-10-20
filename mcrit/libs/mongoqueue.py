@@ -660,34 +660,41 @@ class Job(object):
         if result:
             self._data["result"] = result
         job = self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
-            update={"$set": {"finished_at": datetime.now(), "result": self._data["result"], "progress": 1}},
+            filter={"_id": self.job_id},
+            update={"$set": {"finished_at": datetime.now(), "progress": 1}},
             return_document=ReturnDocument.AFTER
         )
-        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
-        self._queue.updateQueueCounter(job["payload"]["method"], "finished", 1)
-        self._queue._notify_dependent_jobs(str(job["_id"]))
+        # job result was not set by another completion before, or if it is forced by argument
+        if (job and job["result"] is None) or result:
+            job = self._queue.collection.find_one_and_update(
+                filter={"_id": self.job_id},
+                update={"$set": {"result": self._data["result"]}},
+                return_document=ReturnDocument.AFTER
+            )
+        self._queue.updateQueueCounter(self.method, "in_progress", -1)
+        self._queue.updateQueueCounter(self.method, "finished", 1)
+        self._queue._notify_dependent_jobs(str(self.job_id))
         return job 
 
     def error(self, message=None):
         """note an error processing a job, and return it to the queue."""
         job = self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
+            filter={"_id": self.job_id},
             update={"$set": {"locked_by": None, "locked_at": None, "last_error": message}, "$inc": {"attempts_left": -1}},
             return_document=ReturnDocument.AFTER
         )
-        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
-        self._queue.updateQueueCounter(job["payload"]["method"], "queued", 1)
+        self._queue.updateQueueCounter(self.method, "in_progress", -1)
+        self._queue.updateQueueCounter(self.method, "queued", 1)
         if job["attempts_left"] <= 0:
             self._queue._notify_dependent_jobs(self, str(job["_id"]))
-            self._queue.updateQueueCounter(job["payload"]["method"], "queued", -1)
-            self._queue.updateQueueCounter(job["payload"]["method"], "failed", 1)
+            self._queue.updateQueueCounter(self.method, "queued", -1)
+            self._queue.updateQueueCounter(self.method, "failed", 1)
 
 
     def progressor(self, count=0):
         """note progress on a long running task."""
         return self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
+            filter={"_id": self.job_id},
             update={"$set": {"progress": count, "locked_at": datetime.now()}},
             return_document=ReturnDocument.AFTER
         )
@@ -695,16 +702,16 @@ class Job(object):
     def release(self):
         """put the job back into_queue."""
         job = self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id, "locked_by": self._queue.consumer_id},
+            filter={"_id": self.job_id},
             update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
             return_document=ReturnDocument.AFTER
         )
-        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
-        self._queue.updateQueueCounter(job["payload"]["method"], "queued", 1)
+        self._queue.updateQueueCounter(self.method, "in_progress", -1)
+        self._queue.updateQueueCounter(self.method, "queued", 1)
         if job["attempts_left"] <= 0:
             self._queue._notify_dependent_jobs(self, str(job["_id"]))
-            self._queue.updateQueueCounter(job["payload"]["method"], "queued", -1)
-            self._queue.updateQueueCounter(job["payload"]["method"], "failed", 1)
+            self._queue.updateQueueCounter(self.method, "queued", -1)
+            self._queue.updateQueueCounter(self.method, "failed", 1)
         return job
 
     ## context manager support

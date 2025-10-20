@@ -14,6 +14,7 @@ from itertools import zip_longest
 from multiprocessing import Pool, cpu_count
 from typing import Dict, List, Optional, TYPE_CHECKING, Tuple
 
+from pymongo import ReturnDocument
 import tqdm
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
@@ -105,14 +106,24 @@ class SingleJobWorker(Worker):
             with job as j:
                 LOGGER.info("Processing Remote Job: %s", job)
                 result = self._executeJobPayload(j["payload"], job)
-                LOGGER.debug("Remote Job Result: %s", result)
+                #LOGGER.debug("Remote Job Result: %s", result)
                 # ensure we always have a job_id for finished job payloads
                 result_id = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
-                print(str(result_id))
+                # update result directly from single job to ensure we don't loose it
+                LOGGER.info("Updating job %s with result %s", job.job_id, result_id)
+                updated_job = self.queue.collection.find_one_and_update(
+                    filter={"_id": job.job_id},
+                    update={"$set": {"result": result_id, "progress": 1}},
+                    return_document=ReturnDocument.AFTER
+                )
+                #LOGGER.info(updated_job)
+                if updated_job is None:
+                    raise RuntimeError(f"Failed to update job {job.job_id} with result {result_id} in database.")
                 job.result = result_id
                 LOGGER.info("Finished Remote Job producing result_id: %s", result_id)
+                print(result_id)
         except Exception as exc:
-            pass
+            LOGGER.error("Job %s failed with exception: %s", job.job_id, exc, exc_info=True)
 
     def run(self):
         self._alive = True
