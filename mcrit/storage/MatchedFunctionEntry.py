@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from mcrit.storage.SampleEntry import SampleEntry
-import mcrit.matchers.MatcherInterface as MatcherInterface
+import mcrit.matchers.MatcherFlags as MatcherFlags
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.SampleEntry import SampleEntry
@@ -36,9 +35,9 @@ class MatchedFunctionEntry(object):
         self.matched_sample_id = match_tuple[1]
         self.matched_function_id = match_tuple[2]
         self.matched_score = match_tuple[3]
-        self.match_is_minhash = match_tuple[4] & MatcherInterface.IS_MINHASH_FLAG
-        self.match_is_pichash = match_tuple[4] & MatcherInterface.IS_PICHASH_FLAG
-        self.match_is_library = match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG
+        self.match_is_minhash = match_tuple[4] & MatcherFlags.IS_MINHASH_FLAG
+        self.match_is_pichash = match_tuple[4] & MatcherFlags.IS_PICHASH_FLAG
+        self.match_is_library = match_tuple[4] & MatcherFlags.IS_LIBRARY_FLAG
         self.matched_family = None
         self.matched_link_score = 0
         self.matched_unique = None
@@ -50,9 +49,9 @@ class MatchedFunctionEntry(object):
                 self.matched_sample_id,
                 self.matched_function_id,
                 self.matched_score,
-                self.match_is_minhash * MatcherInterface.IS_MINHASH_FLAG
-                + self.match_is_pichash * MatcherInterface.IS_PICHASH_FLAG
-                + self.match_is_library * MatcherInterface.IS_LIBRARY_FLAG
+                self.match_is_minhash * MatcherFlags.IS_MINHASH_FLAG
+                + self.match_is_pichash * MatcherFlags.IS_PICHASH_FLAG
+                + self.match_is_library * MatcherFlags.IS_LIBRARY_FLAG
             ]
 
     def toDict(self):

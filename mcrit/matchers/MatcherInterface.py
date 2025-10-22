@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tupl
 
 import tqdm
 from mcrit.queue.QueueRemoteCalls import NoProgressReporter
+import mcrit.matchers.MatcherFlags as MatcherFlags
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FunctionEntry import FunctionEntry
@@ -27,10 +28,6 @@ LOGGER = logging.getLogger(__name__)
 HarmonizedMatches = Dict[Tuple[int, int, int], Tuple[float, bool, bool]]
 PichashMatches = Dict[int, Set[Tuple[int, int, int]]]
 MinhashMatches = List[Tuple[int, int, int, int, float]]
-
-IS_MINHASH_FLAG = 1
-IS_PICHASH_FLAG = 1 << 1
-IS_LIBRARY_FLAG = 1 << 2
 
 
 def build_method_str_from_args(args):
@@ -394,9 +391,9 @@ class MatcherInterface(object):
                 foreign_family_id = self._sample_id_to_entry[foreign_sample_id].family_id
 
                 flags = (
-                    is_pichash_match * IS_PICHASH_FLAG
-                    + is_minhash_match * IS_MINHASH_FLAG
-                    + has_libinfo * IS_LIBRARY_FLAG
+                    is_pichash_match * MatcherFlags.IS_PICHASH_FLAG
+                    + is_minhash_match * MatcherFlags.IS_MINHASH_FLAG
+                    + has_libinfo * MatcherFlags.IS_LIBRARY_FLAG
                 )
                 match_function_mapping[own_function_id]["matches"].append(
                     (
@@ -532,7 +529,7 @@ class MatcherInterface(object):
     def _aggregateMatchesPerSample(self, match_report):
         matches_per_sample: Dict[int, Dict[int, List[Tuple[str, float]]]] = defaultdict(lambda: defaultdict(list))
         for own_function_id, function_data in match_report.items():
-            function_has_libinfo = any([bool(match[-1] & IS_LIBRARY_FLAG) for match in function_data["matches"]])
+            function_has_libinfo = any([bool(match[-1] & MatcherFlags.IS_LIBRARY_FLAG) for match in function_data["matches"]])
             for match in function_data["matches"]:
                 (
                     foreign_family_id,
@@ -541,8 +538,8 @@ class MatcherInterface(object):
                     minhash_score,
                     flags,
                 ) = match
-                is_pichash_match = flags & IS_PICHASH_FLAG
-                is_minhash_match = flags & IS_MINHASH_FLAG
+                is_pichash_match = flags & MatcherFlags.IS_PICHASH_FLAG
+                is_minhash_match = flags & MatcherFlags.IS_MINHASH_FLAG
                 match_types = []
                 if is_pichash_match:
                     match_types.append("pichash")

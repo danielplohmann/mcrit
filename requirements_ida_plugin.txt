@@ -1,0 +1,8 @@
+picblocks>=1.1.2
+pyparsing>=3
+requests
+lief>=0.16.0
+smda>=1.13.19
+tqdm
+mmh3>=2.5.1
+numpy<2.0.0

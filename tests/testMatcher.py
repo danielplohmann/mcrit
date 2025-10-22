@@ -8,7 +8,7 @@ from copy import deepcopy
 from unittest.mock import MagicMock
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.matchers.MatcherInterface import IS_LIBRARY_FLAG, IS_MINHASH_FLAG, IS_PICHASH_FLAG
+from mcrit.matchers.MatcherFlags import IS_LIBRARY_FLAG, IS_MINHASH_FLAG, IS_PICHASH_FLAG
 from mcrit.matchers.MatcherQuery import MatcherQuery
 from mcrit.matchers.MatcherSample import MatcherSample
 

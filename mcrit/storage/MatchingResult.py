@@ -9,7 +9,7 @@ from mcrit.libs.graph import Graph
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.MatchedSampleEntry import MatchedSampleEntry
 from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
-import mcrit.matchers.MatcherInterface as MatcherInterface
+import mcrit.matchers.MatcherFlags as MatcherFlags
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.SampleEntry import SampleEntry
@@ -606,7 +606,7 @@ class MatchingResult(object):
                     list_of_function_matches.append(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
                     if match_tuple[0] not in matching_entry.function_id_to_family_ids_matched[function_id]:
                         matching_entry.function_id_to_family_ids_matched[function_id].append(match_tuple[0])
-                    if match_tuple[4] & MatcherInterface.IS_LIBRARY_FLAG:
+                    if match_tuple[4] & MatcherFlags.IS_LIBRARY_FLAG:
                         if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
                             matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
         matching_entry.function_matches = sorted(list_of_function_matches, key=lambda x: x.function_id)
