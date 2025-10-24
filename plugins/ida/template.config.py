@@ -19,3 +19,24 @@ MCRIT4IDA_PLUGIN_ONLY = False
 MCRITWEB_USERNAME = ""
 MCRIT_SERVER = "http://127.0.0.1:8000/"
 MCRITWEB_API_TOKEN = ""
+
+### UI behavior configurations
+## General behavior
+# Enable automatic conversion of IDB to SMDA on plugin startup
+AUTO_ANALYZE_SMDA_ON_STARTUP = False
+# Enable a question dialog on closing the plugin/IDA in case unsynced function name are detected
+SUBMIT_FUNCTION_NAMES_ON_CLOSE = False
+## Widget specific behavior
+# Block Scope Widget
+BLOCKS_FILTER_LIBRARY_FUNCTIONS = False
+BLOCKS_LIVE_QUERY = False
+BLOCKS_MIN_SIZE = 4
+# Function Scope Widget
+FUNCTION_FILTER_LIBRARY_FUNCTIONS = False
+FUNCTION_LIVE_QUERY = False
+FUNCTION_MIN_SCORE = 50
+# Function Overview Widget
+OVERVIEW_FETCH_LABELS_AUTOMATICALLY = False
+OVERVIEW_FILTER_TO_LABELS = False
+OVERVIEW_FILTER_TO_CONFLICTS = False
+OVERVIEW_MIN_SCORE = 50

@@ -6,6 +6,7 @@ code inspired by and based on IDAscope
 import os
 
 from smda.common.SmdaReport import SmdaReport
+from smda.ida.IdaInterface import IdaInterface
 
 import config
 from helpers.ClassCollection import ClassCollection
@@ -24,6 +25,8 @@ QtWidgets = QtShim.get_QtWidgets()
 
 import idc
 import idaapi
+import ida_kernwin
+import idautils
 from idaapi import PluginForm, plugin_t
 
 
@@ -159,11 +162,47 @@ class Mcrit4IdaForm(PluginForm):
             self.parent = self.FormToPyQtWidget(form)
         self.parent.setWindowIcon(self.icon)
         self.setupWidgets()
+        if self.config.AUTO_ANALYZE_SMDA_ON_STARTUP:
+            # simulate button click on "Convert IDB to SMDA" to capture potential family info
+            print("Performing automatic SMDA analysis on startup...")
+            self.main_widget._onConvertSmdaButtonClicked()
 
     def OnClose(self, form):
         """
         Perform cleanup.
         """
+        # check if there is a mismatch between function names stored in self.local_smda_report and the atual IDB
+        # if yes, ask the user if they want to upload an updated report to the MCRIT server
+        if config.SUBMIT_FUNCTION_NAMES_ON_CLOSE:
+            ida_interface = IdaInterface()
+            ida_function_names = ida_interface.getFunctionSymbols()
+            print("Checking for unsynced function names...")
+            if self.local_smda_report is not None:
+                smda_report_function_names = {func.offset: func.function_name for func in self.local_smda_report.getFunctions() if func.function_name}
+                unsynced_function_names = []
+                for offset, ida_function_name in ida_function_names.items():
+                    smda_function_name = smda_report_function_names.get(offset, None)
+                    if smda_function_name is not None and smda_function_name != ida_function_name:
+                        unsynced_function_names.append((offset, smda_function_name, ida_function_name))
+                    if offset not in smda_report_function_names:
+                        unsynced_function_names.append((offset, None, ida_function_name))
+                if len(unsynced_function_names) > 0:
+                    # currently this loops infinitely?!
+                    res = ida_kernwin.ask_yn(0, "There are new function name changes in the IDB. Do you want to upload an updated report to the MCRIT server before closing?")
+                    if res == ida_kernwin.ASKBTN_YES:
+                        # save metadata before upload to not overwrite it
+                        local_family = self.parent.local_smda_report.family if self.parent.local_smda_report else ""
+                        local_version = self.parent.local_smda_report.version if self.parent.local_smda_report else ""
+                        local_library = self.parent.local_smda_report.is_library if self.parent.local_smda_report else False
+                        # update before export, to ensure we have all most recent function label information
+                        self.local_smda_report = self.main_widget.getLocalSmdaReport()
+                        self.local_smda_report.family = local_family
+                        self.local_smda_report.version = local_version
+                        self.local_smda_report.is_library = local_library
+                        self.mcrit_interface.uploadReport(self.local_smda_report)
+            else:
+                # we need to decide if we want to prompt the user in order to push an initial SMDA report to MCRIT or not 
+                pass
         global G_FORM
         G_FORM.hook_subscribed_widgets = []
         global MCRIT4IDA

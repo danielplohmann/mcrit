@@ -1,5 +1,3 @@
-picblocks>=1.1.2
-pyparsing>=3
 requests
 lief>=0.16.0
 smda>=1.13.19

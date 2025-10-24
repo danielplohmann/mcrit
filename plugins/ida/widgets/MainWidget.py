@@ -242,6 +242,8 @@ class MainWidget(QMainWindow):
                 self.tabs.setCurrentIndex(2)
                 self.hideLocalWidget()
             self.parent.function_widget.update()
+            if self.parent.config.OVERVIEW_FETCH_LABELS_AUTOMATICALLY:
+                self.parent.function_widget.fetchLabels()
             return
         else:
             self.parent.local_widget.updateActivityInfo("No remote Sample present yet, can't request a matching or query results.")

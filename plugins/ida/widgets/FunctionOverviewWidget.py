@@ -7,17 +7,25 @@ from widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
 QMainWindow = QtShim.get_QMainWindow()
 QStyledItemDelegate = QtShim.get_QStyledItemDelegate()
 QComboBox = QtShim.get_QComboBox()
+QColor = QtShim.get_QColor()
+QPalette = QtShim.get_QPalette()
 
 
 class DropdownDelegate(QStyledItemDelegate):
-    def __init__(self, function_name_mapping):
+    def __init__(self, function_name_mapping, row_criticality_mapping=None):
         super().__init__()
         self.function_name_mapping = function_name_mapping
+        self.row_criticality_mapping = row_criticality_mapping if row_criticality_mapping is not None else {}
 
     def createEditor(self, parent, option, index):
         editor = QComboBox(parent)
         choices = self.function_name_mapping.get((index.row(), index.column()), [])
         editor.addItems(choices)
+        criticality = self.row_criticality_mapping.get(index.row(), 0)
+        if criticality == 1:
+            editor.setStyleSheet("background-color: rgb(200, 200, 50);")
+        elif criticality >= 2:
+            editor.setStyleSheet("background-color: rgb(200, 50, 50);")
         return editor
 
     def setEditorData(self, editor, index):
@@ -45,8 +53,14 @@ class FunctionOverviewWidget(QMainWindow):
         self.b_fetch_labels = self.cc.QPushButton("Fetch labels for matches")
         self.b_fetch_labels.clicked.connect(self.fetchLabels)
         self.cb_labels_only = self.cc.QCheckBox("Filter to Functions with Labels only")
-        self.cb_labels_only.setChecked(False)
+        self.cb_labels_only.setChecked(self.parent.config.OVERVIEW_FILTER_TO_LABELS)
+        if self.parent.config.OVERVIEW_FILTER_TO_CONFLICTS:
+            self.cb_labels_only.setChecked(True)
+            self.cb_labels_only.setEnabled(False)
         self.cb_labels_only.stateChanged.connect(self.populateFunctionTable)
+        self.cb_conflicting_labels_only = self.cc.QCheckBox("Filter to Functions with conflicting Labels only")
+        self.cb_conflicting_labels_only.setChecked(self.parent.config.OVERVIEW_FILTER_TO_CONFLICTS)
+        self.cb_conflicting_labels_only.stateChanged.connect(self.updateCriticalFilterButton)
         self.b_import_labels = self.cc.QPushButton("Import all labels for unnamed functions")
         # TODO implement an actual import function here
         self.b_import_labels.clicked.connect(self.importSelectedLabels)
@@ -80,6 +94,7 @@ class FunctionOverviewWidget(QMainWindow):
         function_info_layout = self.cc.QVBoxLayout()
         function_info_layout.addWidget(self.b_fetch_labels)
         function_info_layout.addWidget(self.cb_labels_only)
+        function_info_layout.addWidget(self.cb_conflicting_labels_only)
         function_info_layout.addWidget(self.b_import_labels)
         function_info_layout.addWidget(self.sb_minhash_threshold)
         function_info_layout.addWidget(self.hline)
@@ -108,12 +123,19 @@ class FunctionOverviewWidget(QMainWindow):
         function_labels = []
         for function_id, entry in function_entries_with_labels.items():
             for label in entry.function_labels:
-                print(label)
                 function_labels.append(label)
-        print("fetched function entries, found labels:", len(function_labels))
+        print("Fetched function entries, found labels for:", len(function_labels))
         self.update()
 
     def update(self):
+        self.populateFunctionTable()
+
+    def updateCriticalFilterButton(self):
+        if self.cb_conflicting_labels_only.isChecked():
+            self.cb_labels_only.setChecked(True)
+            self.cb_labels_only.setEnabled(False)
+        else:
+            self.cb_labels_only.setEnabled(True)
         self.populateFunctionTable()
 
     def handleSpinThresholdChange(self):
@@ -179,8 +201,17 @@ class FunctionOverviewWidget(QMainWindow):
             for function_match in match_report.function_matches:
                 self.global_minimum_match_value = int(min(self.global_minimum_match_value, function_match.matched_score))
                 self.global_maximum_match_value = int(max(self.global_maximum_match_value, function_match.matched_score))
-            self.sb_minhash_threshold.setRange(self.global_minimum_match_value, self.global_maximum_match_value)
-            self.sb_minhash_threshold.setValue(self.global_minimum_match_value)
+            config_adjusted_lower_value = max(self.parent.config.OVERVIEW_MIN_SCORE, self.global_minimum_match_value)
+            self.sb_minhash_threshold.setRange(config_adjusted_lower_value, self.global_maximum_match_value)
+            self.sb_minhash_threshold.setValue(config_adjusted_lower_value)
+
+    def _calculateLabelCriticality(self, label_list):
+        criticality = 0
+        if len(label_list) > 1:
+            criticality += 1
+            if label_list[0][0] == label_list[1][0]:
+                criticality += 1
+        return criticality
 
     def populateFunctionTable(self):
         """
@@ -242,6 +273,26 @@ class FunctionOverviewWidget(QMainWindow):
                     for label in function_entries_with_labels[function_match.matched_function_id].function_labels:
                         aggregated_matches[function_match.function_id]["labels"].add((int(function_match.matched_score), label.function_label))
 
+        # count filtered functions again
+        filtered_list = {}
+        crit_functions_beyond_filters = set()
+        crit_matches_beyond_filters = 0
+        crit_function_labels = []
+        for function_id, function_info in sorted(aggregated_matches.items()):
+            criticality = self._calculateLabelCriticality(list(function_info["labels"]))
+            function_info["criticality"] = criticality
+            if criticality > 0:
+                filtered_list[function_id] = function_info
+                functions_beyond_filters.add(function_id)
+                matches_beyond_filters += len(function_info["functions"])
+                for label_entry in function_info["labels"]:
+                    function_labels.append(label_entry[1])
+        if self.cb_conflicting_labels_only.isChecked():
+            aggregated_matches = filtered_list
+            functions_beyond_filters = crit_functions_beyond_filters
+            matches_beyond_filters = crit_matches_beyond_filters
+            function_labels = crit_function_labels
+
         # Update summary
         update_text = f"Showing {len(functions_beyond_filters)} functions with {matches_beyond_filters} matches and {len(function_labels)} labels ({len(matched_function_ids_per_function_id) - len(functions_beyond_filters)} functions and {len(match_report.function_matches) - matches_beyond_filters} matches filtered)"
         self.label_local_functions.setText(update_text)
@@ -257,8 +308,11 @@ class FunctionOverviewWidget(QMainWindow):
         row = 0
         first_function = None
         self.function_name_mapping = {}
+        self.row_criticality_mapping = {}
         for function_id, function_info in sorted(aggregated_matches.items()):
-            self.function_name_mapping[(row, 5)] = [f"{label_entry[0]}|{label_entry[1]}" for label_entry in sorted(function_info["labels"], reverse=True)]
+            sorted_labels = sorted(function_info["labels"], reverse=True)
+            self.function_name_mapping[(row, 5)] = [f"{label_entry[0]}|{label_entry[1]}" for label_entry in sorted_labels]
+            self.row_criticality_mapping[row] = function_info.get("criticality", 0)
             for column, column_name in enumerate(self.local_function_header_labels):
                 tmp_item = None
                 if column == 0:
@@ -283,7 +337,7 @@ class FunctionOverviewWidget(QMainWindow):
         # we need to set up rendering delegates for function names only if we have names at all
         if function_labels:
             # Set the delegate to create dropdown menus in the second column
-            delegate = DropdownDelegate(self.function_name_mapping)
+            delegate = DropdownDelegate(self.function_name_mapping, self.row_criticality_mapping)
             self.table_local_functions.setItemDelegateForColumn(5, delegate)
 
             # Show the dropdown menus immediately
@@ -321,17 +375,15 @@ class FunctionOverviewWidget(QMainWindow):
         clicked_function_address = self.table_local_functions.item(mi.row(), 0).text()
         as_int = int(clicked_function_address, 16)
         self.last_function_selected = as_int
-        print("clicked function_offset", as_int)
 
     def _onTableFunctionsDoubleClicked(self, mi):
         if mi.column() == 0:
             clicked_function_address = self.table_local_functions.item(mi.row(), 0).text()
-            print("double clicked_function_address", clicked_function_address)
             self.cc.ida_proxy.Jump(int(clicked_function_address, 16))
             # change to function scope tab
             self.parent.main_widget.tabs.setCurrentIndex(1)
             self.parent.function_match_widget.queryCurrentFunction()
         elif mi.column() == 6:
-            print("possibly apply name to function")
+            print("Applying name to function")
             clicked_label = self.table_local_functions.item(mi.row(), 6).text()
             pass
