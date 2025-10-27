@@ -8,6 +8,7 @@ class SmdaInfoDialog(QDialog):
     def __init__(self, parent):
         self.cc = parent.cc
         self.cc.QDialog.__init__(self, parent)
+        self.parent = parent
         self._sample_family = ""
         self._sample_version = ""
         self._sample_is_library = False
@@ -30,7 +31,9 @@ class SmdaInfoDialog(QDialog):
         self.input_widget = self.cc.QWidget()
         # the respective fields
         self.label_family = self.cc.QLabel("Family:")
-        self.edit_family = self.cc.QLineEdit(self._sample_family)
+        self.old_family_chooser_text = ""
+        self.edit_family = None
+        self._createFamilyChooserLineedit()
         self.label_version = self.cc.QLabel("Version:")
         self.edit_version = self.cc.QLineEdit(self._sample_version)
         self._cb_is_library = self.cc.QCheckBox("Sample is a library?")
@@ -67,3 +70,33 @@ class SmdaInfoDialog(QDialog):
             "version": self._sample_version,
             "is_library": self._sample_is_library
         }
+
+
+    def _createFamilyChooserLineedit(self):
+        """
+        Create the I{QLineEdit }used for selecting family names. This includes a QCompleter to make suggestions based on
+        the keyword database.
+        """
+        self.edit_family = self.cc.QLineEdit(self._sample_family)
+        self.edit_family.textChanged.connect(self._updateCompleterModel)
+
+        completer = self.cc.QCompleter()
+        completer.setCaseSensitivity(self.cc.QtCore.Qt.CaseInsensitive)
+        completer.setFilterMode(self.cc.QtCore.Qt.MatchContains)
+        completer.setModelSorting(self.cc.QCompleter.UnsortedModel)
+        self.completer_model = self.cc.QStringListModel([])
+        completer.setModel(self.completer_model)
+        self.edit_family.setCompleter(completer)
+
+    def _updateCompleterModel(self):
+        """
+        Update the completer model used to make suggestions. The model is only updated if anything is entered into the
+        search line and the initial character differs from the previous initial character.
+        """
+        keyword_data = []
+        family_chooser_text = self.edit_family.text()
+        if len(family_chooser_text) > 0:
+            if family_chooser_text != self.old_family_chooser_text:
+                self.old_family_chooser_text = family_chooser_text
+                keyword_data = sorted([family_entry.family_name.lower() for family_entry in self.parent.parent.family_infos.values() if family_chooser_text.lower() in family_entry.family_name.lower()])
+                self.completer_model.setStringList(keyword_data)

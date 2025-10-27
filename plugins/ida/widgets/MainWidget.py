@@ -24,7 +24,6 @@ class MainWidget(QMainWindow):
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "mcrit.png")
         self.tabs = None
         self.tabbed_widgets = [self.parent.function_match_widget, self.parent.sample_widget, self.parent.function_widget]
-        # TODO for MCRIT 1.0.0 release, we hide the other tabs until they are properly developed
         self.tabbed_widgets = [self.parent.block_match_widget, self.parent.function_match_widget, self.parent.function_widget]
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
@@ -70,8 +69,6 @@ class MainWidget(QMainWindow):
         self.toolbar.addAction(self.uploadSmdaAction)
         self._createGetMatchResultAction()
         self.toolbar.addAction(self.getMatchResultAction)
-        self._createDownloadMcritAction()
-        #self.toolbar.addAction(self.downloadMcritAction)
         self._createExportSmdaAction()
         self.toolbar.addAction(self.exportSmdaAction)
         self._createModifySettingsAction()
@@ -103,14 +100,6 @@ class MainWidget(QMainWindow):
             "Request the MatchResult for the uploaded sample.", self)
         self.getMatchResultAction.setEnabled(False)
         self.getMatchResultAction.triggered.connect(self._onGetMatchResultButtonClicked)
-
-    def _createDownloadMcritAction(self):
-        """
-        Create an action for downloading meta data from the MCRIT server.
-        """
-        self.downloadMcritAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "cloud-download.png"), \
-            "Download the query results into IDA.", self)
-        self.downloadMcritAction.triggered.connect(self._onDownloadMcritButtonClicked)
 
     def _createExportSmdaAction(self):
         """
@@ -148,7 +137,10 @@ class MainWidget(QMainWindow):
         return local_report
 
     def _onConvertSmdaButtonClicked(self):
-        self.parent.local_smda_report = self.getLocalSmdaReport()
+        local_smda_report = self.getLocalSmdaReport()
+        if self.parent.local_smda_report is None:
+            self.parent.local_smda_report = local_smda_report
+            self.parent.getRemoteSampleInformation()
         if self.parent.local_smda_report is not None:
             self.exportSmdaAction.setEnabled(True)
             self.uploadSmdaAction.setEnabled(True)
@@ -210,16 +202,6 @@ class MainWidget(QMainWindow):
                 self.getMatchResultAction.setEnabled(True)
         else:
             self.parent.local_widget.updateActivityInfo("IDB is not converted to SMDA report yet, can't upload.")
-
-    def _onDownloadMcritButtonClicked(self):
-        time_before = self.parent.cc.time.time()
-        print("[/] starting download of meta data from MCRIT...")
-        self.parent.mcrit_interface.queryAllFamilyEntries()
-        print("[|] downloaded FamilyEntries!")
-        self.parent.mcrit_interface.queryAllSampleEntries()
-        print("[|] downloaded SampleEntries!")
-        print("[\\] this took %3.2f seconds.\n" % (self.parent.cc.time.time() - time_before))
-        self.parent.local_widget.updateActivityInfo("Downloaded all family/sample information from MCRIT")
 
     def _onGetMatchResultButtonClicked(self):
         if self.parent.remote_sample_id is not None:

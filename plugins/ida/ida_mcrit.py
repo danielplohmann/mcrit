@@ -128,6 +128,16 @@ class Mcrit4IdaForm(PluginForm):
             self.local_smda_report_outline = SmdaReport.fromDict(report_as_dict)
         return self.local_smda_report_outline
 
+    def getRemoteSampleInformation(self):
+        time_before = self.cc.time.time()
+        print("[/] starting download of meta data from MCRIT...")
+        self.mcrit_interface.queryAllFamilyEntries()
+        print("[|] downloaded FamilyEntries!")
+        self.mcrit_interface.queryAllSampleEntries()
+        print("[|] downloaded SampleEntries!")
+        print("[\\] this took %3.2f seconds.\n" % (self.cc.time.time() - time_before))
+        self.local_widget.updateActivityInfo("Downloaded all family/sample information from MCRIT")
+
     def setupWidgets(self):
         """
         Setup MCRIT4IDA widgets.

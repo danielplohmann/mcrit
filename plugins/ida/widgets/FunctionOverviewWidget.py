@@ -279,14 +279,14 @@ class FunctionOverviewWidget(QMainWindow):
         crit_matches_beyond_filters = 0
         crit_function_labels = []
         for function_id, function_info in sorted(aggregated_matches.items()):
-            criticality = self._calculateLabelCriticality(list(function_info["labels"]))
+            criticality = self._calculateLabelCriticality(list(sorted(function_info["labels"], reverse=True)))
             function_info["criticality"] = criticality
             if criticality > 0:
                 filtered_list[function_id] = function_info
-                functions_beyond_filters.add(function_id)
-                matches_beyond_filters += len(function_info["functions"])
+                crit_functions_beyond_filters.add(function_id)
+                crit_matches_beyond_filters += len(function_info["functions"])
                 for label_entry in function_info["labels"]:
-                    function_labels.append(label_entry[1])
+                    crit_function_labels.append(label_entry[1])
         if self.cb_conflicting_labels_only.isChecked():
             aggregated_matches = filtered_list
             functions_beyond_filters = crit_functions_beyond_filters
