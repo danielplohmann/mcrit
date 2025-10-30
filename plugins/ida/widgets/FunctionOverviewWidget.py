@@ -2,6 +2,7 @@ import re
 import ida_funcs
 
 import helpers.QtShim as QtShim
+import helpers.McritTableColumn as McritTableColumn
 from widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
 
 QMainWindow = QtShim.get_QMainWindow()
@@ -12,10 +13,11 @@ QPalette = QtShim.get_QPalette()
 
 
 class DropdownDelegate(QStyledItemDelegate):
-    def __init__(self, function_name_mapping, row_criticality_mapping=None):
+    def __init__(self, function_name_mapping, row_criticality_mapping=None, parent_widget=None):
         super().__init__()
         self.function_name_mapping = function_name_mapping
         self.row_criticality_mapping = row_criticality_mapping if row_criticality_mapping is not None else {}
+        self.parent_widget = parent_widget
 
     def createEditor(self, parent, option, index):
         editor = QComboBox(parent)
@@ -26,7 +28,28 @@ class DropdownDelegate(QStyledItemDelegate):
             editor.setStyleSheet("background-color: rgb(200, 200, 50);")
         elif criticality >= 2:
             editor.setStyleSheet("background-color: rgb(200, 50, 50);")
+        
+        # Store row information for right-click handling
+        editor.table_row = index.row()
+        editor.table_column = index.column()
+        
+        # Enable context menu for the combo box to handle right-clicks
+        editor.setContextMenuPolicy(QtShim.get_Qt().CustomContextMenu)
+        editor.customContextMenuRequested.connect(
+            lambda pos: self._handleComboBoxRightClick(editor, pos)
+        )
+        
         return editor
+
+    def _handleComboBoxRightClick(self, combo_box, position):
+        """Handle right-click events on combo box"""
+        if self.parent_widget and hasattr(combo_box, 'table_row'):
+            row = combo_box.table_row
+            column = combo_box.table_column
+            
+            # Call the parent widget's right-click handler directly
+            if hasattr(self.parent_widget, '_handleRightClickOnRow'):
+                self.parent_widget._handleRightClickOnRow(row, column)
 
     def setEditorData(self, editor, index):
         value = index.data()
@@ -62,7 +85,7 @@ class FunctionOverviewWidget(QMainWindow):
         self.cb_conflicting_labels_only.setChecked(self.parent.config.OVERVIEW_FILTER_TO_CONFLICTS)
         self.cb_conflicting_labels_only.stateChanged.connect(self.updateCriticalFilterButton)
         self.b_import_labels = self.cc.QPushButton("Import all labels for unnamed functions")
-        # TODO implement an actual import function here
+        # TODO implement an actual selective import function here
         self.b_import_labels.clicked.connect(self.importSelectedLabels)
         self.sb_minhash_threshold = self.cc.QSpinBox()
         self.sb_minhash_threshold.setRange(100, 100)
@@ -79,8 +102,12 @@ class FunctionOverviewWidget(QMainWindow):
         self.table_local_functions.selectionModel().selectionChanged.connect(self._onTableFunctionsSelectionChanged)
         self.table_local_functions.clicked.connect(self._onTableFunctionsClicked)
         self.table_local_functions.doubleClicked.connect(self._onTableFunctionsDoubleClicked)
+        # Enable context menu for right-click handling -> we need to do that in the delegate now
+        #self.table_local_functions.setContextMenuPolicy(self.cc.QtCore.Qt.CustomContextMenu)
+        #self.table_local_functions.customContextMenuRequested.connect(self._onTableFunctionsRightClicked)
         # cache for function_names
         self.function_name_mapping = None
+        self.current_rows = []
         # static links to objects to help IDA
         self.NumberQTableWidgetItem = NumberQTableWidgetItem
         self._QtShim = QtShim
@@ -207,11 +234,32 @@ class FunctionOverviewWidget(QMainWindow):
 
     def _calculateLabelCriticality(self, label_list):
         criticality = 0
-        if len(label_list) > 1:
+        label_set = set([label_entry[1] for label_entry in label_list])
+        top_score = max([label_entry[0] for label_entry in label_list])
+        top_score_label_pool = [label_entry for label_entry in label_list if label_entry[0] == top_score]
+        if len(label_set) > 1:
             criticality += 1
-            if label_list[0][0] == label_list[1][0]:
+            if len(set([label_entry[1] for label_entry in top_score_label_pool])) > 1:
                 criticality += 1
         return criticality
+
+    def generateFunctionTableCellItem(self, column_type, function_info):
+        tmp_item = None
+        if column_type == McritTableColumn.OFFSET:
+            tmp_item = self.cc.QTableWidgetItem("0x%x" % function_info["offset"])
+        elif column_type == McritTableColumn.FAMILIES:
+            tmp_item = self.NumberQTableWidgetItem("%d" % len(function_info["families"]))
+        elif column_type == McritTableColumn.SAMPLES:
+            tmp_item = self.NumberQTableWidgetItem("%d" % len(function_info["samples"]))
+        elif column_type == McritTableColumn.FUNCTIONS:
+            tmp_item = self.NumberQTableWidgetItem("%d" % len(function_info["functions"]))
+        elif column_type == McritTableColumn.IS_LIBRARY:
+            library_value = "YES" if len(function_info["library_matches"]) > 0 else "NO"
+            tmp_item = self.cc.QTableWidgetItem("%s" % library_value)
+        elif column_type == McritTableColumn.SCORE_AND_LABEL:
+            label_value = "-"
+            tmp_item = self.cc.QTableWidgetItem("%s" % label_value)
+        return tmp_item
 
     def populateFunctionTable(self):
         """
@@ -271,7 +319,7 @@ class FunctionOverviewWidget(QMainWindow):
                     aggregated_matches[function_match.function_id]["library_matches"].add(function_match.matched_function_id)
                 if function_match.matched_function_id in function_entries_with_labels:
                     for label in function_entries_with_labels[function_match.matched_function_id].function_labels:
-                        aggregated_matches[function_match.function_id]["labels"].add((int(function_match.matched_score), label.function_label))
+                        aggregated_matches[function_match.function_id]["labels"].add((int(function_match.matched_score), label.function_label, label.username, label.timestamp))
 
         # count filtered functions again
         filtered_list = {}
@@ -298,7 +346,7 @@ class FunctionOverviewWidget(QMainWindow):
         self.label_local_functions.setText(update_text)
         
         self.table_local_functions.setSortingEnabled(False)
-        self.local_function_header_labels = ["Offset", "Families", "Samples", "Functions", "Lib", "Score & Labels"]
+        self.local_function_header_labels = [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in self.parent.config.OVERVIEW_TABLE_COLUMNS]
         self.table_local_functions.clear()
         self.table_local_functions.setColumnCount(len(self.local_function_header_labels))
         self.table_local_functions.setHorizontalHeaderLabels(self.local_function_header_labels)
@@ -309,41 +357,31 @@ class FunctionOverviewWidget(QMainWindow):
         first_function = None
         self.function_name_mapping = {}
         self.row_criticality_mapping = {}
-        for function_id, function_info in sorted(aggregated_matches.items()):
-            sorted_labels = sorted(function_info["labels"], reverse=True)
-            self.function_name_mapping[(row, 5)] = [f"{label_entry[0]}|{label_entry[1]}" for label_entry in sorted_labels]
-            self.row_criticality_mapping[row] = function_info.get("criticality", 0)
-            for column, column_name in enumerate(self.local_function_header_labels):
-                tmp_item = None
-                if column == 0:
-                    tmp_item = self.cc.QTableWidgetItem("0x%x" % function_info["offset"])
-                elif column == 1:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % len(function_info["families"]))
-                elif column == 2:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % len(function_info["samples"]))
-                elif column == 3:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % len(function_info["functions"]))
-                elif column == 4:
-                    library_value = "YES" if len(function_info["library_matches"]) > 0 else "NO"
-                    tmp_item = self.cc.QTableWidgetItem("%s" % library_value)
-                elif column == 5:
-                    label_value = "-"
-                    tmp_item = self.cc.QTableWidgetItem("%s" % label_value)  
-                tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
-                tmp_item.setTextAlignment(qt.AlignHCenter)
-                self.table_local_functions.setItem(row, column, tmp_item)
-            self.table_local_functions.resizeRowToContents(row)
-            row += 1
-        # we need to set up rendering delegates for function names only if we have names at all
-        if function_labels:
-            # Set the delegate to create dropdown menus in the second column
-            delegate = DropdownDelegate(self.function_name_mapping, self.row_criticality_mapping)
-            self.table_local_functions.setItemDelegateForColumn(5, delegate)
+        self.current_rows = aggregated_matches
+        label_score_column_index = McritTableColumn.columnTypeToIndex(McritTableColumn.SCORE_AND_LABEL, self.parent.config.OVERVIEW_TABLE_COLUMNS)
+        if label_score_column_index is not None:
+            for function_id, function_info in sorted(aggregated_matches.items()):
+                sorted_labels = sorted(function_info["labels"], reverse=True)
+                self.function_name_mapping[(row, label_score_column_index)] = [f"{label_entry[0]}|{label_entry[1]}" for label_entry in sorted_labels]
+                self.row_criticality_mapping[row] = function_info.get("criticality", 0)
+                for column, column_name in enumerate(self.local_function_header_labels):
+                    column_type = self.parent.config.OVERVIEW_TABLE_COLUMNS[column]
+                    tmp_item = self.generateFunctionTableCellItem(column_type, function_info)
+                    tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
+                    tmp_item.setTextAlignment(qt.AlignHCenter)
+                    self.table_local_functions.setItem(row, column, tmp_item)
+                self.table_local_functions.resizeRowToContents(row)
+                row += 1
+            # we need to set up rendering delegates for function names only if we have names at all
+            if function_labels:
+                # Set the delegate to create dropdown menus in the second column
+                delegate = DropdownDelegate(self.function_name_mapping, self.row_criticality_mapping, self)
+                self.table_local_functions.setItemDelegateForColumn(label_score_column_index, delegate)
 
-            # Show the dropdown menus immediately
-            for row in range(self.table_local_functions.rowCount()):
-                item = self.table_local_functions.item(row, 5)  # Get the QTableWidgetItem for the cell
-                self.table_local_functions.openPersistentEditor(item)
+                # Show the dropdown menus immediately
+                for row in range(self.table_local_functions.rowCount()):
+                    item = self.table_local_functions.item(row, label_score_column_index)  # Get the QTableWidgetItem for the cell
+                    self.table_local_functions.openPersistentEditor(item)
 
         self.table_local_functions.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
         self.table_local_functions.resizeColumnsToContents()
@@ -363,27 +401,47 @@ class FunctionOverviewWidget(QMainWindow):
     def _onTableFunctionsSelectionChanged(self, selected, deselected):
         try:
             selected_row = self.table_local_functions.selectedItems()[0].row()
-            function_offset = int(self.table_local_functions.item(selected_row, 0).text(), 16)
+            function_offset_column = McritTableColumn.columnTypeToIndex(McritTableColumn.OFFSET, self.parent.config.OVERVIEW_TABLE_COLUMNS)
+            if function_offset_column is not None:
+                function_offset = int(self.table_local_functions.item(selected_row, function_offset_column).text(), 16)
         except IndexError:
             # we can ignore this, as it may happen when a popup window is closed
             pass
 
     def _onTableFunctionsClicked(self, mi):
         """
-        If a row in the best family match table is clicked, adjust the family sample match table
+        If a row in the best family match table is clicked, handle the selection
         """
-        clicked_function_address = self.table_local_functions.item(mi.row(), 0).text()
-        as_int = int(clicked_function_address, 16)
-        self.last_function_selected = as_int
+        # For left click (default behavior), just handle the selection
+        function_offset_column = McritTableColumn.columnTypeToIndex(McritTableColumn.OFFSET, self.parent.config.OVERVIEW_TABLE_COLUMNS)
+        if function_offset_column is not None:
+            clicked_function_address = self.table_local_functions.item(mi.row(), function_offset_column).text()
+            as_int = int(clicked_function_address, 16)
+            self.last_function_selected = as_int
+
+    def _handleRightClickOnRow(self, row, column):
+        """Handle right-click action for a specific row and column"""
+        function_offset_column = McritTableColumn.columnTypeToIndex(McritTableColumn.OFFSET, self.parent.config.OVERVIEW_TABLE_COLUMNS)
+        function_label_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SCORE_AND_LABEL, self.parent.config.OVERVIEW_TABLE_COLUMNS)
+        if column == function_label_column and row >= 0:
+            # For this column, get the specific function's labels from the current row
+            function_ids = list(sorted(self.current_rows.keys()))
+            if row < len(function_ids):
+                function_id = function_ids[row]
+                aggregated_result = self.current_rows[function_id]
+                print(f"Labels for function id {function_id} @ {self.table_local_functions.item(row, function_offset_column).text()}")
+                for label in sorted(aggregated_result["labels"], reverse=True):
+                    print(f"  Score: {label[0]}, Label: {label[1]}, Username: {label[2]}, Timestamp: {label[3]}")
 
     def _onTableFunctionsDoubleClicked(self, mi):
-        if mi.column() == 0:
-            clicked_function_address = self.table_local_functions.item(mi.row(), 0).text()
+        function_offset_column = McritTableColumn.columnTypeToIndex(McritTableColumn.OFFSET, self.parent.config.OVERVIEW_TABLE_COLUMNS)
+        function_label_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SCORE_AND_LABEL, self.parent.config.OVERVIEW_TABLE_COLUMNS)
+        if mi.column() == function_offset_column:
+            clicked_function_address = self.table_local_functions.item(mi.row(), function_offset_column).text()
             self.cc.ida_proxy.Jump(int(clicked_function_address, 16))
             # change to function scope tab
             self.parent.main_widget.tabs.setCurrentIndex(1)
             self.parent.function_match_widget.queryCurrentFunction()
-        elif mi.column() == 6:
+        elif mi.column() == function_label_column:
             print("Applying name to function")
-            clicked_label = self.table_local_functions.item(mi.row(), 6).text()
-            pass
+            clicked_label = self.table_local_functions.item(mi.row(), function_label_column).text()

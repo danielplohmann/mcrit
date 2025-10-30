@@ -19,6 +19,7 @@ from widgets.SampleInfoWidget import SampleInfoWidget
 from widgets.FunctionOverviewWidget import FunctionOverviewWidget
 
 import helpers.QtShim as QtShim
+import helpers.pyperclip as pyperclip
 QtGui = QtShim.get_QtGui()
 QtCore = QtShim.get_QtCore()
 QtWidgets = QtShim.get_QtWidgets()
@@ -108,6 +109,11 @@ class Mcrit4IdaForm(PluginForm):
         self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
         self.mcrit_interface = McritInterface(self)
         self.hook_subscribed_widgets = []
+
+    def copyStringToClipboard(self, string_to_copy: str):
+        if string_to_copy is not None:
+            pyperclip.copy(string_to_copy)
+            print("Copied \"%s\" to clipboard." % string_to_copy)
 
     def getMatchingReport(self):
         return self.matching_report

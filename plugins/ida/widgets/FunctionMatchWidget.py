@@ -3,9 +3,11 @@ import ida_funcs
 import ida_kernwin
 
 from mcrit.storage.MatchingResult import MatchingResult
+from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
 from mcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
 
 import helpers.QtShim as QtShim
+import helpers.McritTableColumn as McritTableColumn
 QMainWindow = QtShim.get_QMainWindow()
 from widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
 from widgets.SmdaGraphViewer import SmdaGraphViewer
@@ -53,6 +55,9 @@ class FunctionMatchWidget(QMainWindow):
         self.label_function_matches = self.cc.QLabel("Function Matches")
         self.table_function_matches = self.cc.QTableWidget()
         self.table_function_matches.doubleClicked.connect(self._onTableFunctionMatchDoubleClicked)
+        self.table_function_matches.setContextMenuPolicy(self.cc.QtCore.Qt.CustomContextMenu)
+        self.table_function_matches.customContextMenuRequested.connect(self._onTableFunctionMatchRightClicked)
+
         # lower table
         self.label_function_names = self.cc.QLabel("Names from Matched Functions")
         self.table_function_names = self.cc.QTableWidget()
@@ -184,7 +189,7 @@ class FunctionMatchWidget(QMainWindow):
         # upper table
         self.table_function_matches.clear()
         self.table_function_matches.setSortingEnabled(False)
-        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Score", "Lib"]
+        self.function_matches_header_labels = [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in self.parent.config.FUNCTION_MATCHES_TABLE_COLUMNS]
         self.table_function_matches.setColumnCount(len(self.function_matches_header_labels))
         self.table_function_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
         self.table_function_matches.setRowCount(0)
@@ -192,9 +197,9 @@ class FunctionMatchWidget(QMainWindow):
         # lower table
         self.table_function_names.clear()
         self.table_function_names.setSortingEnabled(False)
-        self.function_matches_header_labels = ["ID", "Score", "user", "Function Label"]
-        self.table_function_names.setColumnCount(len(self.function_matches_header_labels))
-        self.table_function_names.setHorizontalHeaderLabels(self.function_matches_header_labels)
+        self.function_names_header_labels = [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS]
+        self.table_function_names.setColumnCount(len(self.function_names_header_labels))
+        self.table_function_names.setHorizontalHeaderLabels(self.function_names_header_labels)
         self.table_function_names.setRowCount(0)
         self.table_function_names.resizeRowToContents(0)
 
@@ -229,12 +234,36 @@ class FunctionMatchWidget(QMainWindow):
             # TODO fetch all labels to populate lower table as soon as we support this 
             self.populateFunctionNameTable(match_report)
 
+    def generateMatchTableCellItem(self, column_type, function_match_entry: MatchedFunctionEntry):
+        tmp_item = None
+        if column_type == McritTableColumn.FUNCTION_ID:
+            tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_function_id)
+        elif column_type == McritTableColumn.SHA256:
+            sample_sha256 = self.parent.sample_infos[function_match_entry.matched_sample_id].sha256
+            tmp_item = self.cc.QTableWidgetItem(sample_sha256[:8])
+        elif column_type == McritTableColumn.SAMPLE_ID:
+            tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_sample_id)
+        elif column_type == McritTableColumn.FAMILY_NAME:
+            family_name = self.parent.family_infos[function_match_entry.matched_family_id].family_name
+            tmp_item = self.cc.QTableWidgetItem(family_name)
+        elif column_type == McritTableColumn.VERSION:
+            sample_version = self.parent.sample_infos[function_match_entry.matched_sample_id].version
+            tmp_item = self.cc.QTableWidgetItem(sample_version)
+        elif column_type == McritTableColumn.PIC_HASH_MATCH:
+            tmp_item = self.cc.QTableWidgetItem("YES" if function_match_entry.match_is_pichash else "NO")
+        elif column_type == McritTableColumn.SCORE:
+            tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_score)
+        elif column_type == McritTableColumn.IS_LIBRARY:
+            library_value = "YES" if function_match_entry.match_is_library else "NO"
+            tmp_item = self.cc.QTableWidgetItem("%s" % library_value)
+        return tmp_item
+
     def populateFunctionMatchTable(self, match_report: MatchingResult):
         """
         Populate the function match table with all matches for the selected function_id
         """
         self.table_function_matches.setSortingEnabled(False)
-        self.function_matches_header_labels = ["ID", "SHA256", "Sample", "Family", "Version", "Pic#", "Score", "Lib"]
+        self.function_matches_header_labels = [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in self.parent.config.FUNCTION_MATCHES_TABLE_COLUMNS]
         self.table_function_matches.clear()
         self.table_function_matches.setColumnCount(len(self.function_matches_header_labels))
         self.table_function_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
@@ -245,35 +274,14 @@ class FunctionMatchWidget(QMainWindow):
             self.table_function_matches.setRowCount(len(match_report.filtered_function_matches))
         self.table_function_matches.resizeRowToContents(0)
 
-        sample_id_to_matched_sample = {matched_sample.sample_id: matched_sample for matched_sample in match_report.sample_matches}
-
         row = 0
         sorted_entries = sorted(match_report.filtered_function_matches, key=lambda x: x.matched_score + (1 if x.match_is_pichash else 0)+ (1 if x.match_is_library else 0), reverse=True)
         for function_match_entry in sorted_entries:
-            sample_sha256 = sample_id_to_matched_sample[function_match_entry.matched_sample_id].sha256[:8]
-            family_name = match_report.getFamilyNameByFamilyId(function_match_entry.matched_family_id)
-            sample_version = sample_id_to_matched_sample[function_match_entry.matched_sample_id].version
             if self.cb_filter_library.isChecked() and function_match_entry.match_is_library:
                 continue
             for column, column_name in enumerate(self.function_matches_header_labels):
-                tmp_item = None
-                if column == 0:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_function_id)
-                elif column == 1:
-                    tmp_item = self.cc.QTableWidgetItem(sample_sha256)
-                elif column == 2:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_sample_id)
-                elif column == 3:
-                    tmp_item = self.cc.QTableWidgetItem(family_name)
-                elif column == 4:
-                    tmp_item = self.cc.QTableWidgetItem(sample_version)
-                elif column == 5:
-                    tmp_item = self.cc.QTableWidgetItem("YES" if function_match_entry.match_is_pichash else "NO")
-                elif column == 6:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % function_match_entry.matched_score)
-                elif column == 7:
-                    library_value = "YES" if function_match_entry.match_is_library else "NO"
-                    tmp_item = self.cc.QTableWidgetItem("%s" % library_value)
+                column_type = self.parent.config.FUNCTION_MATCHES_TABLE_COLUMNS[column]
+                tmp_item = self.generateMatchTableCellItem(column_type, function_match_entry)
                 tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
                 self.table_function_matches.setItem(row, column, tmp_item)
             # self.table_function_matches.resizeRowToContents(row)
@@ -284,6 +292,21 @@ class FunctionMatchWidget(QMainWindow):
         header_view = self._QtShim.get_QHeaderView()
         header = self.table_function_matches.horizontalHeader()
         header.setStretchLastSection(True)
+
+    def generateNameTableCellItem(self, column_type, function_label_entry):
+        tmp_item = None
+        if column_type == McritTableColumn.FUNCTION_ID:
+            tmp_item = self.NumberQTableWidgetItem("%d" % function_label_entry.function_id)
+        elif column_type == McritTableColumn.SCORE:
+            tmp_item = self.NumberQTableWidgetItem("%d" % function_label_entry.score)
+        elif column_type == McritTableColumn.USER:
+            tmp_item = self.cc.QTableWidgetItem(function_label_entry.username)
+        elif column_type == McritTableColumn.FUNCTION_LABEL:
+            tmp_item = self.cc.QTableWidgetItem(function_label_entry.function_label)
+        elif column_type == McritTableColumn.TIMESTAMP:
+            timestamp = function_label_entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            tmp_item = self.cc.QTableWidgetItem(timestamp)
+        return tmp_item
 
     def populateFunctionNameTable(self, match_report: MatchingResult):
         """
@@ -304,7 +327,7 @@ class FunctionMatchWidget(QMainWindow):
                     function_label_entries.append(function_label)
 
         self.table_function_names.setSortingEnabled(False)
-        self.function_matches_header_labels = ["ID", "Score", "user", "Function Label"]
+        self.function_matches_header_labels = [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS]
         self.table_function_names.clear()
         self.table_function_names.setColumnCount(len(self.function_matches_header_labels))
         self.table_function_names.setHorizontalHeaderLabels(self.function_matches_header_labels)
@@ -316,15 +339,8 @@ class FunctionMatchWidget(QMainWindow):
         sorted_entries = sorted(function_label_entries, key=lambda x: (x.score, x.username, x.timestamp), reverse=True)
         for function_label_entry in sorted_entries:
             for column, column_name in enumerate(self.function_matches_header_labels):
-                tmp_item = None
-                if column == 0:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % function_label_entry.function_id)
-                elif column == 1:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % function_label_entry.score)
-                elif column == 2:
-                    tmp_item = self.cc.QTableWidgetItem(function_label_entry.username)
-                elif column == 3:
-                    tmp_item = self.cc.QTableWidgetItem(function_label_entry.function_label)
+                column_type = self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS[column]
+                tmp_item = self.generateNameTableCellItem(column_type, function_label_entry)
                 tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
                 self.table_function_names.setItem(row, column, tmp_item)
             # self.table_function_matches.resizeRowToContents(row)
@@ -336,30 +352,16 @@ class FunctionMatchWidget(QMainWindow):
         header = self.table_function_names.horizontalHeader()
         header.setStretchLastSection(True)
 
+
     def _onTableFunctionMatchDoubleClicked(self, mi):
         """
         Use the row with that was double clicked to import the function_name to the current function
         """
-        smda_function_a = self.parent.local_smda_report.getFunction(self.current_function_offset)
-        smda_report_a = self.parent.local_smda_report
-        remote_function_id = int(self.table_function_matches.item(mi.row(), 0).text())
-        function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(remote_function_id)
-        smda_function_b = function_entry_b.toSmdaFunction()
-        sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
-        fcm = FunctionCfgMatcher(smda_report_a, smda_function_a, sample_entry_b, smda_function_b)
-        coloring = fcm.getColoredMatches()
-        coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
-        g = SmdaGraphViewer(self, sample_entry_b, function_entry_b, smda_function_b, coloring)
-        g.Show()
-
-    def _onTableFunctionNameDoubleClicked(self, mi):
-        """
-        Use the row with that was double clicked to import the function_name to the current function
-        """
-        if mi.column() == 0:
+        function_id_column_index = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_ID, self.parent.config.FUNCTION_MATCHES_TABLE_COLUMNS)
+        if function_id_column_index is not None:
+            remote_function_id = int(self.table_function_matches.item(mi.row(), function_id_column_index).text())
             smda_function_a = self.parent.local_smda_report.getFunction(self.current_function_offset)
             smda_report_a = self.parent.local_smda_report
-            remote_function_id = int(self.table_function_names.item(mi.row(), 0).text())
             function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(remote_function_id)
             smda_function_b = function_entry_b.toSmdaFunction()
             sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
@@ -368,7 +370,41 @@ class FunctionMatchWidget(QMainWindow):
             coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
             g = SmdaGraphViewer(self, sample_entry_b, function_entry_b, smda_function_b, coloring)
             g.Show()
-        elif mi.column() == 3:
-            function_name = self.table_function_names.item(mi.row(), 3).text()
+
+    def _onTableFunctionNameDoubleClicked(self, mi):
+        """
+        Use the row with that was double clicked to import the function_name to the current function
+        """
+        function_id_column_index = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_ID, self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS)
+        function_label_column_index = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_LABEL, self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS)
+        if function_id_column_index is not None and mi.column() == function_id_column_index:
+            smda_function_a = self.parent.local_smda_report.getFunction(self.current_function_offset)
+            smda_report_a = self.parent.local_smda_report
+            remote_function_id = int(self.table_function_names.item(mi.row(), function_id_column_index).text())
+            function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(remote_function_id)
+            smda_function_b = function_entry_b.toSmdaFunction()
+            sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(function_entry_b.sample_id)
+            fcm = FunctionCfgMatcher(smda_report_a, smda_function_a, sample_entry_b, smda_function_b)
+            coloring = fcm.getColoredMatches()
+            coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
+            g = SmdaGraphViewer(self, sample_entry_b, function_entry_b, smda_function_b, coloring)
+            g.Show()
+        elif function_label_column_index is not None and mi.column() == function_label_column_index:
+            function_name = self.table_function_names.item(mi.row(), function_label_column_index).text()
             # print(function_name)
             self.cc.ida_proxy.set_name(self.last_viewed, function_name, self.cc.ida_proxy.SN_NOWARN)
+
+    def _onTableFunctionMatchRightClicked(self, position):
+        """
+        Right click context menu for function matches
+        """
+        sha256_column_index = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, self.parent.config.FUNCTION_MATCHES_TABLE_COLUMNS)
+        sample_id_column_index = McritTableColumn.columnTypeToIndex(McritTableColumn.SAMPLE_ID, self.parent.config.FUNCTION_MATCHES_TABLE_COLUMNS)
+        if sha256_column_index is not None and self.table_function_matches.currentColumn() == sha256_column_index:
+            if sample_id_column_index is None:
+                # TODO possibly can reconstruct clicked row from matching data, but let's keep it simple for now
+                print("Need a column with sample IDs to copy SHA256 to clipboard.")
+            # copy to clipboard
+            sample_id = self.table_function_matches.item(self.table_function_matches.currentRow(), sample_id_column_index).text()
+            sha256 = self.parent.sample_infos[int(sample_id)].sha256
+            self.parent.copyStringToClipboard(sha256)
