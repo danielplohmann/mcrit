@@ -202,6 +202,12 @@ class IdaProxy():
     def NextHead(self, ea, minea=0):
         return self.idc.NextHead(ea, minea)
 
+    def ReadSelectionStart(self):
+        return self.idc.read_selection_start()
+
+    def ReadSelectionEnd(self):
+        return self.idc.read_selection_end()
+
     def RptCmt(self, ea):
         return self.idc.RptCmt(ea)
 

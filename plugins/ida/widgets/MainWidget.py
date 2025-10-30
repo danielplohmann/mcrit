@@ -71,6 +71,8 @@ class MainWidget(QMainWindow):
         self.toolbar.addAction(self.getMatchResultAction)
         self._createExportSmdaAction()
         self.toolbar.addAction(self.exportSmdaAction)
+        self._createBuildYaraStringAction()
+        self.toolbar.addAction(self.buildYaraStringAction)
         self._createModifySettingsAction()
         #self.toolbar.addAction(self.modifySettingsAction)
 
@@ -110,6 +112,15 @@ class MainWidget(QMainWindow):
         self.exportSmdaAction.setEnabled(False)
         self.exportSmdaAction.triggered.connect(self._onExportSmdaButtonClicked)
 
+    def _createBuildYaraStringAction(self):
+        """
+        Create an action for building a YARA string from the current selection.
+        """
+        self.buildYaraStringAction = self.cc.QAction(self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "yara.png"), \
+            "Build a YARA string from the current selection.", self)
+        self.buildYaraStringAction.setEnabled(False)
+        self.buildYaraStringAction.triggered.connect(self._onBuildYaraStringButtonClicked)
+
     def _createModifySettingsAction(self):
         """
         Create an action for sending a matching query to the MCRIT server.
@@ -136,6 +147,61 @@ class MainWidget(QMainWindow):
                 local_report.is_library = self.parent.remote_sample_entry.is_library
         return local_report
 
+    def _onBuildYaraStringButtonClicked(self):
+        ida_selection_start = self.cc.ida_proxy.ReadSelectionStart()
+        ida_selection_end = self.cc.ida_proxy.ReadSelectionEnd()
+        if ida_selection_start is not None and ida_selection_end is not None and ida_selection_start != ida_selection_end:
+            # try to extract code bytes from selection
+            pass
+        # fetch instruction, block, and function information based on current cursor position
+        current_ea = ida_kernwin.get_screen_ea()
+        current_function = self.parent.local_smda_report.findFunctionByContainedAddress(current_ea)
+        current_block = self.parent.local_smda_report.findBlockByContainedAddress(current_ea)
+        from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
+        from smda.common.BinaryInfo import BinaryInfo
+        binary_info = BinaryInfo(b"")
+        binary_info.architecture = self.parent.local_smda_report.architecture
+        binary_info.base_addr = self.parent.local_smda_report.base_addr
+        binary_info.binary_size = self.parent.local_smda_report.binary_size
+        # for sequences of instructions, we need to emulate the procedure from SmdaFunction
+        # this will allow us to correlate the individual escaped instructions with their disassembly representation
+        selected_ins_sequence = []
+        for smda_function in self.parent.local_smda_report.getFunctions():
+            for smda_instruction in smda_function.getInstructions():
+                if smda_instruction.offset >= ida_selection_start and smda_instruction.offset < ida_selection_end:
+                    selected_ins_sequence.append(smda_instruction)
+        selected_ins_sequence.sort(key=lambda ins: ins.offset)
+        functions_ins_sequence = current_function.getInstructions() if current_function else []
+        blocks_ins_sequence = current_block.getInstructions() if current_block else []
+        escaped_sequences = []
+        for sequence in [selected_ins_sequence, functions_ins_sequence, blocks_ins_sequence]:
+            escaped_binary_seqs = []
+            for instruction in sequence:
+                escaped_binary_seqs.append(
+                    instruction.getEscapedBinary(
+                        IntelInstructionEscaper,
+                        escape_intraprocedural_jumps=True,
+                        lower_addr=binary_info.base_addr,
+                        upper_addr=binary_info.base_addr + binary_info.binary_size,
+                    )
+                )
+            escaped_sequences.append(escaped_binary_seqs)
+        escaped_selected_ins_sequence = bytes([ord(c) for c in "".join(escaped_sequences[0])])
+        escaped_function_ins_sequence = bytes([ord(c) for c in "".join(escaped_sequences[1])])
+        escaped_block_ins_sequence = bytes([ord(c) for c in "".join(escaped_sequences[2])])
+        # TODO render something alike to SmdaInfoDialog showing variations of the YARA string:
+        # selection, block, function as radio buttons
+        # wildcards yes/no as checkbox
+        # a text area showing the resulting YARA string, embedded in a template YARA rule
+        # with a single hex string where every instructions is rendered in a line with comments showing disassembly
+        print("Selection: 0x%X - 0x%X" % (ida_selection_start, ida_selection_end))
+        print(escaped_selected_ins_sequence)
+        print("Current Block: 0x%x" % current_block.offset if current_block else 0)
+        print(escaped_block_ins_sequence)
+        print("Current Function: 0x%x" % current_function.offset if current_function else 0)
+        print(escaped_function_ins_sequence)
+
+
     def _onConvertSmdaButtonClicked(self):
         local_smda_report = self.getLocalSmdaReport()
         if self.parent.local_smda_report is None:
@@ -144,6 +210,7 @@ class MainWidget(QMainWindow):
         if self.parent.local_smda_report is not None:
             self.exportSmdaAction.setEnabled(True)
             self.uploadSmdaAction.setEnabled(True)
+            self.buildYaraStringAction.setEnabled(True)
             # check if remote sample exists
             self.parent.mcrit_interface.querySampleSha256(self.parent.local_smda_report.sha256)
             # if yes, enable matching and use meta data
