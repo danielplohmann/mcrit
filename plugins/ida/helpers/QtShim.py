@@ -442,3 +442,11 @@ def get_QSpinBox():
     else:
         import PyQt5.QtWidgets as QtWidgets
         return QtWidgets.QSpinBox
+
+def get_QFont():
+    if idaapi.IDA_SDK_VERSION <= 680:
+        import PySide.QtGui as QtGui
+        return QtGui.QFont
+    else:
+        import PyQt5.QtGui as QtGui
+        return QtGui.QFont

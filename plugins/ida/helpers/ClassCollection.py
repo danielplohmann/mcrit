@@ -66,5 +66,6 @@ class ClassCollection():
         self.DescendingOrder = self.QtShim.get_DescendingOrder()
         self.QFrame = self.QtShim.get_QFrame()
         self.QSpinBox = self.QtShim.get_QSpinBox()
+        self.QFont = self.QtShim.get_QFont()
         # ida_proxy
         self.ida_proxy = IdaProxy()

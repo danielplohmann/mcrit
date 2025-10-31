@@ -10,6 +10,7 @@ QMainWindow = QtShim.get_QMainWindow()
 
 from widgets.SmdaInfoDialog import SmdaInfoDialog
 from widgets.ResultChooserDialog import ResultChooserDialog
+from widgets.YaraStringBuilderDialog import YaraStringBuilderDialog
 
 
 class MainWidget(QMainWindow):
@@ -29,6 +30,7 @@ class MainWidget(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.SmdaInfoDialog = SmdaInfoDialog
         self.ResultChooserDialog = ResultChooserDialog
+        self.YaraStringBuilderDialog = YaraStringBuilderDialog
         self._createGui()
         self.parent.mcrit_interface.checkConnection()
         # IDA 6.x Windows workaronud to avoid lost imports
@@ -150,57 +152,51 @@ class MainWidget(QMainWindow):
     def _onBuildYaraStringButtonClicked(self):
         ida_selection_start = self.cc.ida_proxy.ReadSelectionStart()
         ida_selection_end = self.cc.ida_proxy.ReadSelectionEnd()
-        if ida_selection_start is not None and ida_selection_end is not None and ida_selection_start != ida_selection_end:
-            # try to extract code bytes from selection
-            pass
+        has_selection = (ida_selection_start is not None and ida_selection_end is not None and 
+                        ida_selection_start != ida_selection_end)
+        
         # fetch instruction, block, and function information based on current cursor position
         current_ea = ida_kernwin.get_screen_ea()
         current_function = self.parent.local_smda_report.findFunctionByContainedAddress(current_ea)
         current_block = self.parent.local_smda_report.findBlockByContainedAddress(current_ea)
-        from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
-        from smda.common.BinaryInfo import BinaryInfo
-        binary_info = BinaryInfo(b"")
-        binary_info.architecture = self.parent.local_smda_report.architecture
-        binary_info.base_addr = self.parent.local_smda_report.base_addr
-        binary_info.binary_size = self.parent.local_smda_report.binary_size
+
         # for sequences of instructions, we need to emulate the procedure from SmdaFunction
         # this will allow us to correlate the individual escaped instructions with their disassembly representation
         selected_ins_sequence = []
-        for smda_function in self.parent.local_smda_report.getFunctions():
-            for smda_instruction in smda_function.getInstructions():
-                if smda_instruction.offset >= ida_selection_start and smda_instruction.offset < ida_selection_end:
-                    selected_ins_sequence.append(smda_instruction)
-        selected_ins_sequence.sort(key=lambda ins: ins.offset)
-        functions_ins_sequence = current_function.getInstructions() if current_function else []
-        blocks_ins_sequence = current_block.getInstructions() if current_block else []
-        escaped_sequences = []
-        for sequence in [selected_ins_sequence, functions_ins_sequence, blocks_ins_sequence]:
-            escaped_binary_seqs = []
-            for instruction in sequence:
-                escaped_binary_seqs.append(
-                    instruction.getEscapedBinary(
-                        IntelInstructionEscaper,
-                        escape_intraprocedural_jumps=True,
-                        lower_addr=binary_info.base_addr,
-                        upper_addr=binary_info.base_addr + binary_info.binary_size,
-                    )
-                )
-            escaped_sequences.append(escaped_binary_seqs)
-        escaped_selected_ins_sequence = bytes([ord(c) for c in "".join(escaped_sequences[0])])
-        escaped_function_ins_sequence = bytes([ord(c) for c in "".join(escaped_sequences[1])])
-        escaped_block_ins_sequence = bytes([ord(c) for c in "".join(escaped_sequences[2])])
-        # TODO render something alike to SmdaInfoDialog showing variations of the YARA string:
-        # selection, block, function as radio buttons
-        # wildcards yes/no as checkbox
-        # a text area showing the resulting YARA string, embedded in a template YARA rule
-        # with a single hex string where every instructions is rendered in a line with comments showing disassembly
-        print("Selection: 0x%X - 0x%X" % (ida_selection_start, ida_selection_end))
-        print(escaped_selected_ins_sequence)
-        print("Current Block: 0x%x" % current_block.offset if current_block else 0)
-        print(escaped_block_ins_sequence)
-        print("Current Function: 0x%x" % current_function.offset if current_function else 0)
-        print(escaped_function_ins_sequence)
+        if has_selection:
+            for smda_function in self.parent.local_smda_report.getFunctions():
+                for smda_instruction in smda_function.getInstructions():
+                    if smda_instruction.offset >= ida_selection_start and smda_instruction.offset < ida_selection_end:
+                        selected_ins_sequence.append(smda_instruction)
+            selected_ins_sequence.sort(key=lambda ins: ins.offset)
+        else:
+            # If no selection, use single instruction at cursor
+            for smda_function in self.parent.local_smda_report.getFunctions():
+                for smda_instruction in smda_function.getInstructions():
+                    if smda_instruction.offset == current_ea:
+                        selected_ins_sequence = [smda_instruction]
+                        break
+                if selected_ins_sequence:
+                    break
+        functions_ins_sequence = list(current_function.getInstructions()) if current_function else None
+        blocks_ins_sequence = list(current_block.getInstructions()) if current_block else None
 
+        data_bytes = b""
+        if not selected_ins_sequence and has_selection:
+            data_bytes = self.cc.ida_proxy.GetBytes(ida_selection_start, ida_selection_end - ida_selection_start)
+        # Create and show the dialog
+        dialog = self.YaraStringBuilderDialog(
+            self,
+            data=data_bytes,
+            selection_sequence=selected_ins_sequence if selected_ins_sequence else None,
+            block_sequence=blocks_ins_sequence,
+            function_sequence=functions_ins_sequence,
+            sha256=self.parent.local_smda_report.sha256 if self.parent.local_smda_report else "",
+            offset=current_ea,
+            selection_start=ida_selection_start or current_ea,
+            selection_end=ida_selection_end or current_ea
+        )
+        dialog.exec_()
 
     def _onConvertSmdaButtonClicked(self):
         local_smda_report = self.getLocalSmdaReport()

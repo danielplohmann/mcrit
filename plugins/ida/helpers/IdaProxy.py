@@ -27,6 +27,7 @@
 import idaapi
 import idautils
 import idc
+import ida_bytes
 
 
 class IdaProxy():
@@ -40,6 +41,7 @@ class IdaProxy():
         self.idc = idc
         self.idaapi = idaapi
         self.idautils = idautils
+        self.ida_bytes = ida_bytes
         # debug output
         self.verbose = False
         # constants
@@ -315,3 +317,10 @@ class IdaProxy():
 
     def XrefsTo(self, ea, flag=0):
         return self.idautils.XrefsTo(ea, flag)
+
+###############################################################################
+# From idautils.py
+###############################################################################
+    
+    def GetBytes(self, address, size):
+        return self.ida_bytes.get_bytes(address, size)
