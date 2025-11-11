@@ -197,7 +197,7 @@ class MongoQueue(object):
 
     def size_inc_finished(self):
         """Total size of the queue"""
-        return self._getCollection().count_documents(ilter={})
+        return self._getCollection().count_documents(filter={})
 
     def repair(self):
         """Clear out stale locks.
@@ -370,17 +370,17 @@ class MongoQueue(object):
                     file_object_id = ObjectId(file_object_id)
                     # update gridFs entry of file to not link
                     # to this job anymore
-                    self._getFs().update_one(
+                    self._getFsFiles().update_one(
                         {"_id": file_object_id}, {"$pull": {"metadata.jobs": str(job_id)}}
                     )
                     # check if file is safe to delete
-                    if self._getFs().count_documents(
+                    if self._getFsFiles().count_documents(
                         {"_id": file_object_id, "metadata.jobs": [], "metadata.tmp_lock": 0}
                     ) > 0:
-                        self._getFs().delete(file_object_id)
+                        self._getFsFiles().delete_one({"_id": file_object_id})
             if with_result:
                 # delete result from GridFS  
-                self._getFs().delete(ObjectId(deletable_job["result"]))
+                self._getFsFiles().delete_one({"_id": ObjectId(deletable_job["result"])})
         job_deletion_result = self._getCollection().delete_one({"_id": job_id})
         return job_deletion_result.deleted_count
 
