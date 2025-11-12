@@ -34,7 +34,9 @@ class MatcherQueryFunction(MatcherInterface):
         minhash = self._worker.minhasher._calculateMinHash(smda_function)
         function_entry = FunctionEntry(self._sample_entry, smda_function, -1, minhash)
         self._function_entries = [function_entry]
-        return self._getMatchesRoutine()
+        match_report = self._getMatchesRoutine()
+        match_report["info"]["type"] = "matcher_query_function"
+        return match_report
 
     def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int, int]]]:
         pichash_matches = {}

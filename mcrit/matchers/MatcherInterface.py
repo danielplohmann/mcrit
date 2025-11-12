@@ -581,6 +581,7 @@ class MatcherInterface(object):
             "info": {
                 "job": None,
                 "sample": self._sample_info,
+                "type": "",
             },
             "matches": {
                 "aggregation": {

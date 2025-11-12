@@ -71,7 +71,7 @@ class McritClient:
         self.headers.update({"username": username})
 
     def _getMatchingRequestParams(
-        self, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False
+        self, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False, sample_group_only=False
     ):
         params = {}
         if minhash_threshold is not None:
@@ -84,6 +84,8 @@ class McritClient:
             params["band_matches_required"] = band_matches_required
         if exclude_self_matches:
             params["exclude_self_matches"] = True
+        if sample_group_only:
+            params["sample_group_only"] = True
         return params
 
     def respawn(self):
@@ -471,13 +473,14 @@ class McritClient:
     def requestMatchesCross(
         self,
         sample_ids,
+        sample_group_only=False,
         minhash_threshold=None,
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
     ) -> None:
         params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, sample_group_only=sample_group_only
         )
         response = requests.get(
             f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", 

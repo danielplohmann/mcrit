@@ -29,6 +29,9 @@ def getMatchingParams(req_params):
             if key == "force_recalculation":
                 if value.lower() == "true":
                     parameters["force_recalculation"] = True
+            if key == "sample_group_only":
+                if value.lower() == "true":
+                    parameters["sample_group_only"] = True
             if key == "band_matches_required":
                 band_matches_required = int(value)
                 band_matches_required = max(0, band_matches_required)

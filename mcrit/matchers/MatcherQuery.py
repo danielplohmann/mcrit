@@ -32,7 +32,9 @@ class MatcherQuery(MatcherInterface):
             tmp_function_entries_dict[minhash.function_id].minhash_shingle_composition = minhash.getComposition()
         self._function_entries = list(tmp_function_entries_dict.values())
 
-        return self._getMatchesRoutine()
+        match_report = self._getMatchesRoutine()
+        match_report["info"]["type"] = "matcher_query"
+        return match_report
 
     def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int, int]]]:
         pichash_matches = {}

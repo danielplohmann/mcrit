@@ -32,6 +32,7 @@ from mcrit.matchers.MatcherCross import MatcherCross
 from mcrit.matchers.MatcherQuery import MatcherQuery
 from mcrit.matchers.MatcherSample import MatcherSample
 from mcrit.matchers.MatcherVs import MatcherVs
+from mcrit.matchers.MatcherVsGroup import MatcherVsGroup
 from mcrit.minhash.MinHasher import MinHasher
 from mcrit.queue.LocalQueue import Job
 from mcrit.queue.QueueFactory import QueueFactory
@@ -497,6 +498,27 @@ class Worker(QueueRemoteCallee):
             progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSample(sample_id, other_sample_id)
+        return match_report
+
+    # Reports PROGRESS
+    @Remote(progress=True)
+    def getMatchesForSampleVsGroup(
+        self, 
+        sample_id, 
+        other_sample_ids:List[int],
+        minhash_threshold=None, 
+        pichash_size=None, 
+        band_matches_required=None,
+        progress_reporter=NoProgressReporter()
+    ):
+        matcher = MatcherVsGroup(
+            self, 
+            minhash_threshold=minhash_threshold, 
+            pichash_size=pichash_size, 
+            band_matches_required=band_matches_required,
+            progress_reporter=progress_reporter
+        )
+        match_report = matcher.getMatchesForSample(sample_id, other_sample_ids)
         return match_report
 
 

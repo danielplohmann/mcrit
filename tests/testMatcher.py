@@ -14,6 +14,7 @@ from mcrit.matchers.MatcherSample import MatcherSample
 
 # from mcrit.storage.MemoryStorage import MemoryStorage
 from mcrit.matchers.MatcherVs import MatcherVs
+from mcrit.matchers.MatcherVsGroup import MatcherVsGroup
 from mcrit.storage.SampleEntry import SampleEntry
 from smda.common.SmdaFunction import SmdaFunction
 from smda.common.SmdaReport import SmdaReport
@@ -445,6 +446,93 @@ class MatcherTestSuite(unittest.TestCase):
         self.assertEqual(result["matches"]["aggregation"]["minhash"], self.minhash_aggregation_expected_vs)
         self.assertEqual(result["matches"]["functions"], self.function_matches_expected_vs)
         self.assertEqual(result["matches"]["samples"], [self.sample_summary_entry_expected_vs])
+
+    def testMatcherVsGroup(self):
+        index = MinHashIndex(config=config)
+        worker = index.queue._worker
+
+        sampleEntry2 = index._storage.addSmdaReport(self.smda_report_2)
+        id2 = sampleEntry2.sample_id
+
+        sampleEntry1 = index._storage.addSmdaReport(self.smda_report_1)
+        id1 = sampleEntry1.sample_id
+
+        libraryEntry = index._storage.addSmdaReport(self.library_report)
+        id_lib = libraryEntry.sample_id
+
+        sampleEntry3 = index._storage.addSmdaReport(self.smda_report_3)
+        id3 = sampleEntry3.sample_id
+
+        worker.updateMinHashesForSample(id1)
+        worker.updateMinHashesForSample(id2)
+        worker.updateMinHashesForSample(id3)
+
+        matcher = MatcherVsGroup(worker)
+        result = matcher.getMatchesForSample(id1, [id2, id3])
+
+        print(json.dumps(result, indent=1))
+
+        self.assertEqual(result["info"]["sample"], sampleEntry1.toDict())
+        self.assertEqual(result["other_sample_infos"], [sampleEntry2.toDict(), sampleEntry3.toDict()])
+        self.assertTrue("duration" in result["info"]["job"])
+        self.assertTrue("timestamp" in result["info"]["job"])
+        self.assertTrue(isinstance(result["info"]["job"]["timestamp"], str))
+        self.assertTrue(len(result["info"]["job"]["timestamp"]) > 0)
+        self.assertNotEqual(result["info"]["job"]["duration"], 0)
+        self.assertTrue("matcher_vs_group" in result["info"]["type"])
+
+        self.assertEqual(result["matches"]["aggregation"]["pichash"], self.pichash_aggregation_expected_vs)
+        minhash_aggregation_expected_vs_group =deepcopy(self.minhash_aggregation_expected_vs)
+        minhash_aggregation_expected_vs_group["num_foreign_functions_matched"] = 7
+        self.assertEqual(result["matches"]["aggregation"]["minhash"], minhash_aggregation_expected_vs_group)
+        function_matches_expected_vs_group = []
+        for function_data in self.function_matches_expected_vs:
+            if function_data["fid"] == 9:
+                matches = function_data["matches"]
+                matches.append((2, 3, 22, 84.375, 1))
+                function_data["matches"] = matches
+                function_matches_expected_vs_group.append(function_data)
+            else:
+                function_matches_expected_vs_group.append(function_data)
+        self.assertEqual(result["matches"]["functions"], function_matches_expected_vs_group)
+        sample_3_match_result = {
+            "family": "test_family_b",
+            "family_id": 2,
+            "version": "",
+            "bitness": 32,
+            "sha256": "39401c7f9518f9710bfd6d64e13a5bf4efdec42e54c9de363b4871e8f374b57f",
+            "filename": "",
+            "sample_id": 3,
+            "num_bytes": 351.0,
+            "is_library": False,
+            "num_functions": 9,
+            "matched": {
+                "functions": {
+                "minhashes": 1,
+                "pichashes": 0,
+                "combined": 1,
+                "library": 0
+                },
+                "bytes": {
+                "unweighted": 354.0,
+                "score_weighted": 298.6875,
+                "frequency_weighted": 298.6875,
+                "nonlib_unweighted": 354.0,
+                "nonlib_score_weighted": 298.6875,
+                "nonlib_frequency_weighted": 298.6875
+                },
+                "percent": {
+                "unweighted": 5.627086313781593,
+                "score_weighted": 4.747854077253219,
+                "frequency_weighted": 4.747854077253219,
+                "nonlib_unweighted": 5.627086313781593,
+                "nonlib_score_weighted": 4.747854077253219,
+                "nonlib_frequency_weighted": 4.747854077253219
+                }
+            }
+        }
+        sample_summary_entry_expected_vs_group = [deepcopy(self.sample_summary_entry_expected_vs), sample_3_match_result]
+        self.assertEqual(result["matches"]["samples"], sample_summary_entry_expected_vs_group)
 
     def testMatcherSample(self):
         index = MinHashIndex(config=config)

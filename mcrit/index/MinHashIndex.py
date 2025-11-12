@@ -291,6 +291,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getMatchesForUnmappedBinary(self, binary, minhash_threshold=None):
     def getMatchesForSample(self, sample_id, minhash_threshold=None):
     def getMatchesForSampleVs(self, sample_id, other_sample_id, minhash_threshold=None):
+    def getMatchesForSampleVsGroup(self, sample_id, other_sample_ids, minhash_threshold=None):
     def getAggregatedMatchesForSample(self, sample_id, minhash_threshold=None):
     def getUniqueBlocks(self, sample_ids):
     def addBinarySample(self, binary, is_dump, bitness, base_address,):
@@ -333,11 +334,14 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches)
     
-    def getMatchesCross(self, sample_ids:List[int], force_recalculation=False, **params):
+    def getMatchesCross(self, sample_ids:List[int], sample_group_only=False, force_recalculation=False, **params):
         storage = self.getStorage()
         sample_to_job_id = {}
         for id in sample_ids:
-            job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, **params)
+            if sample_group_only:
+                job_id = self.getMatchesForSampleVsGroup(id, [sid for sid in sample_ids if sid != id], force_recalculation=force_recalculation, **params)
+            else:
+                job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, **params)
             sample_to_job_id[id] = job_id
         return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation)
 
