@@ -217,6 +217,16 @@ class Job(object):
         return method_str
 
     @property
+    def short_parameters(self):
+        method_str = ""
+        if "payload" in self._data and "params" in self._data["payload"] and "method" in self._data["payload"]:
+            method_str = self._data["payload"]["method"]
+            method_str += "(" + ", ".join([str(v) for v in self.arguments]) + ")"
+            if len(method_str) > 50:
+                method_str = method_str[:107] + "..." + ")"
+        return method_str
+
+    @property
     def all_dependencies(self):
         return self._data["all_dependencies"]
 
