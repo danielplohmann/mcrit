@@ -25,7 +25,7 @@ from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.minhash.MinHash import MinHash
 from mcrit.minhash.MinHasher import MinHasher
 from mcrit.matchers.MatcherQueryFunction import MatcherQueryFunction
-import mcrit.matchers.MatcherInterface as MatcherFlags
+import mcrit.matchers.MatcherFlags as MatcherFlags
 
 from mcrit.Worker import Worker
 
