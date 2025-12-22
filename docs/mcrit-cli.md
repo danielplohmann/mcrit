@@ -62,18 +62,19 @@ $ mcrit client submit --mode dir ~/malpedia/win.wannacryptor/vt-2017-05-12/
 
  ### Recursive
 
- Recursively submit all files found in a directory, assume a structure like 
+ Recursively submit all files found in a directory, assuming a structure like 
  ```
  ./family_name/version/version/files
  ```
- and use `family_name` and optionally `version` as tags in MCRIT.
+ and use `family_name` and (optionally, if nested enough) `version` as fields in MCRIT.
 
 
  ### Malpedia
 
 Dedicated mode to synchronize all data available in the Malpedia repository.  
 If files from Malpedia are already available in MCRIT, they will be skipped on the next execution, making this command suitable to synchronize updated states of Malpedia into MCRIT.  
-Only ELF and PE (win.*) families and only files labeled as `_unpacked` or `_dump_0x...`  will be considered and processed.
+Only ELF and PE (win.*) families and only files labeled as `_unpacked` or `_dump_0x...`  will be considered and processed.  
+Requires directory name to be called `malpedia`, sanity checks if there is a `malpedia.bib` file present as in the repo.  
 
  ```
  $ mcrit client submit --mode malpedia ~/malpedia
