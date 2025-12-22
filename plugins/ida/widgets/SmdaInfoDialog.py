@@ -95,7 +95,7 @@ class SmdaInfoDialog(QDialog):
         """
         keyword_data = []
         family_chooser_text = self.edit_family.text()
-        if len(family_chooser_text) > 0:
+        if self.parent.parent.family_infos and len(family_chooser_text) > 0:
             if family_chooser_text != self.old_family_chooser_text:
                 self.old_family_chooser_text = family_chooser_text
                 keyword_data = sorted([family_entry.family_name.lower() for family_entry in self.parent.parent.family_infos.values() if family_chooser_text.lower() in family_entry.family_name.lower()])

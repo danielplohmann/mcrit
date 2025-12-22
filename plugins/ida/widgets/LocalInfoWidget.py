@@ -23,8 +23,8 @@ class LocalInfoWidget(QMainWindow):
         self.label_remote_sample_info = self.cc.QLabel("Remote sample: <unknown>")
         # horizontal line
         self.hline = self.cc.QFrame()
-        self.hline.setFrameShape(self.hline.HLine)
-        self.hline.setFrameShadow(self.hline.Sunken)
+        self.hline.setFrameShape(self.cc.QFrameHLine)
+        self.hline.setFrameShadow(self.cc.QFrameShadow.Sunken)
         # SMDA report info fields
         self.label_sha256 = self.cc.QLabel("SHA256: ")
         self.label_label_sha256_value = self.cc.QLabel("no data")

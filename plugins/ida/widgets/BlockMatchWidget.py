@@ -52,8 +52,8 @@ class BlockMatchWidget(QMainWindow):
         ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
-        self.hline.setFrameShape(self.hline.HLine)
-        self.hline.setFrameShadow(self.hline.Sunken)
+        self.hline.setFrameShape(self.cc.QFrameHLine)
+        self.hline.setFrameShadow(self.cc.QFrameShadow.Sunken)
         # upper table
         self.label_block_summary = self.cc.QLabel("Blocks Summary")
         self.table_block_summary = self.cc.QTableWidget()

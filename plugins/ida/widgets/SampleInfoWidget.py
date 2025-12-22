@@ -21,8 +21,8 @@ class SampleInfoWidget(QMainWindow):
         self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
-        self.hline.setFrameShape(self.hline.HLine)
-        self.hline.setFrameShadow(self.hline.Sunken)
+        self.hline.setFrameShape(self.cc.QFrameHLine)
+        self.hline.setFrameShadow(self.cc.QFrameShadow.Sunken)
         # upper table
         self.label_best_matches = self.cc.QLabel("Best Matches per Family")
         self.table_best_family_matches = self.cc.QTableWidget()

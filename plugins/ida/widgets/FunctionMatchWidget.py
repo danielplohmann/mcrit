@@ -49,8 +49,8 @@ class FunctionMatchWidget(QMainWindow):
         ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
-        self.hline.setFrameShape(self.hline.HLine)
-        self.hline.setFrameShadow(self.hline.Sunken)
+        self.hline.setFrameShape(self.cc.QFrameHLine)
+        self.hline.setFrameShadow(self.cc.QFrameShadow.Sunken)
         # upper table
         self.label_function_matches = self.cc.QLabel("Function Matches")
         self.table_function_matches = self.cc.QTableWidget()

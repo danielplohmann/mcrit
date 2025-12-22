@@ -94,8 +94,8 @@ class FunctionOverviewWidget(QMainWindow):
         self.global_maximum_match_value = None
         # horizontal line
         self.hline = self.cc.QFrame()
-        self.hline.setFrameShape(self.hline.HLine)
-        self.hline.setFrameShadow(self.hline.Sunken)
+        self.hline.setFrameShape(self.cc.QFrameHLine)
+        self.hline.setFrameShadow(self.cc.QFrameShadow.Sunken)
         # table
         self.label_local_functions = self.cc.QLabel("Functions Matched")
         self.table_local_functions = self.cc.QTableWidget()
@@ -234,6 +234,8 @@ class FunctionOverviewWidget(QMainWindow):
 
     def _calculateLabelCriticality(self, label_list):
         criticality = 0
+        if len(label_list) == 0:
+            return criticality
         label_set = set([label_entry[1] for label_entry in label_list])
         top_score = max([label_entry[0] for label_entry in label_list])
         top_score_label_pool = [label_entry for label_entry in label_list if label_entry[0] == top_score]
