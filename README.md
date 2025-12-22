@@ -122,6 +122,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 ## Version History
 
+ * 2025-12-22 v1.4.5:  Fixed a bug due to early conversion when fetching many FunctionEntries at once, which would crash if one function ID does not exist.
  * 2025-12-22 v1.4.4:  No changes, just moved plugins to their own repo located at [mcrit-plugins](https://github.com/danielplohmann/mcrit-plugins).
  * 2025-12-08 v1.4.3:  Major improvements to MCRIT IDA plugin UI, backend now supports faster cross matching jobs only matching among selected samples, minor bugfixes.
  * 2025-09-12 v1.4.2:  QoL improvements and bugfixes to console client (proper markdown for result tables in queries and force recalculation option, faster skipping for dir mode submission).

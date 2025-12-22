@@ -57,11 +57,12 @@ class FunctionResource:
             target_function_ids = [int(function_id) for function_id in post_body.split(b",")]
             function_entries = {}
             for function_id in target_function_ids:
-                function_entry = self.index.getFunctionById(function_id, with_xcfg=False).toDict()
+                function_entry = self.index.getFunctionById(function_id, with_xcfg=False)
                 if function_entry:
-                    if with_label_only and not function_entry["function_labels"]:
+                    function_dict = function_entry.toDict()
+                    if with_label_only and not function_dict["function_labels"]:
                         continue
-                    function_entries[function_id] = function_entry
+                    function_entries[function_id] = function_dict
             resp.data = jsonify({"status": "successful", "data": function_entries})
             resp.status = falcon.HTTP_200
             db_log_msg(self.index, req, f"FunctionResource.on_post - success.")
