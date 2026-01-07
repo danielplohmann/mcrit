@@ -4,6 +4,7 @@ from mcrit.matchers.MatcherInterface import MatcherInterface, add_duration
 
 class MatcherSample(MatcherInterface):
     def _additional_setup(self):
+        self.matcher_type = "MatcherSample"
         self._sample_to_lib_info = {}
         self._sample_id_to_entry = {}
 

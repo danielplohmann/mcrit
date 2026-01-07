@@ -14,6 +14,7 @@ class MatcherVsGroup(MatcherInterface):
     """ Matcher to compare functions from one sample against functions from a group of other samples."""
 
     def _additional_setup(self):
+        self.matcher_type = "MatcherVsGroup"
         self._other_function_entries = []
         self._sample_to_lib_info = {}
         self._sample_id_to_entry = {}

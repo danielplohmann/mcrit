@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 class MatcherQuery(MatcherInterface):
     def _additional_setup(self):
+        self.matcher_type = "MatcherQuery"
         self._sample_entry = None
         self._sample_id = -1
         # initialize with query object

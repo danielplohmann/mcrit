@@ -68,6 +68,7 @@ class MatcherInterface(object):
         exclude_self_matches=False,
         progress_reporter=NoProgressReporter()
     ):
+        self.matcher_type = "MatcherInterface"
         # Extended by Query, VS, Sample
         self._worker: "Worker" = worker
         self._storage = worker.getStorage()
@@ -442,7 +443,11 @@ class MatcherInterface(object):
     def _aggregateMatchSampleSummary(self, match_report, own_sample_info, num_library_bytes):
         # calculate number of bytes that are actuall matchable (i.e. functions whose size exceeds threshold)
         own_sample_num_matchable_bytes = 0
-        own_sample_function_entries = self._storage.getFunctionsBySampleId(own_sample_info["sample_id"])
+        if self.matcher_type in ["MatcherQueryFunction", "MatcherQuery"]:
+            # rely on dynamically created function entries
+            own_sample_function_entries = self._function_entries
+        else:
+            own_sample_function_entries = self._storage.getFunctionsBySampleId(own_sample_info["sample_id"])
         for function_entry in own_sample_function_entries:
             if function_entry.num_instructions >= self._worker._minhash_config.MINHASH_FN_MIN_INS:
                 own_sample_num_matchable_bytes += function_entry.binweight
@@ -519,9 +524,9 @@ class MatcherInterface(object):
                     current_matched["bytes"]["nonlib_frequency_weighted"] += frequency_weighted_inc
 
             for kind in "unweighted", "score_weighted", "frequency_weighted":
-                current_matched["percent"][kind] = 100.0 * current_matched["bytes"][kind] / own_sample_num_matchable_bytes
+                current_matched["percent"][kind] = 100.0 * current_matched["bytes"][kind] / own_sample_num_matchable_bytes if own_sample_num_matchable_bytes > 0 else 0.0
                 current_matched["percent"]["nonlib_" + kind] = (
-                    100.0 * current_matched["bytes"]["nonlib_" + kind] / own_sample_num_nonlibrary_bytes
+                    100.0 * current_matched["bytes"]["nonlib_" + kind] / own_sample_num_nonlibrary_bytes if own_sample_num_nonlibrary_bytes > 0 else 0.0
                 )
 
         return list(sample_summary.values())

@@ -4,6 +4,7 @@ from mcrit.matchers.MatcherInterface import MatcherInterface, add_duration
 
 class MatcherVs(MatcherInterface):
     def _additional_setup(self):
+        self.matcher_type = "MatcherVs"
         self._function_entries_b = []
         self._sample_to_lib_info = {}
         self._sample_id_to_entry = {}

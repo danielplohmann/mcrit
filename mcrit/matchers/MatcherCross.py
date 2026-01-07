@@ -6,6 +6,9 @@ from scipy.spatial.distance import squareform
 
 class MatcherCross(object):
 
+    def _additional_setup(self):
+        self.matcher_type = "MatcherCross"
+
     def _seriation(self, Z, N, cur_index):
         """
         input:
