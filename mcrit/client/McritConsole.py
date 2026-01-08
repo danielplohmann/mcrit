@@ -415,6 +415,7 @@ class McritConsole(object):
         if not os.path.exists(args.filepath):
             print("Your <filepath> does not exist.")
             return
+        args.filepath = os.path.abspath(args.filepath)
         if args.mode == "file" and not os.path.isfile(args.filepath):
             print("Mode <file> only works when <filepath> is a file.")
             return
@@ -522,6 +523,10 @@ class McritConsole(object):
                     if sha256(readFileContent(filepath)) in mcrit_samples_by_sha256:
                         print(f"SKIPPING: {filepath} - already in MCRIT.")
                         continue
+                    family_name = getFamilyName(folder_relative_path)
+                    version = getSampleVersion(folder_relative_path, family_name)
+                    print("Processing file: ", filepath, " as ", family_name, "|", version)
+                    continue
                     if args.worker:
                         args.family = getFamilyName(folder_relative_path)
                         args.version = getSampleVersion(folder_relative_path, args.family)
