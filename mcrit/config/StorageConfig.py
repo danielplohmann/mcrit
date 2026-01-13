@@ -25,6 +25,10 @@ class StorageConfig(ConfigInterface):
     STORAGE_MONGODB_CLEANUP_TTL: int = 60 * 60 * 24 * 7
     # Once MinHashes have been calculated, discard disassembly from function entries
     STORAGE_DROP_DISASSEMBLY: bool = False
+    # supported strategies: 
+    #  * random: randomly sample from minhash fields, possibly more fuzziness likely won't use all minhash fields
+    #  * linear: use a sequential selection of minhash fields, requires size*number=MINHASH_SIGNATURE_LENGTH
+    STORAGE_BAND_STRATEGY = "random"
     # random seed to be used when deriving sequences used as bands
     STORAGE_BAND_SEED: int = 0xDEADBEEF
     # Banding supports:

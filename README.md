@@ -122,6 +122,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 ## Version History
 
+ * 2026-01-13 v1.4.6:  Introduced linear banding strategy, to be used as default in future releases (will require re-creation of the whole index).
  * 2025-12-22 v1.4.5:  Fixed a bug due to early conversion when fetching many FunctionEntries at once, which would crash if one function ID does not exist.
  * 2025-12-22 v1.4.4:  No changes, just moved plugins to their own repo located at [mcrit-plugins](https://github.com/danielplohmann/mcrit-plugins).
  * 2025-12-08 v1.4.3:  Major improvements to MCRIT IDA plugin UI, backend now supports faster cross matching jobs only matching among selected samples, minor bugfixes.

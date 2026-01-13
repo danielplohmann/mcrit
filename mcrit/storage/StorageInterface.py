@@ -686,14 +686,34 @@ class StorageInterface:
             a dict containing signature indices used for bandhashing by band id
         """
         band_projection = {}
-        random.seed(self._storage_config.STORAGE_BAND_SEED)
-        band_index = 0
-        for band_size, num_bands in self._storage_config.STORAGE_BANDS.items():
+        banding_strategy = getattr(self._storage_config, "STORAGE_BAND_STRATEGY", "random")
+        if banding_strategy == "random":
+            random.seed(self._storage_config.STORAGE_BAND_SEED)
+            band_index = 0
+            for band_size, num_bands in self._storage_config.STORAGE_BANDS.items():
+                for _ in range(num_bands):
+                    index_sequence = [index for index in range(len(minhash.getMinHashInt()))]
+                    random.shuffle(index_sequence)
+                    band_projection[band_index] = index_sequence[:band_size]
+                    band_index += 1
+        elif banding_strategy == "linear":
+            band_index = 0
+            if len(self._storage_config.STORAGE_BANDS) != 1:
+                raise AttributeError("When using STORAGE_BAND_STRATEGY: linear, use only a single band_size definition - recommended: 4.")
+            size_num_tuples = [i for i in self._storage_config.STORAGE_BANDS.items()][0]
+            band_size = size_num_tuples[0]
+            num_bands = size_num_tuples[1]
+            if not band_size * num_bands == self._minhash_config.MINHASH_SIGNATURE_LENGTH:
+                raise AttributeError("When using STORAGE_BAND_STRATEGY: linear, keep product of band_size (%d) and num_bands (%d) equal to MINHASH_SIGNATURE_LENGTH (%d) - recommended: 4/16/64." % (band_size, num_bands, self._minhash_config.MINHASH_SIGNATURE_LENGTH))
             for _ in range(num_bands):
-                index_sequence = [index for index in range(len(minhash.getMinHashInt()))]
-                random.shuffle(index_sequence)
-                band_projection[band_index] = index_sequence[:band_size]
+                index_sequence = []
+                step_size = int(self._minhash_config.MINHASH_SIGNATURE_LENGTH / band_size)
+                for index_num in range(band_size):
+                    index_sequence.append(index_num * step_size + band_index)
+                band_projection[band_index] = index_sequence
                 band_index += 1
+        else:
+            raise AttributeError("unrecognized STORAGE_BAND_STRATEGY in STORAGE_CONFIG")
         return band_projection
 
     # -> Dict[BandIndex, BandHash]
