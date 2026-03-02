@@ -483,10 +483,20 @@ class MemoryStorage(StorageInterface):
         for minhash in minhashes:
             self.addMinHash(minhash)
 
-    def createMatchingCache(self, function_ids: List[int]) -> MatchingCache:
-        # TODO: we might want add a flag to allow/disallow returning self
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> Union["MemoryStorage", "MatchingCache"]:
+        if allow_self_return:
+            return self
         cache_data = self._getCacheDataForFunctionIds(function_ids)
         return MatchingCache(cache_data)
+
+    def addFunctionEntriesToCache(self, function_entries: List["FunctionEntry"]) -> None:
+        for function_entry in function_entries:
+            if function_entry.function_id < 0:
+                self._query_functions[function_entry.function_id] = function_entry
+            else:
+                self._functions[function_entry.function_id] = function_entry
+            if function_entry.function_id not in self._sample_id_to_function_ids[function_entry.sample_id]:
+                self._sample_id_to_function_ids[function_entry.sample_id].append(function_entry.function_id)
 
     def _getCacheDataForFunctionIds(self, function_ids: List[int]) -> Dict:
         cache_data = {}
@@ -677,6 +687,9 @@ class MemoryStorage(StorageInterface):
     def getMinHashByFunctionId(self, function_id: int) -> Optional[bytes]:
         if function_id in self._functions:
             function_entry = self._functions[function_id]
+            return function_entry.minhash
+        if function_id in self._query_functions:
+            function_entry = self._query_functions[function_id]
             return function_entry.minhash
         return None
 

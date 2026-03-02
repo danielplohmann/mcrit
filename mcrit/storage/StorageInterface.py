@@ -367,11 +367,12 @@ class StorageInterface:
 
     # TODO: make a MatchingCacheInterface, or MemoryStorage a subclass of MatchingCache?
     # TODO rename -> get?
-    def createMatchingCache(self, function_ids: List[int]) -> Union["MemoryStorage", "MatchingCache"]:
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> Union["MemoryStorage", "MatchingCache"]:
         """Creates a temporary matching cache, for a list of function_ids
 
         Args:
             function_ids: list of function ids
+            allow_self_return: (optional) if True, allows returning self as cache
 
         Returns:
             a matching cache for the specified list of function ids

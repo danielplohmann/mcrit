@@ -1011,7 +1011,7 @@ class MongoDbStorage(StorageInterface):
         self._encodeFunction(function_dict)
         return function_dict
 
-    def createMatchingCache(self, function_ids: List[int]) -> MatchingCache:
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> MatchingCache:
         cache_data = self._getCacheDataForFunctionIds(function_ids)
         # TODO dont store this as attribute
         self._matching_cache = MatchingCache(cache_data)
