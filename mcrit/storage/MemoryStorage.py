@@ -537,7 +537,7 @@ class MemoryStorage(StorageInterface):
         return deepcopy(list(self._families.keys()))
 
     def isSampleId(self, sample_id: int) -> bool:
-        return sample_id in self._samples or sample_id in self._query_samples
+        return sample_id in self._samples or sample_id in self._query_samples or sample_id in self._sample_id_to_function_ids
 
     def isFunctionId(self, function_id: int) -> bool:
         return function_id in self._functions or function_id in self._query_functions
@@ -609,10 +609,9 @@ class MemoryStorage(StorageInterface):
         return None
 
     def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["int"]]:
-        function_ids = None
-        if sample_id in self._samples or sample_id in self._query_samples:
-            function_ids = self._sample_id_to_function_ids[sample_id]
-        return function_ids
+        if sample_id in self._sample_id_to_function_ids:
+            return self._sample_id_to_function_ids[sample_id]
+        return None
 
     def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
         index = 0
