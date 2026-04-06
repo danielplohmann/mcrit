@@ -182,10 +182,11 @@ class MongoQueue(object):
                 if total_value < 0:
                     operations.append(UpdateOne({"name": method, state: {"$lt": 0}}, {"$set": {state: 0}}))
 
-        operations.append(UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True))
+        if not operations:
+            return
 
-        if operations:
-            self.queue_counters.bulk_write(operations)
+        operations.append(UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True))
+        self.queue_counters.bulk_write(operations)
 
     def registerWorker(self):
         if self.consumer_id != "index":
@@ -699,6 +700,8 @@ class Job(object):
                 update={"$set": {"result": self._data["result"]}},
                 return_document=ReturnDocument.AFTER
             )
+        if not job:
+            return
         self._queue.updateQueueCounters([
             (self.method, "in_progress", -1),
             (self.method, "finished", 1)
@@ -785,6 +788,8 @@ class Job(object):
             update={"$set": {"terminated": True, "locked_at": datetime.now()}},
             return_document=ReturnDocument.AFTER
         )
+        if not job:
+            return
         self._queue.updateQueueCounters([
             (job["payload"]["method"], "in_progress", -1),
             (job["payload"]["method"], "terminated", 1)
