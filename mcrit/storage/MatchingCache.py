@@ -44,7 +44,7 @@ class StorageBackedMatchingCache(MatchingCache):
         self._func_id_to_minhash = {}
         self._func_id_to_sample_id = {}
         self._sample_id_to_func_ids = {}
-        for function_id in function_ids:
+        for function_id in set(function_ids):
             sample_id = self._storage.getSampleIdByFunctionId(function_id)
             if sample_id is None:
                 raise KeyError(function_id)
