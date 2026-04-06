@@ -401,6 +401,25 @@ class MongoDbStorage(StorageInterface):
             return None
         return function_document["sample_id"]
 
+    def getSampleIdsByFunctionIds(self, function_ids: List[int]) -> Dict[int, int]:
+        sample_ids = {}
+        positive_function_ids = [function_id for function_id in set(function_ids) if function_id >= 0]
+        negative_function_ids = [function_id for function_id in set(function_ids) if function_id < 0]
+        for collection_name, collection_ids in (
+            ("functions", positive_function_ids),
+            ("query_functions", negative_function_ids),
+        ):
+            if not collection_ids:
+                continue
+            for sliced_ids in zip_longest(*[iter(collection_ids)] * 500000):
+                query_function_ids = [function_id for function_id in sliced_ids if function_id is not None]
+                for function_document in self._getDb()[collection_name].find(
+                    {"function_id": {"$in": query_function_ids}},
+                    {"_id": 0, "function_id": 1, "sample_id": 1},
+                ):
+                    sample_ids[function_document["function_id"]] = function_document["sample_id"]
+        return sample_ids
+
     def deleteSample(self, sample_id: int) -> bool:
         sample_entry = self.getSampleById(sample_id)
         if sample_entry is None:
@@ -924,19 +943,28 @@ class MongoDbStorage(StorageInterface):
         sample_to_func_ids = {}
         minhashes = {}
         # process this in batches as the number of function_ids can be exceedingly large, pushing beyond Mongo's 16M limit
-        for sliced_ids in zip_longest(*[iter(function_ids)]*500000):
-            query_function_ids = [fid for fid in sliced_ids if fid is not None]
-            for function_document in self._getDb().functions.find(
-                {"function_id": {"$in": list(query_function_ids)}}, {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1}
-            ):
-                function_id = function_document["function_id"]
-                sample_id = function_document["sample_id"]
-                minhash = bytes.fromhex(function_document["minhash"])
-                minhashes[function_id] = minhash
-                sample_ids[function_id] = sample_id
-                if sample_id not in sample_to_func_ids:
-                    sample_to_func_ids[sample_id] = set()
-                sample_to_func_ids[sample_id].add(function_id)
+        positive_function_ids = [function_id for function_id in set(function_ids) if function_id >= 0]
+        negative_function_ids = [function_id for function_id in set(function_ids) if function_id < 0]
+        for collection_name, collection_ids in (
+            ("functions", positive_function_ids),
+            ("query_functions", negative_function_ids),
+        ):
+            if not collection_ids:
+                continue
+            for sliced_ids in zip_longest(*[iter(collection_ids)] * 500000):
+                query_function_ids = [function_id for function_id in sliced_ids if function_id is not None]
+                for function_document in self._getDb()[collection_name].find(
+                    {"function_id": {"$in": query_function_ids}},
+                    {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1},
+                ):
+                    function_id = function_document["function_id"]
+                    sample_id = function_document["sample_id"]
+                    minhash = bytes.fromhex(function_document["minhash"])
+                    minhashes[function_id] = minhash
+                    sample_ids[function_id] = sample_id
+                    if sample_id not in sample_to_func_ids:
+                        sample_to_func_ids[sample_id] = set()
+                    sample_to_func_ids[sample_id].add(function_id)
         cache_data["func_id_to_minhash"] = minhashes
         cache_data["func_id_to_sample_id"] = sample_ids
         cache_data["sample_id_to_func_ids"] = sample_to_func_ids

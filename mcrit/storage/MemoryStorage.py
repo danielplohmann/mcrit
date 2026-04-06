@@ -494,8 +494,8 @@ class MemoryStorage(StorageInterface):
         sample_ids = {}
         sample_to_func_ids = {}
         minhashes = {}
-        for function_id in function_ids:
-            function_entry = self._functions[function_id]
+        for function_id in set(function_ids):
+            function_entry = self._query_functions[function_id] if function_id < 0 else self._functions[function_id]
             function_id = function_entry.function_id
             sample_id = function_entry.sample_id
             minhashes[function_id] = function_entry.minhash
@@ -637,6 +637,15 @@ class MemoryStorage(StorageInterface):
         if function_id in self._query_functions:
             sample_id = self._query_functions[function_id].sample_id
         return sample_id
+
+    def getSampleIdsByFunctionIds(self, function_ids: List[int]) -> Dict[int, int]:
+        sample_ids = {}
+        for function_id in set(function_ids):
+            if function_id in self._functions:
+                sample_ids[function_id] = self._functions[function_id].sample_id
+            elif function_id in self._query_functions:
+                sample_ids[function_id] = self._query_functions[function_id].sample_id
+        return sample_ids
 
     def getSamples(self, start_index: int, limit: int) -> Optional["SampleEntry"]:
         index = 0

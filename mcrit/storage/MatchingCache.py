@@ -42,13 +42,13 @@ class StorageBackedMatchingCache(MatchingCache):
     def __init__(self, storage, function_ids):
         self._storage = storage
         self._func_id_to_minhash = {}
-        self._func_id_to_sample_id = {}
+        unique_function_ids = set(function_ids)
+        self._func_id_to_sample_id = dict(self._storage.getSampleIdsByFunctionIds(list(unique_function_ids)))
         self._sample_id_to_func_ids = {}
-        for function_id in set(function_ids):
-            sample_id = self._storage.getSampleIdByFunctionId(function_id)
-            if sample_id is None:
-                raise KeyError(function_id)
-            self._func_id_to_sample_id[function_id] = sample_id
+        missing_function_ids = unique_function_ids.difference(self._func_id_to_sample_id)
+        if missing_function_ids:
+            raise KeyError(missing_function_ids.pop())
+        for function_id, sample_id in self._func_id_to_sample_id.items():
             if sample_id not in self._sample_id_to_func_ids:
                 self._sample_id_to_func_ids[sample_id] = set()
             self._sample_id_to_func_ids[sample_id].add(function_id)

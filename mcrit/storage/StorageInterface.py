@@ -256,6 +256,17 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def getSampleIdsByFunctionIds(self, function_ids: List[int]) -> Dict[int, int]:
+        """For a given list of function_ids, return the corresponding sample_ids.
+
+        Args:
+            function_ids: a list of function ids
+
+        Returns:
+            a dict mapping function_id to sample_id for all function_ids found
+        """
+        raise NotImplementedError
+
     def getSampleById(self, sample_id: int) -> Optional["SampleEntry"]:
         """Given a sample_id, return the respective SampleEntry or None, if sample_id was not found.
 
