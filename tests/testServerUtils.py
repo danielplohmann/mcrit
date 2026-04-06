@@ -43,25 +43,21 @@ class TestServerUtils(unittest.TestCase):
         self.assertEqual(getMatchingParams(req_params), expected)
 
     @patch("mcrit.server.utils.LOGGER")
-    def test_getMatchingParams_invalid_pichash_size(self, mock_logger):
-        req_params = {"pichash_size": "not-an-int"}
-        result = getMatchingParams(req_params)
-        self.assertEqual(result, {})
-        mock_logger.warning.assert_called_with("Failed to handle request parameter: pichash_size: not-an-int")
-
-    @patch("mcrit.server.utils.LOGGER")
-    def test_getMatchingParams_invalid_minhash_score(self, mock_logger):
-        req_params = {"minhash_score": "not-an-int"}
-        result = getMatchingParams(req_params)
-        self.assertEqual(result, {})
-        mock_logger.warning.assert_called_with("Failed to handle request parameter: minhash_score: not-an-int")
-
-    @patch("mcrit.server.utils.LOGGER")
-    def test_getMatchingParams_invalid_band_matches_required(self, mock_logger):
-        req_params = {"band_matches_required": "not-an-int"}
-        result = getMatchingParams(req_params)
-        self.assertEqual(result, {})
-        mock_logger.warning.assert_called_with("Failed to handle request parameter: band_matches_required: not-an-int")
+    def test_getMatchingParams_invalid_integer_params(self, mock_logger):
+        invalid_params = [
+            "pichash_size",
+            "minhash_score",
+            "band_matches_required",
+        ]
+        for param in invalid_params:
+            with self.subTest(param=param):
+                mock_logger.reset_mock()
+                req_params = {param: "not-an-int"}
+                result = getMatchingParams(req_params)
+                self.assertEqual(result, {})
+                mock_logger.warning.assert_called_with(
+                    f"Failed to handle request parameter: {param}: not-an-int"
+                )
 
 if __name__ == "__main__":
     unittest.main()
