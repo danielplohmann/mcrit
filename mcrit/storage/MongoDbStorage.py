@@ -724,7 +724,7 @@ class MongoDbStorage(StorageInterface):
             functions.append(FunctionEntry.fromDict(f))
         return functions
 
-    def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
+    def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List[int]]:
         function_ids = None
         if not self.isSampleId(sample_id):
             return function_ids
@@ -734,7 +734,7 @@ class MongoDbStorage(StorageInterface):
         else:
             function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0, "function_id": 1}))
         for f in function_dicts:
-            function_ids(f["function_ids"])
+            function_ids.append(f["function_id"])
         return function_ids
 
     def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
