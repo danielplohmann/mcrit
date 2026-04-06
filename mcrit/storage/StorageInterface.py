@@ -10,7 +10,6 @@ if TYPE_CHECKING: # pragma: no cover
     from mcrit.config.MinHashConfig import MinHashConfig
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
-    from mcrit.storage.MemoryStorage import MemoryStorage
     from mcrit.storage.SampleEntry import SampleEntry
     from smda.common.SmdaFunction import SmdaFunction
     from smda.common.SmdaReport import SmdaReport
@@ -365,14 +364,14 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    # TODO: make a MatchingCacheInterface, or MemoryStorage a subclass of MatchingCache?
+    # TODO: make a MatchingCacheInterface for all backends.
     # TODO rename -> get?
-    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> Union["MemoryStorage", "MatchingCache"]:
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> "MatchingCache":
         """Creates a temporary matching cache, for a list of function_ids
 
         Args:
             function_ids: list of function ids
-            allow_self_return: (optional) if True, allows returning self as cache
+            allow_self_return: (optional) if True, allows a backend-specific optimized cache implementation
 
         Returns:
             a matching cache for the specified list of function ids
