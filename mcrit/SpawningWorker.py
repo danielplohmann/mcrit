@@ -104,7 +104,7 @@ class SpawningWorker(Worker):
                     if accum is not None:
                         accum.append(decoded_line)
             except Exception:
-                pass
+                LOGGER.exception("Exception in subprocess reader thread")
             finally:
                 pipe.close()
 
@@ -120,9 +120,10 @@ class SpawningWorker(Worker):
         except subprocess.TimeoutExpired:
             LOGGER.error(f"Job {str(job.job_id)} running as child from SpawningWorker timed out during processing.")
             console_handle.kill()
+            console_handle.wait()
 
-        t1.join(timeout=1)
-        t2.join(timeout=1)
+        t1.join()
+        t2.join()
 
         if stdout_lines:
             # Search backwards for result_id in case there are trailing empty lines or other output
