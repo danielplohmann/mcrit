@@ -22,25 +22,30 @@ class TestServerUtils(unittest.TestCase):
         self.assertEqual(getMatchingParams(req_params), expected)
 
     def test_getMatchingParams_edge_cases(self):
-        req_params = {
-            "pichash_size": "-1",
-            "minhash_score": "150",
-            "band_matches_required": "-5"
-        }
-        expected = {
-            "pichash_size": 0,
-            "minhash_threshold": 100,
-            "band_matches_required": 0
-        }
-        self.assertEqual(getMatchingParams(req_params), expected)
+        test_cases = [
+            (
+                "multiple_out_of_bounds",
+                {
+                    "pichash_size": "-1",
+                    "minhash_score": "150",
+                    "band_matches_required": "-5",
+                },
+                {
+                    "pichash_size": 0,
+                    "minhash_threshold": 100,
+                    "band_matches_required": 0,
+                },
+            ),
+            (
+                "negative_minhash_score",
+                {"minhash_score": "-10"},
+                {"minhash_threshold": 0},
+            ),
+        ]
 
-        req_params = {
-            "minhash_score": "-10"
-        }
-        expected = {
-            "minhash_threshold": 0
-        }
-        self.assertEqual(getMatchingParams(req_params), expected)
+        for name, req_params, expected in test_cases:
+            with self.subTest(msg=name):
+                self.assertEqual(getMatchingParams(req_params), expected)
 
     @patch("mcrit.server.utils.LOGGER")
     def test_getMatchingParams_invalid_integer_params(self, mock_logger):
