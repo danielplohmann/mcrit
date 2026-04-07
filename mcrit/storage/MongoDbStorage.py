@@ -412,9 +412,6 @@ class MongoDbStorage(StorageInterface):
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
             return 
         function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
-        if function_minhashes is None:
-            # in this case sample_id is does not exist
-            return False
 
         # collect all band entries that need updating and pull all function_ids at once.
         # might need to batch this into slices of function_ids again
