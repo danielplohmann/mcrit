@@ -51,7 +51,7 @@ class MinHash(object):
         return 1 if MinHash._MINHASH_BITS <= 8 else 4
 
     def setMinHash(self, minhash_signature):
-        self.minhash_int = [i % 2 ** self._MINHASH_BITS for i in minhash_signature]
+        self.minhash_int = [int(i) % 2 ** self._MINHASH_BITS for i in minhash_signature]
         if self._MINHASH_BITS <= 8:
             self.minhash = np.array(self.minhash_int, dtype=np.uint8).tobytes()
         else:

@@ -4,6 +4,7 @@ from unittest import TestCase
 from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.MongoDbStorage import MongoDbStorage
 
 
@@ -60,7 +61,10 @@ class MongoDbStorageDeleteSampleTest(TestCase):
             self.storage,
         )
         self.storage.isSampleId = MethodType(
-            lambda _self, sample_id: sample_id == 7, self.storage
+            lambda _self, sample_id: (_ for _ in ()).throw(
+                AssertionError("deleteSample should not re-check sample existence")
+            ),
+            self.storage,
         )
         band_updates = []
         family_updates = []
@@ -98,3 +102,11 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         self.assertEqual([(1, -1, -2, 0)], family_updates)
         self.assertEqual(1, len(band_updates))
         self.assertEqual("pull", band_updates[0][1])
+
+    def testMinHashRoundTripsFromBytes(self):
+        signature = [0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39]
+        minhash = MinHash(function_id=1, minhash_signature=signature, minhash_bits=8)
+
+        restored = MinHash(function_id=1, minhash_bytes=minhash.getMinHash(), minhash_bits=8)
+
+        self.assertEqual(signature, restored.getMinHashInt())
