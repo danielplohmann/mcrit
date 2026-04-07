@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from typing import Dict
 
 from mcrit.config.ConfigInterface import ConfigInterface, default_field
@@ -25,7 +25,7 @@ class StorageConfig(ConfigInterface):
     STORAGE_MONGODB_CLEANUP_TTL: int = 60 * 60 * 24 * 7
     # Once MinHashes have been calculated, discard disassembly from function entries
     STORAGE_DROP_DISASSEMBLY: bool = False
-    # supported strategies: 
+    # supported strategies:
     #  * random: randomly sample from minhash fields, possibly more fuzziness likely won't use all minhash fields
     #  * linear: use a sequential selection of minhash fields, requires size*number=MINHASH_SIGNATURE_LENGTH
     STORAGE_BAND_STRATEGY = "random"

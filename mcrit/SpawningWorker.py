@@ -1,45 +1,18 @@
 #!/usr/bin/env python3
 
+import logging
 import os
 import re
-import uuid
-import json
-import time
-import logging
-import hashlib
-from datetime import datetime, timedelta
-from collections import defaultdict
-from itertools import zip_longest
-from multiprocessing import Pool, cpu_count
 import subprocess
-from typing import Dict, List, Optional, TYPE_CHECKING, Tuple
+import time
+import uuid
+from typing import TYPE_CHECKING, Optional
 
-import tqdm
-from smda.common.BinaryInfo import BinaryInfo
-from smda.common.SmdaFunction import SmdaFunction
-from smda.common.SmdaReport import SmdaReport
-from smda.Disassembler import Disassembler
-from smda.SmdaConfig import SmdaConfig
-from smda.common.SmdaInstruction import SmdaInstruction
-from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
-
-from mcrit.Worker import Worker
 from mcrit.config.McritConfig import McritConfig
-from mcrit.config.MinHashConfig import MinHashConfig
-from mcrit.config.ShinglerConfig import ShinglerConfig
-from mcrit.config.QueueConfig import QueueConfig
-from mcrit.config.McritConfig import McritConfig
-from mcrit.config.StorageConfig import StorageConfig
-from mcrit.matchers.MatcherCross import MatcherCross
-from mcrit.matchers.MatcherQuery import MatcherQuery
-from mcrit.matchers.MatcherSample import MatcherSample
-from mcrit.matchers.MatcherVs import MatcherVs
 from mcrit.minhash.MinHasher import MinHasher
-from mcrit.queue.LocalQueue import Job
 from mcrit.queue.QueueFactory import QueueFactory
-from mcrit.queue.QueueRemoteCalls import NoProgressReporter, QueueRemoteCallee, Remote, JobProgressReporter
-from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageFactory import StorageFactory
+from mcrit.Worker import Worker
 
 if TYPE_CHECKING:
     from mcrit.storage.StorageInterface import StorageInterface
@@ -60,7 +33,7 @@ class SpawningWorker(Worker):
 
         if profiling:
             print("[!] Running as profiled application.")
-            profiling_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__ )), "..", "profiler"))
+            profiling_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "profiler"))
             os.makedirs(profiling_path, exist_ok=True)
         else:
             profiling_path = None
@@ -77,16 +50,16 @@ class SpawningWorker(Worker):
         else:
             self._storage = StorageFactory.getStorage(config)
 
-    def  __enter__(self):
+    def __enter__(self):
         return self
 
-    def  __exit__(self, *args):
+    def __exit__(self, *args):
         # TODO unregister our worker_id from all in-progress jobs found in the queue
         self.queue.unregisterWorker()
         self.queue.release_all_jobs()
 
     #### NO REDIRECTION: SPAWM SINGLE JOB WORKERS INSTEAD ###
-        
+
     def _executeJobPayload(self, job_payload, job):
         # instead of execution within our own context, spawn a new process as worker for this job payload
         console_handle = subprocess.Popen(["python", "-m", "mcrit", "singlejobworker", "--job_id", str(job.job_id)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -95,7 +68,7 @@ class SpawningWorker(Worker):
         try:
             stdout_result, stderr_result = console_handle.communicate(timeout=self._queue_config.QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT)
             stdout_result = stdout_result.strip().decode("utf-8")
-             # TODO: log output from subprocess in the order it arrived
+            # TODO: log output from subprocess in the order it arrived
             # instead of the split to stdout, stderr
             if stdout_result:
                 LOGGER.info("STDOUT logs from subprocess: %s", stdout_result)
@@ -127,7 +100,7 @@ class SpawningWorker(Worker):
                     LOGGER.info("Finished Remote Job with result_id: %s", result_id)
                 else:
                     LOGGER.info("Failed Running Remote Job: %s", job)
-        except Exception as exc:
+        except Exception:
             LOGGER.error("Error occurred while executing job: %s", job, exc_info=True)
 
     def run(self):

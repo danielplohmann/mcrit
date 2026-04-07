@@ -4,7 +4,7 @@ In this document we describe the different ways of interaction enabled by the MC
 
 ## Submit
 
-The `submit` command supports 4 methods of data submission, supported by a number of auxiliary flags.  
+The `submit` command supports 4 methods of data submission, supported by a number of auxiliary flags.
 Here is its documentation:
 
 ```
@@ -41,10 +41,10 @@ options:
 
 ### File
 
-Submit a single file.  
-If the provided path ends with `0x[0-9a-fA-F]{8,16}`, the client will assume that this is a mapped file (no evaluation of PE header) and use the given addr as IMAGEBASE. 
+Submit a single file.
+If the provided path ends with `0x[0-9a-fA-F]{8,16}`, the client will assume that this is a mapped file (no evaluation of PE header) and use the given addr as IMAGEBASE.
 ```bash
-$ mcrit client submit --mode file ~/malpedia/win.wannacryptor/vt-2017-05-05/0345782378ee7a8b48c296a120625fd439ed8699ae857c4f84befeb56e727366_dump_0x00400000 
+$ mcrit client submit --mode file ~/malpedia/win.wannacryptor/vt-2017-05-05/0345782378ee7a8b48c296a120625fd439ed8699ae857c4f84befeb56e727366_dump_0x00400000
  0.906s -> (architecture: intel.32bit, base_addr: 0x00400000): 922 functions
 ```
 
@@ -62,7 +62,7 @@ $ mcrit client submit --mode dir ~/malpedia/win.wannacryptor/vt-2017-05-12/
 
  ### Recursive
 
- Recursively submit all files found in a directory, assuming a structure like 
+ Recursively submit all files found in a directory, assuming a structure like
  ```
  ./family_name/version/version/files
  ```
@@ -71,10 +71,10 @@ $ mcrit client submit --mode dir ~/malpedia/win.wannacryptor/vt-2017-05-12/
 
  ### Malpedia
 
-Dedicated mode to synchronize all data available in the Malpedia repository.  
-If files from Malpedia are already available in MCRIT, they will be skipped on the next execution, making this command suitable to synchronize updated states of Malpedia into MCRIT.  
-Only ELF and PE (win.*) families and only files labeled as `_unpacked` or `_dump_0x...`  will be considered and processed.  
-Requires directory name to be called `malpedia`, sanity checks if there is a `malpedia.bib` file present as in the repo.  
+Dedicated mode to synchronize all data available in the Malpedia repository.
+If files from Malpedia are already available in MCRIT, they will be skipped on the next execution, making this command suitable to synchronize updated states of Malpedia into MCRIT.
+Only ELF and PE (win.*) families and only files labeled as `_unpacked` or `_dump_0x...`  will be considered and processed.
+Requires directory name to be called `malpedia`, sanity checks if there is a `malpedia.bib` file present as in the repo.
 
  ```
  $ mcrit client submit --mode malpedia ~/malpedia
@@ -96,7 +96,7 @@ usage: mcrit client export [-h] [--sample_ids SAMPLE_IDS] filepath
 $ mcrit client export --sample_ids 0 sample_0.mcrit
 wrote export to sample_0.mcrit.
 
-$ head sample_0.mcrit 
+$ head sample_0.mcrit
 {
  "content": {
   "is_compressed": true,
@@ -117,7 +117,7 @@ This command can be used to import previously exported sample(s), e.g.:
 ```bash
 usage: mcrit client import [-h] filepath
 
-$ mcrit client import sample_0.mcrit               
+$ mcrit client import sample_0.mcrit
 {'num_samples_imported': 0, 'num_samples_skipped': 1, 'num_functions_imported': 0, 'num_functions_skipped': 214, 'num_families_imported': 0, 'num_families_skipped': 1}
 
 ```
@@ -129,13 +129,13 @@ This command can be used to search across families, samples, and functions, e.g.
 ```bash
 usage: mcrit client search [-h] search_term
 
-$ mcrit client search wanna                                               
+$ mcrit client search wanna
 Family Search Results
-Famliy 2 (win.wannacry): 
+Famliy 2 (win.wannacry):
 ********************
 Sample Search Results
-Sample 1 (intel, 32 bit) - ca29de1dc8817868c93e54b09f557fe14e40083c0955294df5bd91f52ba469c8_unpacked (win.wannacry): 
-Sample 2 (intel, 32 bit) - 3e6de9e2baacf930949647c399818e7a2caea2626df6a468407854aaa515eed9 (win.wannacry): 
+Sample 1 (intel, 32 bit) - ca29de1dc8817868c93e54b09f557fe14e40083c0955294df5bd91f52ba469c8_unpacked (win.wannacry):
+Sample 2 (intel, 32 bit) - 3e6de9e2baacf930949647c399818e7a2caea2626df6a468407854aaa515eed9 (win.wannacry):
 ********************
 ```
 

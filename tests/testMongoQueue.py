@@ -1,23 +1,19 @@
 import logging
 import os
 import time
+import unittest
 from datetime import datetime
 from unittest import TestCase
 
 import pymongo
+import pytest
 
-from mcrit.libs.mongoqueue import MongoQueue
 from mcrit.config.QueueConfig import QueueConfig
-
-from .context import config
+from mcrit.libs.mongoqueue import MongoQueue
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logging.disable(logging.CRITICAL)
-
-
-### Added mongo attribute
-import pytest
 
 
 @pytest.mark.mongo
@@ -103,7 +99,7 @@ class MongoQueueTest(TestCase):
             pass
 
         job = self.queue.next()
-        self.assertEqual(job.attempts_left, self.queue.max_attempts-1)
+        self.assertEqual(job.attempts_left, self.queue.max_attempts - 1)
 
     def test_context_manager_complete(self):
         self.queue.put({"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()})

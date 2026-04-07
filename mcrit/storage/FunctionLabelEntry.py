@@ -1,21 +1,15 @@
 import datetime
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import Optional
 
 
-class FunctionLabelEntry(object):
+class FunctionLabelEntry:
     # MCRIT specific
     function_id: int
     function_label: str
     username: str
     timestamp: datetime
 
-    def __init__(
-        self,
-        function_label: str,
-        username: str,
-        function_id: Optional[int]=None,
-        timestamp: Optional[datetime.datetime]=None
-    ) -> None:
+    def __init__(self, function_label: str, username: str, function_id: Optional[int] = None, timestamp: Optional[datetime.datetime] = None) -> None:
         self.function_label = function_label
         self.username = username
         self.function_id = function_id

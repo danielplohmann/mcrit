@@ -17,7 +17,7 @@ class MinHashIndexTestSuite(unittest.TestCase):
     """Run a full example on a memory dump"""
 
     def testMinHashIndexInit(self):
-        index = MinHashIndex(config)
+        MinHashIndex(config)
 
     def testCandidatePairGenerator(self):
         test_data = [([], []), ([1, 2, 3, 4], [(1, 2), (1, 3), (1, 4), (2, 3), (2, 4), (3, 4)])]

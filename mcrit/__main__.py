@@ -1,31 +1,37 @@
-import re
 import os
+import re
 import sys
 
 
 def runWorker(profiling=False):
     from mcrit.Worker import Worker
+
     with Worker(profiling=profiling) as worker:
         worker.run()
 
 
 def runSpawningWorker(profiling=False):
     from mcrit.SpawningWorker import SpawningWorker
+
     with SpawningWorker(profiling=profiling) as spawning_worker:
         spawning_worker.run()
 
 
 def runSingleJobWorker(job_id, profiling=False):
     from mcrit.SingleJobWorker import SingleJobWorker
+
     with SingleJobWorker(job_id, profiling=profiling) as single_job_worker:
         single_job_worker.run()
 
 
 def runServer(profiling=False, uses_gunicorn=False):
     import platform
+
     from waitress import serve
-    from mcrit.server.wsgi import app
+
     from mcrit.config.GunicornConfig import GunicornConfig
+    from mcrit.server.wsgi import app
+
     try:
         import gunicorn
         from gunicorn.app.base import BaseApplication
@@ -36,7 +42,7 @@ def runServer(profiling=False, uses_gunicorn=False):
         def __init__(self, app):
             self.app = app
             super().__init__()
-        
+
         def load_config(self):
             for key, value in GunicornConfig().toDict().items():
                 try:
@@ -51,6 +57,7 @@ def runServer(profiling=False, uses_gunicorn=False):
     if profiling:
         print("[!] Running as profiled application.")
         from werkzeug.middleware.profiler import ProfilerMiddleware
+
         profile_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "profiler")
         os.makedirs(profile_dir, exist_ok=True)
         wrapped_app = ProfilerMiddleware(
@@ -59,7 +66,7 @@ def runServer(profiling=False, uses_gunicorn=False):
             profile_dir=profile_dir,
             filename_format="{method}-{path}-{time:.0f}-{elapsed:.0f}ms.prof",
         )
-    
+
     platform = platform.system().lower()
     if platform == "linux" and gunicorn is not None and (GunicornConfig().USE_GUNICORN or uses_gunicorn):
         print("[!] Detected linux platform and gunicorn availability. Using gunicorn deployment.")
@@ -75,6 +82,7 @@ def runServer(profiling=False, uses_gunicorn=False):
 
 def runClient():
     from mcrit.client.McritConsole import McritConsole
+
     # we will re-parse arguments with more detail in McritConsole to keep this file concise
     console_client = McritConsole()
     console_client.run()
@@ -112,6 +120,7 @@ def main():
         print(f"Usage: {sys.argv[0]} {{server, worker, spawningworker, client}}")
         print("Optionally use --profiling for {server, worker, spawningworker}")
         sys.exit()
+
 
 if __name__ == "__main__":
     main()

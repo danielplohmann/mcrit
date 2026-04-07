@@ -1,14 +1,11 @@
-import struct
 import hashlib
-import logging 
+import struct
 
 from rapidfuzz.distance import Levenshtein
 from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 
-
-class FunctionCfgMatcher(object):
-
+class FunctionCfgMatcher:
     def __init__(self, sample_entry_a, smda_function_a, sample_entry_b, smda_function_b) -> None:
         """
         Initialize with two smda_functions and their respective sample_entries or smda_reports (only needed for base_addr and binary_size)
@@ -37,7 +34,14 @@ class FunctionCfgMatcher(object):
             if block.length >= min_size:
                 escaped_binary_seq = []
                 for instruction in block.getInstructions():
-                    escaped_binary_seq.append(instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=sample_entry.base_addr, upper_addr=sample_entry.base_addr + sample_entry.binary_size))
+                    escaped_binary_seq.append(
+                        instruction.getEscapedBinary(
+                            IntelInstructionEscaper,
+                            escape_intraprocedural_jumps=True,
+                            lower_addr=sample_entry.base_addr,
+                            upper_addr=sample_entry.base_addr + sample_entry.binary_size,
+                        )
+                    )
                 as_bytes = bytes([ord(c) for c in "".join(escaped_binary_seq)])
                 hashed = struct.unpack("Q", hashlib.sha256(as_bytes).digest()[:8])[0]
                 pic_block_hashes.append({"offset": block.offset, "hash": hashed, "size": block.length})
@@ -49,7 +53,14 @@ class FunctionCfgMatcher(object):
         for block in self.smda_function_a.getBlocks():
             escaped_binary_seq = []
             for instruction in block.getInstructions():
-                escaped_binary_seq.append(instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=self.sample_entry_a.base_addr, upper_addr=self.sample_entry_a.base_addr + self.sample_entry_a.binary_size))
+                escaped_binary_seq.append(
+                    instruction.getEscapedBinary(
+                        IntelInstructionEscaper,
+                        escape_intraprocedural_jumps=True,
+                        lower_addr=self.sample_entry_a.base_addr,
+                        upper_addr=self.sample_entry_a.base_addr + self.sample_entry_a.binary_size,
+                    )
+                )
             as_bytes = bytes([ord(c) for c in "".join(escaped_binary_seq)])
             hashed = struct.unpack("Q", hashlib.sha256(as_bytes).digest()[:8])[0]
             all_phbs_a.append({"offset": block.offset, "hash": hashed, "size": block.length})
@@ -57,7 +68,14 @@ class FunctionCfgMatcher(object):
         for block in self.smda_function_b.getBlocks():
             escaped_binary_seq = []
             for instruction in block.getInstructions():
-                escaped_binary_seq.append(instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=self.sample_entry_b.base_addr, upper_addr=self.sample_entry_b.base_addr + self.sample_entry_b.binary_size))
+                escaped_binary_seq.append(
+                    instruction.getEscapedBinary(
+                        IntelInstructionEscaper,
+                        escape_intraprocedural_jumps=True,
+                        lower_addr=self.sample_entry_b.base_addr,
+                        upper_addr=self.sample_entry_b.base_addr + self.sample_entry_b.binary_size,
+                    )
+                )
             as_bytes = bytes([ord(c) for c in "".join(escaped_binary_seq)])
             hashed = struct.unpack("Q", hashlib.sha256(as_bytes).digest()[:8])[0]
             all_phbs_b.append({"offset": block.offset, "hash": hashed, "size": block.length})
@@ -185,8 +203,8 @@ class FunctionCfgMatcher(object):
         node_colors["b"].update(smaller_picblock_matches["b"])
         # compare everything not colored by now using our adapted Levenshtein
         unmatched_nodes = {
-            "a": [int(k[6:], 16) for k, v in node_colors["a"].items() if v == self.match_colors[99]], 
-            "b": [int(k[6:], 16) for k, v in node_colors["b"].items() if v == self.match_colors[99]], 
+            "a": [int(k[6:], 16) for k, v in node_colors["a"].items() if v == self.match_colors[99]],
+            "b": [int(k[6:], 16) for k, v in node_colors["b"].items() if v == self.match_colors[99]],
         }
         levenshtein_matches = self.getLevenshteinMatches(unmatched_nodes)
         node_colors["a"].update(levenshtein_matches["a"])

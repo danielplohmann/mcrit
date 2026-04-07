@@ -5,7 +5,8 @@ import logging
 import os
 import unittest
 from copy import deepcopy
-from unittest.mock import MagicMock
+
+from smda.common.SmdaReport import SmdaReport
 
 from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.matchers.MatcherFlags import IS_LIBRARY_FLAG, IS_MINHASH_FLAG, IS_PICHASH_FLAG
@@ -16,8 +17,6 @@ from mcrit.matchers.MatcherSample import MatcherSample
 from mcrit.matchers.MatcherVs import MatcherVs
 from mcrit.matchers.MatcherVsGroup import MatcherVsGroup
 from mcrit.storage.SampleEntry import SampleEntry
-from smda.common.SmdaFunction import SmdaFunction
-from smda.common.SmdaReport import SmdaReport
 
 from .context import config
 
@@ -49,14 +48,11 @@ class MatcherTestSuite(unittest.TestCase):
 
         function_1_selected = list(self.smda_report_1.getFunctions())[3]
         function_2_selected = list(self.smda_report_2.getFunctions())[5]
-        offset = function_2_selected.offset
         # self.smda_report_2.xcfg[offset] = function_1_selected
         function_2_selected.pic_hash = function_1_selected.pic_hash
 
         # make a selfmatch
-        self.smda_report_1.xcfg[list(self.smda_report_1.getFunctions())[1].offset] = list(
-            self.smda_report_1.getFunctions()
-        )[5]
+        self.smda_report_1.xcfg[list(self.smda_report_1.getFunctions())[1].offset] = list(self.smda_report_1.getFunctions())[5]
 
     # from matchervs
     function_matches_expected = [
@@ -71,13 +67,7 @@ class MatcherTestSuite(unittest.TestCase):
             "num_instructions": 120,
             "offset": 0,
         },
-        {
-                "num_bytes": 35.0,
-                "num_instructions": 11,
-                "offset": 2220,
-                "matches": [],
-                "fid": 10
-        },
+        {"num_bytes": 35.0, "num_instructions": 11, "offset": 2220, "matches": [], "fid": 10},
         {
             "fid": 11,
             "matches": [
@@ -90,10 +80,7 @@ class MatcherTestSuite(unittest.TestCase):
         },
         {
             "fid": 12,
-            "matches": [
-                (0, 2, 21, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
-                (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG)
-            ],
+            "matches": [(0, 2, 21, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG), (1, 0, 5, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG)],
             "num_bytes": 166.0,
             "num_instructions": 64,
             "offset": 1004,
@@ -105,20 +92,8 @@ class MatcherTestSuite(unittest.TestCase):
             "num_instructions": 365,
             "offset": 1172,
         },
-        {
-            "num_bytes": 35.0,
-            "num_instructions": 11,
-            "offset": 2220,
-            "matches": [],
-            "fid": 14
-        },
-        {
-            "num_bytes": 524.0,
-            "num_instructions": 159,
-            "offset": 2256,
-            "matches": [],
-            "fid": 15
-        },
+        {"num_bytes": 35.0, "num_instructions": 11, "offset": 2220, "matches": [], "fid": 14},
+        {"num_bytes": 524.0, "num_instructions": 159, "offset": 2256, "matches": [], "fid": 15},
         {
             "fid": 16,
             "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
@@ -152,13 +127,7 @@ class MatcherTestSuite(unittest.TestCase):
             "num_instructions": 120,
             "offset": 0,
         },
-        {
-            "num_bytes": 35.0,
-            "num_instructions": 11,
-            "offset": 2220,
-            "matches": [],
-            "fid": 10
-        },
+        {"num_bytes": 35.0, "num_instructions": 11, "offset": 2220, "matches": [], "fid": 10},
         {
             "fid": 11,
             "matches": [
@@ -184,20 +153,8 @@ class MatcherTestSuite(unittest.TestCase):
             "num_instructions": 365,
             "offset": 1172,
         },
-        {
-            "num_bytes": 35.0,
-            "num_instructions": 11,
-            "offset": 2220,
-            "matches": [],
-            "fid": 14
-        },
-        {
-            "num_bytes": 524.0,
-            "num_instructions": 159,
-            "offset": 2256,
-            "matches": [],
-            "fid": 15
-        },
+        {"num_bytes": 35.0, "num_instructions": 11, "offset": 2220, "matches": [], "fid": 14},
+        {"num_bytes": 524.0, "num_instructions": 159, "offset": 2256, "matches": [], "fid": 15},
         {
             "fid": 16,
             "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
@@ -272,7 +229,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 6158.0,
         "num_functions": 9,
-        'is_library': False,
+        "is_library": False,
         "matched": {
             "functions": {
                 "combined": 7,
@@ -286,7 +243,7 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 4337.59375,
                 "nonlib_unweighted": 4539.0,
                 "nonlib_score_weighted": 3434.09375,
-                "nonlib_frequency_weighted": 3434.09375
+                "nonlib_frequency_weighted": 3434.09375,
             },
             "percent": {
                 "unweighted": 90.55793991416309,
@@ -309,7 +266,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 351.0,
         "num_functions": 9,
-        'is_library': False,
+        "is_library": False,
         "matched": {
             "functions": {
                 "combined": 1,
@@ -323,7 +280,7 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 149.34375,
                 "nonlib_unweighted": 0,
                 "nonlib_score_weighted": 0,
-                "nonlib_frequency_weighted": 0
+                "nonlib_frequency_weighted": 0,
             },
             "percent": {
                 "unweighted": 5.627086313781593,
@@ -331,7 +288,7 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 2.3739270386266096,
                 "nonlib_unweighted": 0.0,
                 "nonlib_score_weighted": 0.0,
-                "nonlib_frequency_weighted": 0.0
+                "nonlib_frequency_weighted": 0.0,
             },
         },
     }
@@ -346,7 +303,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 6158.0,
         "num_functions": 9,
-        'is_library': False,
+        "is_library": False,
         "matched": {
             "functions": {
                 "combined": 7,
@@ -360,7 +317,7 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 4486.9375,
                 "nonlib_unweighted": 5697.0,
                 "nonlib_score_weighted": 4486.9375,
-                "nonlib_frequency_weighted": 4486.9375
+                "nonlib_frequency_weighted": 4486.9375,
             },
             "percent": {
                 "unweighted": 90.55793991416309,
@@ -368,8 +325,8 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 71.32312033063106,
                 "nonlib_unweighted": 90.55793991416309,
                 "nonlib_score_weighted": 71.32312033063106,
-                "nonlib_frequency_weighted": 71.32312033063106
-            }
+                "nonlib_frequency_weighted": 71.32312033063106,
+            },
         },
     }
 
@@ -383,7 +340,7 @@ class MatcherTestSuite(unittest.TestCase):
         "filename": "",
         "num_bytes": 1158.0,
         "num_functions": 3,
-        'is_library': True,
+        "is_library": True,
         "matched": {
             "functions": {
                 "combined": 3,
@@ -405,7 +362,7 @@ class MatcherTestSuite(unittest.TestCase):
                 "frequency_weighted": 15.593705293276109,
                 "nonlib_unweighted": 0.0,
                 "nonlib_score_weighted": 0.0,
-                "nonlib_frequency_weighted": 0.0
+                "nonlib_frequency_weighted": 0.0,
             },
         },
     }
@@ -457,8 +414,7 @@ class MatcherTestSuite(unittest.TestCase):
         sampleEntry1 = index._storage.addSmdaReport(self.smda_report_1)
         id1 = sampleEntry1.sample_id
 
-        libraryEntry = index._storage.addSmdaReport(self.library_report)
-        id_lib = libraryEntry.sample_id
+        index._storage.addSmdaReport(self.library_report)
 
         sampleEntry3 = index._storage.addSmdaReport(self.smda_report_3)
         id3 = sampleEntry3.sample_id
@@ -482,7 +438,7 @@ class MatcherTestSuite(unittest.TestCase):
         self.assertTrue("matcher_vs_group" in result["info"]["type"])
 
         self.assertEqual(result["matches"]["aggregation"]["pichash"], self.pichash_aggregation_expected_vs)
-        minhash_aggregation_expected_vs_group =deepcopy(self.minhash_aggregation_expected_vs)
+        minhash_aggregation_expected_vs_group = deepcopy(self.minhash_aggregation_expected_vs)
         minhash_aggregation_expected_vs_group["num_foreign_functions_matched"] = 7
         self.assertEqual(result["matches"]["aggregation"]["minhash"], minhash_aggregation_expected_vs_group)
         function_matches_expected_vs_group = []
@@ -507,29 +463,24 @@ class MatcherTestSuite(unittest.TestCase):
             "is_library": False,
             "num_functions": 9,
             "matched": {
-                "functions": {
-                "minhashes": 1,
-                "pichashes": 0,
-                "combined": 1,
-                "library": 0
-                },
+                "functions": {"minhashes": 1, "pichashes": 0, "combined": 1, "library": 0},
                 "bytes": {
-                "unweighted": 354.0,
-                "score_weighted": 298.6875,
-                "frequency_weighted": 298.6875,
-                "nonlib_unweighted": 354.0,
-                "nonlib_score_weighted": 298.6875,
-                "nonlib_frequency_weighted": 298.6875
+                    "unweighted": 354.0,
+                    "score_weighted": 298.6875,
+                    "frequency_weighted": 298.6875,
+                    "nonlib_unweighted": 354.0,
+                    "nonlib_score_weighted": 298.6875,
+                    "nonlib_frequency_weighted": 298.6875,
                 },
                 "percent": {
-                "unweighted": 5.627086313781593,
-                "score_weighted": 4.747854077253219,
-                "frequency_weighted": 4.747854077253219,
-                "nonlib_unweighted": 5.627086313781593,
-                "nonlib_score_weighted": 4.747854077253219,
-                "nonlib_frequency_weighted": 4.747854077253219
-                }
-            }
+                    "unweighted": 5.627086313781593,
+                    "score_weighted": 4.747854077253219,
+                    "frequency_weighted": 4.747854077253219,
+                    "nonlib_unweighted": 5.627086313781593,
+                    "nonlib_score_weighted": 4.747854077253219,
+                    "nonlib_frequency_weighted": 4.747854077253219,
+                },
+            },
         }
         sample_summary_entry_expected_vs_group = [deepcopy(self.sample_summary_entry_expected_vs), sample_3_match_result]
         self.assertEqual(result["matches"]["samples"], sample_summary_entry_expected_vs_group)
@@ -619,7 +570,6 @@ class MatcherTestSuite(unittest.TestCase):
         function_matches_expected = deepcopy(self.function_matches_expected)
 
         for function_data in function_matches_expected:
-            matches = function_data["matches"]
             own_function_id = function_data["fid"]
             function_data["fid"] = len(function_entries_2) - own_function_id - 1
 

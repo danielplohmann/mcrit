@@ -2,8 +2,8 @@
 
 import logging
 import random
-from collections import Counter, defaultdict
-from typing import List, Tuple, Dict
+from collections import Counter
+from typing import Dict, List, Tuple
 
 from mcrit.libs.utility import generate_segmented_sequence
 from mcrit.minhash.MinHash import MinHash
@@ -13,8 +13,7 @@ logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
 
-class MinHasher(object):
-
+class MinHasher:
     MINHASH_STRATEGY_HASH_ALL = 1
     MINHASH_STRATEGY_XOR_ALL = 2
     MINHASH_STRATEGY_SEGMENTED = 3
@@ -32,9 +31,7 @@ class MinHasher(object):
     def _initMinhashing(self):
         random.seed(self._minhash_config.MINHASH_SEED)
         # initiate sequence of seeds. If XOR or SEGMENTED strategy, this serves as sequence of XOR values instead
-        self._minhash_seeds = [
-            random.randint(0, MinHash.getHashMax()) for _ in range(self._minhash_config.MINHASH_SIGNATURE_LENGTH)
-        ]
+        self._minhash_seeds = [random.randint(0, MinHash.getHashMax()) for _ in range(self._minhash_config.MINHASH_SIGNATURE_LENGTH)]
         if self._minhash_config.MINHASH_STRATEGY == MinHasher.MINHASH_STRATEGY_SEGMENTED:
             self._initSegmentedMinHashing()
 
@@ -49,15 +46,9 @@ class MinHasher(object):
 
     def isMinHashableFunction(self, smda_function):
         is_hashable = False
-        if (
-            self._minhash_config.MINHASH_FN_MIN_BLOCKS
-            and smda_function.num_blocks > self._minhash_config.MINHASH_FN_MIN_BLOCKS
-        ):
+        if self._minhash_config.MINHASH_FN_MIN_BLOCKS and smda_function.num_blocks > self._minhash_config.MINHASH_FN_MIN_BLOCKS:
             is_hashable = True
-        if (
-            self._minhash_config.MINHASH_FN_MIN_INS
-            and smda_function.num_instructions > self._minhash_config.MINHASH_FN_MIN_INS
-        ):
+        if self._minhash_config.MINHASH_FN_MIN_INS and smda_function.num_instructions > self._minhash_config.MINHASH_FN_MIN_INS:
             is_hashable = True
         return is_hashable
 
@@ -96,9 +87,7 @@ class MinHasher(object):
             minhash_threshold = self._minhash_config.MINHASH_MATCHING_THRESHOLD
         for minhash_tuple in packed_tuples:
             sample_id_a, function_id_a, minhash_a, sample_id_b, function_id_b, minhash_b = minhash_tuple
-            score = MinHash.calculateMinHashScore(
-                minhash_a, minhash_b, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS
-            )
+            score = MinHash.calculateMinHashScore(minhash_a, minhash_b, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
             if ignore_threshold or score > minhash_threshold:
                 key = (sample_id_a, function_id_a, sample_id_b)
                 if key not in results or score > results[key][1]:
@@ -116,9 +105,7 @@ class MinHasher(object):
             minhash_threshold = self._minhash_config.MINHASH_MATCHING_THRESHOLD
         for minhash_tuple in packed_tuples:
             sample_id_a, function_id_a, minhash_a, sample_id_b, function_id_b, minhash_b = minhash_tuple
-            score = MinHash.calculateMinHashScore(
-                minhash_a, minhash_b, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS
-            )
+            score = MinHash.calculateMinHashScore(minhash_a, minhash_b, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
             if ignore_threshold or score > minhash_threshold:
                 results.append((sample_id_a, function_id_a, sample_id_b, function_id_b, score))
         return results
@@ -145,7 +132,7 @@ class MinHasher(object):
                 shingler_composition[self._shingler_names[minimum_shingles.index(min(minimum_shingles))]] += 1
             minhash_value = min(minimum_shingles)
             if self._minhash_config.MINHASH_SIGNATURE_BITS < 32:
-                minhash_value = minhash_value % (2 ** self._minhash_config.MINHASH_SIGNATURE_BITS)
+                minhash_value = minhash_value % (2**self._minhash_config.MINHASH_SIGNATURE_BITS)
             minhash_signature.append(minhash_value)
         minhash_result.setMinHash(minhash_signature)
         minhash_result.shingler_composition = dict(shingler_composition)
@@ -160,9 +147,7 @@ class MinHasher(object):
         shingler_outputs = {}
         for shingler in self._shinglers:
             shingler_outputs[shingler.getName()] = shingler.process(smda_function, 0)
-            shingler_composition[shingler.getName()]["size"] = sum(
-                [len(item) for item in shingler_outputs[shingler.getName()]]
-            )
+            shingler_composition[shingler.getName()]["size"] = sum([len(item) for item in shingler_outputs[shingler.getName()]])
         for hash_seed in self._minhash_seeds:
             xored_shingles = []
             for shingler, outputs in sorted(shingler_outputs.items()):
@@ -177,7 +162,7 @@ class MinHasher(object):
                 shingler_composition[self._shingler_names[xored_shingles.index(min(xored_shingles))]]["count"] += 1
             minhash_value = min(xored_shingles)
             if self._minhash_config.MINHASH_SIGNATURE_BITS < 32:
-                minhash_value = minhash_value % (2 ** self._minhash_config.MINHASH_SIGNATURE_BITS)
+                minhash_value = minhash_value % (2**self._minhash_config.MINHASH_SIGNATURE_BITS)
             minhash_signature.append(minhash_value)
         minhash_result.setMinHash(minhash_signature)
         minhash_result.shingler_composition = dict(shingler_composition)
@@ -204,7 +189,7 @@ class MinHasher(object):
             xored_outputs = [shingle ^ hash_seed for shingle in shingler_outputs[shingler_name]]
             minhash_value = min(xored_outputs)
             if self._minhash_config.MINHASH_SIGNATURE_BITS < 32:
-                minhash_value = minhash_value % (2 ** self._minhash_config.MINHASH_SIGNATURE_BITS)
+                minhash_value = minhash_value % (2**self._minhash_config.MINHASH_SIGNATURE_BITS)
             minhash_signature.append(minhash_value)
         minhash_result.setMinHash(minhash_signature)
         minhash_result.shingler_composition = dict(shingler_composition)

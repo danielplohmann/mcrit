@@ -4,16 +4,15 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 from mcrit.minhash.MinHash import MinHash
 
-if TYPE_CHECKING: # pragma: no cover
-    from mcrit.config.StorageConfig import StorageConfig
+if TYPE_CHECKING:  # pragma: no cover
+    from smda.common.SmdaReport import SmdaReport
+
     from mcrit.config.McritConfig import McritConfig
-    from mcrit.config.MinHashConfig import MinHashConfig
+    from mcrit.config.StorageConfig import StorageConfig
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.MemoryStorage import MemoryStorage
     from mcrit.storage.SampleEntry import SampleEntry
-    from smda.common.SmdaFunction import SmdaFunction
-    from smda.common.SmdaReport import SmdaReport
 
 SampleId = int
 FunctionId = int
@@ -46,7 +45,7 @@ class StorageInterface:
         self._band_projection = None
 
     def dbLogEvent(self, event_msg: str, username: Optional[str] = None, details: Optional[dict] = None) -> None:
-        """ Log an event to the database
+        """Log an event to the database
 
         Args:
             event_msg: a string describing the event
@@ -56,7 +55,7 @@ class StorageInterface:
         raise NotImplementedError
 
     def updateDbCleanupTimestamp(self) -> datetime.datetime:
-        """ Update a timestamp indicating the last time queried samples were deleted
+        """Update a timestamp indicating the last time queried samples were deleted
 
         Returns:
             db_cleanup_timestamp: a datetime.datetime when the DB was last cleaned
@@ -64,13 +63,12 @@ class StorageInterface:
         raise NotImplementedError
 
     def getDbCleanupTimestamp(self) -> datetime.datetime:
-        """ Get a timestamp indicating the last time queried samples were deleted
+        """Get a timestamp indicating the last time queried samples were deleted
 
         Returns:
             db_cleanup_timestamp: a datetime.datetime when the DB was last cleaned
         """
         raise NotImplementedError
-
 
     # -> Set[function_id]
     def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
@@ -189,7 +187,6 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-
     def importFunctionEntries(self, function_entries: List["FunctionEntry"]) -> Optional[List["FunctionEntry"]]:
         """Import multiple function_entries to storage based on previously exported FunctionEntry objects.
         We assume that the family_id and sample_id were already remapped by the MinHashIndex, meaning that only the function_ids need to be adjusted.
@@ -281,7 +278,7 @@ class StorageInterface:
         raise NotImplementedError
 
     def getSamples(self, start_index: int, limit: int, is_query=False) -> Optional["SampleEntry"]:
-        """Iterate the sample collection and provide a slice (regardless of sample_id), 
+        """Iterate the sample collection and provide a slice (regardless of sample_id),
         covering up to <limit> items, starting from start_index
 
         Args:
@@ -343,7 +340,7 @@ class StorageInterface:
         raise NotImplementedError
 
     def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
-        """Iterate the function collection and provide a slice (regardless of function_id), 
+        """Iterate the function collection and provide a slice (regardless of function_id),
         covering up to <limit> items, starting from start_index
 
         Args:
@@ -578,7 +575,6 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-
     def getMatchesForPicBlockHash(self, picblockhash: int) -> Set[Tuple[int, int, int, int]]:
         """Get the set of all (family_id, sample_id, function_id, offset) tuples for a given PicBlockHash. If no function has the given picblockhash, the empty set is returned
 
@@ -605,7 +601,6 @@ class StorageInterface:
             a list of FunctionEntry objects without minhash
         """
         raise NotImplementedError
-
 
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         """Given a list of sample_ids, return all basic blocks that are only found in any of these samples (and no other samples in the storage)
@@ -663,16 +658,16 @@ class StorageInterface:
         raise NotImplementedError
 
     def recalculateAllPicHashes(self) -> int:
-        """ Iterate across all SampleEntries and check if the SMDA version is older than the one currently available
+        """Iterate across all SampleEntries and check if the SMDA version is older than the one currently available
             If yes, process all FunctionEntries and use this SMDA version to recalculate and update the PicHash
-            In the end, rebuild the PicHashIndex 
+            In the end, rebuild the PicHashIndex
         Returns:
             the number of minhashes indexed
         """
         raise NotImplementedError
-    
+
     def deleteAllMinHashes(self) -> int:
-        """ drop every minhash in all function_entries as a preparation for a full rebuild
+        """drop every minhash in all function_entries as a preparation for a full rebuild
         Returns:
             the number of minhashes dropped
         """
@@ -704,7 +699,10 @@ class StorageInterface:
             band_size = size_num_tuples[0]
             num_bands = size_num_tuples[1]
             if not band_size * num_bands == self._minhash_config.MINHASH_SIGNATURE_LENGTH:
-                raise AttributeError("When using STORAGE_BAND_STRATEGY: linear, keep product of band_size (%d) and num_bands (%d) equal to MINHASH_SIGNATURE_LENGTH (%d) - recommended: 4/16/64." % (band_size, num_bands, self._minhash_config.MINHASH_SIGNATURE_LENGTH))
+                raise AttributeError(
+                    "When using STORAGE_BAND_STRATEGY: linear, keep product of band_size (%d) and num_bands (%d) equal to MINHASH_SIGNATURE_LENGTH (%d) - recommended: 4/16/64."
+                    % (band_size, num_bands, self._minhash_config.MINHASH_SIGNATURE_LENGTH)
+                )
             for _ in range(num_bands):
                 index_sequence = []
                 step_size = int(self._minhash_config.MINHASH_SIGNATURE_LENGTH / band_size)

@@ -1,11 +1,14 @@
 import logging
 import os
 import time
+import unittest
 from threading import Thread
 from unittest import TestCase
 
 import pymongo
+import pytest
 from bson.json_util import dumps, loads
+
 from mcrit.config.QueueConfig import QueueConfig
 from mcrit.libs.mongoqueue import MongoQueue
 from mcrit.queue.LocalQueue import LocalQueue
@@ -18,10 +21,6 @@ from mcrit.queue.QueueRemoteCalls import (
     get_descriptor,
     upload_file_params,
 )
-#For test marks
-import pytest
-
-from .context import config
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
@@ -44,14 +43,14 @@ class myWorker(QueueRemoteCallee):
     def test_progress(self, progress_reporter=NoProgressReporter()):
         # if not progress_reporter:
         #    progress_reporter = NoProgressReporter()
-        l = 100
+        total_steps = 100
 
         # raise Exception("The job received a terminatation message while reporting progress")
         progress_reporter._report_interval = 0
 
-        progress_reporter.set_total(l)
-        for i in range(l):
-            print(l)
+        progress_reporter.set_total(total_steps)
+        for _ in range(total_steps):
+            print(total_steps)
             time.sleep(0.01)
             progress_reporter.step()
         return 0x42
@@ -62,8 +61,8 @@ class myWorker(QueueRemoteCallee):
     @Remote()
     def child_job(self, i):
         time.sleep(0.2)
-        return i*i
-    
+        return i * i
+
     @Remote()
     def parent_job(self, child_jobs):
         results = []
@@ -72,7 +71,6 @@ class myWorker(QueueRemoteCallee):
         results = [i for i in results if i is not None]
         return sum(results)
 
-    
 
 # Define Caller Class
 class Caller(QueueRemoteCaller(myWorker)):
@@ -84,8 +82,7 @@ class Caller(QueueRemoteCaller(myWorker)):
         # Maybe call it job_dependencies?
         # parent job will only be executed after all await_jobs were finished, terminated or failed.
         parent_job_id = self.parent_job(child_job_ids, await_jobs=child_job_ids)
-        return parent_job_id	
-
+        return parent_job_id
 
 
 class RemoteCalleeTest(TestCase):
@@ -219,15 +216,10 @@ class LocalQueueRemoteCallTest(TestCase):
 
     def test_function_access(self):
         params = {0: 1, 1: 2, 2: 3}
-        payload1 = _createJobPayload(
-            "function_that_isnt_remote", params, {}, get_descriptor("function_that_isnt_remote", params, {})
-        )
-        payload2 = _createJobPayload(
-            "function_that_doesnt_exist", params, {}, get_descriptor("function_that_doesnt_exist", params, {})
-        )
+        payload1 = _createJobPayload("function_that_isnt_remote", params, {}, get_descriptor("function_that_isnt_remote", params, {}))
         job_id = self.queue.put(payload1)
         # self.caller.awaitResult(job_id)
-        error_message = self.caller.getJob(job_id).last_error
+        self.caller.getJob(job_id).last_error
         # self.assertTrue("NotImplementedError" in error_message)
         # with self.assertRaises(AttributeError):
         #    self.queue.put(payload2)
@@ -331,9 +323,8 @@ class LocalQueueRemoteCallTest(TestCase):
         job_id = self.caller.start_child_and_parent_job()
         result_id = self.caller.awaitResult(job_id)
         result = self.caller.getResult(result_id)
-        job = self.caller.getJob(job_id)
-        self.assertEqual(result, sum([i*i for i in range(9)]))
-        
+        self.assertEqual(result, sum([i * i for i in range(9)]))
+
         additional_worker.terminate()
         self.queue.clear()
 

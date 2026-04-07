@@ -2,20 +2,21 @@ import datetime
 import functools
 import logging
 import math
-from collections import defaultdict, Counter
+from collections import Counter, defaultdict
 from multiprocessing import Pool, cpu_count
 from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import tqdm
-from mcrit.queue.QueueRemoteCalls import NoProgressReporter
+
 import mcrit.matchers.MatcherFlags as MatcherFlags
+from mcrit.queue.QueueRemoteCalls import NoProgressReporter
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FunctionEntry import FunctionEntry
-    from mcrit.storage.SampleEntry import SampleEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.MemoryStorage import MemoryStorage
+    from mcrit.storage.SampleEntry import SampleEntry
     from mcrit.Worker import Worker
 
 
@@ -38,7 +39,7 @@ def build_method_str_from_args(args):
         method_str = method_type.split(".")[-1]
         if len(args) > 1:
             method_str += "(" + ", ".join([str(i) for i in list(args)[1:]]) + ")"
-    except:
+    except (IndexError, TypeError):
         pass
     return method_str
 
@@ -49,30 +50,19 @@ def add_duration(func):
         start = timer()
         result = func(*args, **kwargs)
         time = timer() - start
-        result["info"]["job"] = {
-            "duration": time, 
-            "timestamp": datetime.datetime.now().isoformat(),
-            "parameters": build_method_str_from_args(args)
-        }
+        result["info"]["job"] = {"duration": time, "timestamp": datetime.datetime.now().isoformat(), "parameters": build_method_str_from_args(args)}
         return result
 
     return wrapper
 
 
-class MatcherInterface(object):
-    def __init__(
-        self, worker: "Worker", 
-        minhash_threshold=None, 
-        pichash_size=None, 
-        band_matches_required=None, 
-        exclude_self_matches=False,
-        progress_reporter=NoProgressReporter()
-    ):
+class MatcherInterface:
+    def __init__(self, worker: "Worker", minhash_threshold=None, pichash_size=None, band_matches_required=None, exclude_self_matches=False, progress_reporter=NoProgressReporter()):
         self.matcher_type = "MatcherInterface"
         # Extended by Query, VS, Sample
-        self._worker: "Worker" = worker
+        self._worker: Worker = worker
         self._storage = worker.getStorage()
-        self._function_entries: List["FunctionEntry"] = []
+        self._function_entries: List[FunctionEntry] = []
         self._sample_info: Optional[Dict] = None
         self._sample_id: Optional[int] = None
         self._progress_reporter = progress_reporter
@@ -115,9 +105,7 @@ class MatcherInterface(object):
         candidate_groups = {}
         function_id_to_minhash = {}
         for function_entry in self._function_entries[start:end]:
-            function_id_to_minhash[function_entry.function_id] = function_entry.getMinHash(
-                minhash_bits=self._worker._minhash_config.MINHASH_SIGNATURE_BITS
-            )
+            function_id_to_minhash[function_entry.function_id] = function_entry.getMinHash(minhash_bits=self._worker._minhash_config.MINHASH_SIGNATURE_BITS)
         candidate_groups = self._storage.getCandidatesForMinHashes(function_id_to_minhash, band_matches_required=self._band_matches_required)
 
         return candidate_groups
@@ -158,10 +146,10 @@ class MatcherInterface(object):
         if self._band_matches_required > 0:
             # if we have an exceedingly large number of functions, we need to process in batches...
             quotient, remainder = divmod(len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
-            self._num_batches = quotient + int(bool(remainder)) # always round up
+            self._num_batches = quotient + int(bool(remainder))  # always round up
             self._progress_reporter.set_total(self._num_batches)
             for start_index in range(0, len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE):
-                candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index+self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
+                candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index + self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
                 LOGGER.info("Created candidate groups from MinHash bands")
                 matching_cache = self._createMatchingCache(candidate_groups)
                 LOGGER.info("Created MatchingCache")
@@ -194,9 +182,7 @@ class MatcherInterface(object):
         if self._num_batches == 1:
             self._progress_reporter.set_total(num_packed_tuples)
             single_batch = True
-        calculation_function = functools.partial(
-            self._worker.minhasher.calculateScoresFromPackedTuples, ignore_threshold=True, minhash_threshold=self._minhash_threshold
-        )
+        calculation_function = functools.partial(self._worker.minhasher.calculateScoresFromPackedTuples, ignore_threshold=True, minhash_threshold=self._minhash_threshold)
         packed_tuples = [p for p in packed_tuples]
         counted_scores = Counter()
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
@@ -213,7 +199,7 @@ class MatcherInterface(object):
                             key = (sample_id_a, function_id_a, sample_id_b)
                             new_value = (function_id_b, score)
                             original_value = organized_matching_results[key]
-                            organized_matching_results[key] = max([original_value, new_value], key=lambda x:x[1])
+                            organized_matching_results[key] = max([original_value, new_value], key=lambda x: x[1])
                     if single_batch:
                         self._progress_reporter.step()
         else:
@@ -230,23 +216,21 @@ class MatcherInterface(object):
                         organized_matching_results[key] = max([original_value, new_value], key=lambda x: x[1])
                 if single_batch:
                     self._progress_reporter.step()
-        full_score_counts = sorted([(item[0]*64/100, item[1]) for item in dict(counted_scores).items()])
+        full_score_counts = sorted([(item[0] * 64 / 100, item[1]) for item in dict(counted_scores).items()])
         LOGGER.info("Minhash Signature Field Match Counts: " + ", ".join([f"({i[0]}: {i[1]})" for i in full_score_counts]))
-        matching_results = [k+v for k, v in organized_matching_results.items()]
+        matching_results = [k + v for k, v in organized_matching_results.items()]
         self._storage.clearMatchingCache()
         return matching_results
 
     def _countPackedTuples(self, candidate_pairs) -> int:
         count = 0
         for candidate_ids in candidate_pairs.values():
-            count += len(candidate_ids) 
+            count += len(candidate_ids)
         quotient, remainder = divmod(count, self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_CANDIDATE_WORKPACK_SIZE)
         LOGGER.info("Processing a total of %d candidates.", count)
-        return quotient + int(bool(remainder)) # always round up
+        return quotient + int(bool(remainder))  # always round up
 
-    def _unrollGroupsAsPackedTuples(
-        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs
-    ) -> Iterable[List[Tuple[int, int, bytes, int, int, bytes]]]:
+    def _unrollGroupsAsPackedTuples(self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs) -> Iterable[List[Tuple[int, int, bytes, int, int, bytes]]]:
         # Query, VS, Sample
         # All were identical
         packed_tuples: List[List[Tuple[int, int, bytes, int, int, bytes]]] = []
@@ -339,13 +323,10 @@ class MatcherInterface(object):
 
     # summarizing, formatting starts here:
 
-    def _summarizeMatches(
-        self, sample_id, matches: HarmonizedMatches, aggregation_only: bool
-    ) -> Tuple[List, Dict, Dict, float]:
+    def _summarizeMatches(self, sample_id, matches: HarmonizedMatches, aggregation_only: bool) -> Tuple[List, Dict, Dict, float]:
         # Query, VS, Sample
         # all use this version
         sample_fid_to_binweight = {entry.function_id: entry.binweight for entry in self._function_entries}
-        sample_fid_to_offset = {entry.function_id: entry.offset for entry in self._function_entries}
         aggregation = {
             "num_own_functions_matched": 0,
             "num_foreign_functions_matched": 0,
@@ -355,8 +336,6 @@ class MatcherInterface(object):
         }
         # handle minhashes
         match_function_mapping: Dict[int, Dict] = {}
-        match_sample_mapping: Dict[int, Any]
-        matches_sample_list = []
         # from here on structure the stuff in the same way as pichash result
         self_matched_functions: Set[int] = set()
         own_functions_with_matches: Set[int] = set()
@@ -382,20 +361,14 @@ class MatcherInterface(object):
                 self_matched_functions.add(foreign_function_id)
             else:
                 if foreign_sample_id not in self._sample_to_lib_info:
-                    self._sample_to_lib_info[foreign_sample_id] = (
-                        self._storage.getLibraryInfoForSampleId(foreign_sample_id) is not None
-                    )
+                    self._sample_to_lib_info[foreign_sample_id] = self._storage.getLibraryInfoForSampleId(foreign_sample_id) is not None
                 has_libinfo = self._sample_to_lib_info[foreign_sample_id]
 
                 if foreign_sample_id not in self._sample_id_to_entry:
                     self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
                 foreign_family_id = self._sample_id_to_entry[foreign_sample_id].family_id
 
-                flags = (
-                    is_pichash_match * MatcherFlags.IS_PICHASH_FLAG
-                    + is_minhash_match * MatcherFlags.IS_MINHASH_FLAG
-                    + has_libinfo * MatcherFlags.IS_LIBRARY_FLAG
-                )
+                flags = is_pichash_match * MatcherFlags.IS_PICHASH_FLAG + is_minhash_match * MatcherFlags.IS_MINHASH_FLAG + has_libinfo * MatcherFlags.IS_LIBRARY_FLAG
                 match_function_mapping[own_function_id]["matches"].append(
                     (
                         foreign_family_id,
@@ -420,15 +393,11 @@ class MatcherInterface(object):
 
         aggregation["num_self_matches"] = len(self_matched_functions)
         aggregation["num_own_functions_matched"] = len(own_functions_with_matches)
-        aggregation["bytes_matched"] = sum(
-            [sample_fid_to_binweight[own_function_id] for own_function_id in own_functions_with_matches]
-        )
+        aggregation["bytes_matched"] = sum([sample_fid_to_binweight[own_function_id] for own_function_id in own_functions_with_matches])
         aggregation["num_foreign_functions_matched"] = len(foreign_functions_matched)
         aggregation["num_own_functions_matched_as_library"] = len(own_functions_with_library_matches)
 
-        num_library_match_bytes = sum(
-            [match_function_mapping[function_id]["num_bytes"] for function_id in own_functions_with_library_matches]
-        )
+        num_library_match_bytes = sum([match_function_mapping[function_id]["num_bytes"] for function_id in own_functions_with_library_matches])
 
         return matches_function_list, match_function_mapping, aggregation, num_library_match_bytes
 
@@ -463,7 +432,7 @@ class MatcherInterface(object):
         family_adjustment = self._get_family_adjustment(match_report)
 
         for foreign_sample_id in matches_per_sample:
-            if not foreign_sample_id in self._sample_id_to_entry:
+            if foreign_sample_id not in self._sample_id_to_entry:
                 self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
             sample_info = self._sample_id_to_entry[foreign_sample_id]
             sample_summary[foreign_sample_id] = {
@@ -556,9 +525,7 @@ class MatcherInterface(object):
                     matches_per_sample[foreign_sample_id][own_function_id].append(("library", 0))
         return matches_per_sample
 
-    def _craftResultDict(
-        self, pichash_matches: HarmonizedMatches, minhash_matches: HarmonizedMatches, num_matches=None
-    ) -> Dict:
+    def _craftResultDict(self, pichash_matches: HarmonizedMatches, minhash_matches: HarmonizedMatches, num_matches=None) -> Dict:
         # Query, VS, Sample
         # All use this version
         if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
@@ -578,9 +545,7 @@ class MatcherInterface(object):
         # Assume that every pichash is also a min hash:
         _, _, minhash_aggregation, _ = self._summarizeMatches(self._sample_id, minhash_matches, False)
 
-        (all_functions_summary, all_functions_list, all_aggregation, num_library_bytes) = self._summarizeMatches(
-            self._sample_id, all_matches, False
-        )
+        (all_functions_summary, all_functions_list, all_aggregation, num_library_bytes) = self._summarizeMatches(self._sample_id, all_matches, False)
         sample_summary = self._aggregateMatchSampleSummary(all_functions_list, self._sample_info, num_library_bytes)
         summary = {
             "info": {

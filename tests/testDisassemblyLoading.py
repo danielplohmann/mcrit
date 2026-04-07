@@ -4,11 +4,7 @@ import logging
 import os
 import unittest
 
-from smda.common.SmdaInstruction import SmdaInstruction
 from smda.common.SmdaReport import SmdaReport
-from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
-
-from .context import config
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")

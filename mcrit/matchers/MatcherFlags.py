@@ -1,4 +1,3 @@
-
 # Collection of flags, put in their own file to avoid tangled imports
 
 IS_MINHASH_FLAG = 1

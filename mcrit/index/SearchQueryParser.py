@@ -19,7 +19,7 @@ Requirements:
 * Pyparsing
 
 
-This work is based on 
+This work is based on
 https://github.com/pyparsing/pyparsing/blob/master/examples/searchparser.py
 and modified by Manuel Blatt, 2022
 The original license can be found below.
@@ -61,24 +61,25 @@ CONTRIBUTORS:
 
 from functools import lru_cache
 from string import whitespace
+
 from pyparsing import (
-    Word,
     CharsNotIn,
-    CharsNotIn,
+    Forward,
     Group,
-    ZeroOrMore,
+    Keyword,
     OneOrMore,
     QuotedString,
-    oneOf,
-    Suppress,
-    identchars,
-    identbodychars,
-    Forward,
-    Keyword,
     StringEnd,
+    Suppress,
+    Word,
+    ZeroOrMore,
+    identbodychars,
+    identchars,
+    oneOf,
 )
 
 from mcrit.index.SearchQueryTree import AndNode, NodeType, NotNode, OrNode, SearchConditionNode, SearchTermNode
+
 
 class SearchQueryParser:
     def __init__(self):
@@ -87,15 +88,15 @@ class SearchQueryParser:
             "or": self._build_tree_or,
             "not": self._build_tree_not,
             "parenthesis": self._build_tree_parenthesis,
-            "one_filter": self._build_tree_one_filter
+            "one_filter": self._build_tree_one_filter,
         }
         self._parser = self._get_parser()
-    
+
     def _get_parser(self):
-        search_term = QuotedString('"', esc_char="\\", esc_quote='\\"') \
-            | QuotedString("'", esc_char="\\", esc_quote="\\'") \
-            | ZeroOrMore(Suppress(whitespace))+CharsNotIn(whitespace+"()")
-        identifier = Word(identchars, identbodychars+".")
+        search_term = (
+            QuotedString('"', esc_char="\\", esc_quote='\\"') | QuotedString("'", esc_char="\\", esc_quote="\\'") | ZeroOrMore(Suppress(whitespace)) + CharsNotIn(whitespace + "()")
+        )
+        identifier = Word(identchars, identbodychars + ".")
         operator = oneOf("< <= > >= = != ? !?")
         condition_compare = identifier + (":" + operator + search_term).leave_whitespace()
         condition_equal = identifier + (":" + search_term).leave_whitespace()
@@ -103,42 +104,23 @@ class SearchQueryParser:
 
         operatorOr = Forward()
 
-        operatorParenthesis = (
-            Group(Suppress("(") + operatorOr + Suppress(")")).setResultsName(
-                "parenthesis"
-            )
-            | one_filter
-        )
+        operatorParenthesis = Group(Suppress("(") + operatorOr + Suppress(")")).setResultsName("parenthesis") | one_filter
 
         operatorNot = Forward()
-        operatorNot << (
-            Group(Suppress(Keyword("NOT")) + operatorNot).setResultsName(
-                "not"
-            )
-            | operatorParenthesis
-        )
+        operatorNot << (Group(Suppress(Keyword("NOT")) + operatorNot).setResultsName("not") | operatorParenthesis)
 
         operatorAnd = Forward()
         operatorAnd << (
-            Group(
-                operatorNot + Suppress(Keyword("AND")) + operatorAnd
-            ).setResultsName("and")
-            | Group(
-                operatorNot + OneOrMore(~oneOf("AND OR") + operatorAnd)
-            ).setResultsName("and")
+            Group(operatorNot + Suppress(Keyword("AND")) + operatorAnd).setResultsName("and")
+            | Group(operatorNot + OneOrMore(~oneOf("AND OR") + operatorAnd)).setResultsName("and")
             | operatorNot
         )
 
-        operatorOr << (
-            Group(
-                operatorAnd + Suppress(Keyword("OR")) + operatorOr
-            ).setResultsName("or")
-            | operatorAnd
-        )
+        operatorOr << (Group(operatorAnd + Suppress(Keyword("OR")) + operatorOr).setResultsName("or") | operatorAnd)
 
         parser = operatorOr + StringEnd()
         return parser
-    
+
     def _build_tree_or(self, argument) -> NodeType:
         assert len(argument) == 2
         children = [self._build_tree(child) for child in argument]
@@ -165,12 +147,12 @@ class SearchQueryParser:
         if len(argument) == 4:
             return SearchConditionNode(argument[0], argument[-2], argument[-1])
         raise ValueError()
-    
+
     def _build_tree(self, argument) -> NodeType:
         return self._methods[argument.getName()](argument)
 
     @lru_cache(maxsize=100)
-    def parse(self, string:str) -> NodeType:
+    def parse(self, string: str) -> NodeType:
         if string.strip(whitespace) == "":
             return AndNode([])
         raw_result = self._parser.parse_string(string)

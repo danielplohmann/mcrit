@@ -4,7 +4,6 @@ from mcrit.storage.MongoDbStorage import MongoDbStorage
 
 
 class StorageFactory:
-
     STORAGE_METHOD_MEMORY = "memory"
     STORAGE_METHOD_ALCHEMY = "alchemy"
     STORAGE_METHOD_MONGODB = "mongodb"

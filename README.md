@@ -9,12 +9,12 @@ It is tailored to work with disassembly reports emitted by [SMDA](https://github
 
 ### Dockerized Usage
 
-We highly recommend to use the fully packaged [docker-mcrit](https://github.com/danielplohmann/docker-mcrit) for trivial deployment and usage.  
+We highly recommend to use the fully packaged [docker-mcrit](https://github.com/danielplohmann/docker-mcrit) for trivial deployment and usage.
 First and foremost, this will ensure that you have fully compatible versions across all components, including a database for persistence and a web frontend for convenient interaction.
 
 ### Standalone Usage
 
-Installing MCRIT on its own will require some more steps.  
+Installing MCRIT on its own will require some more steps.
 For the following, we assume Ubuntu as host operating system.
 
 The Python installation requirements are listed in `requirements.txt` and can be installed using:
@@ -22,7 +22,7 @@ The Python installation requirements are listed in `requirements.txt` and can be
 ```bash
 # install python and MCRIT dependencies
 $ sudo apt install python3 python3-pip
-$ pip install -r requirements.txt 
+$ pip install -r requirements.txt
 ```
 
 By default, MongoDB 5.0 is used as backend, which is also the recommended mode of operation as it provides a persistent data storage.
@@ -80,7 +80,7 @@ Regardless of your choice for installation, once running you can interact with t
 
 ### MCRIT Client
 
-We have created a Python client module that is capable of working with all available endpoints of the server.  
+We have created a Python client module that is capable of working with all available endpoints of the server.
 Documentation for this client module is currently in development.
 
 ### MCRIT CLI
@@ -88,7 +88,7 @@ Documentation for this client module is currently in development.
 There is also a CLI which is based on this client package, examples:
 
 ```bash
-# query some stats of the data stored in the backend 
+# query some stats of the data stored in the backend
 $ mcrit client status
 {'status': {'db_state': 187, 'storage_type': 'mongodb', 'num_bands': 20, 'num_samples': 137, 'num_families': 14, 'num_functions': 129110, 'num_pichashes': 25385}}
 # submit a malware sample with filename sample_unpacked, using family name "some_family"
@@ -115,7 +115,7 @@ Then simply run the script found at
 
 in IDA.
 
-### Reference Data 
+### Reference Data
 
 In July 2023, we started populating a [Github repository](https://github.com/danielplohmann/mcrit-data) which contains ready-to-use reference data for common compilers and libraries.
 
@@ -146,7 +146,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
  * 2024-02-02 v1.3.4:  Mini fix in the IDA plugin to avoid referencing a potentially uninitialized object (THX to @r0ny123!!).
  * 2024-02-01 v1.3.2:  FIX: Non-parallelized matching now outputs the [same data format](https://github.com/danielplohmann/mcrit/pull/63) (THX to @dannyquist!!).
  * 2024-01-30 v1.3.1:  The connection to MongoDB is now fully [configurable](https://github.com/danielplohmann/mcrit/pull/61) (THX to @dannyquist!!).
- * 2024-01-24 v1.3.0:  BREAKING: Milestone release with indexing improvements for PicHash and MinHash. To ensure full backward compatibility, recalculation of all hashes is recommended. Check this [migration guide](https://github.com/danielplohmann/mcrit/blob/main/docs/migration-v1.3.0.md). 
+ * 2024-01-24 v1.3.0:  BREAKING: Milestone release with indexing improvements for PicHash and MinHash. To ensure full backward compatibility, recalculation of all hashes is recommended. Check this [migration guide](https://github.com/danielplohmann/mcrit/blob/main/docs/migration-v1.3.0.md).
  * 2024-01-23 v1.2.26: Pinning lief to 0.13.2 in order to ensure that the pinned SMDA remains compatible.
  * 2024-01-09 v1.2.25: Ensure that we can deliver system status regardless of whether there is a `db_state` and `db_timestamp` or not.
  * 2024-01-05 v1.2.24: Now supporting "query" argument in CLI, as well as compact MatchingResults (without function match info) to reduce file footprint.
@@ -261,7 +261,7 @@ Pull requests welcome! :)
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-    
-    Some plug-ins and libraries may have different licenses. 
+
+    Some plug-ins and libraries may have different licenses.
     If so, a license file is provided in the plug-in's folder.
 ```

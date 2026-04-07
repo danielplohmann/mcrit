@@ -1,32 +1,30 @@
 #!/usr/bin/env python3
-import re
 import json
-import time
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List
 
 from smda.common.SmdaReport import SmdaReport
 
+import mcrit.matchers.MatcherFlags as MatcherFlags
 from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
-from mcrit.index.SearchCursor import MinimalSearchCursor, FullSearchCursor
+from mcrit.index.SearchCursor import FullSearchCursor, MinimalSearchCursor
 from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import compress_encode, decompress_decode
-from mcrit.queue.QueueFactory import QueueFactory
-from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller, NoProgressReporter
-from mcrit.storage.FamilyEntry import FamilyEntry
-from mcrit.storage.FunctionEntry import FunctionEntry
-from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
-from mcrit.storage.StorageFactory import StorageFactory
+from mcrit.matchers.MatcherQueryFunction import MatcherQueryFunction
 from mcrit.minhash.MinHash import MinHash
 from mcrit.minhash.MinHasher import MinHasher
-from mcrit.matchers.MatcherQueryFunction import MatcherQueryFunction
-import mcrit.matchers.MatcherFlags as MatcherFlags
-
+from mcrit.queue.QueueFactory import QueueFactory
+from mcrit.queue.QueueRemoteCalls import QueueRemoteCaller
+from mcrit.storage.FamilyEntry import FamilyEntry
+from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
+from mcrit.storage.SampleEntry import SampleEntry
+from mcrit.storage.StorageFactory import StorageFactory
 from mcrit.Worker import Worker
 
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +32,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 #### Helper methods for nested sort_by in search
+
 
 def _get_field_once(object, field):
     try:
@@ -45,15 +44,13 @@ def _get_field_once(object, field):
     except Exception:
         pass
 
+
 def _get_field(object, field):
     dot_index = field.find(".")
     if dot_index >= 0:
         first_field = field[:dot_index]
-        remaining_fields = field[dot_index+1:]
-        return _get_field(
-            _get_field_once(object, first_field),
-            remaining_fields
-        )
+        remaining_fields = field[dot_index + 1 :]
+        return _get_field(_get_field_once(object, first_field), remaining_fields)
     else:
         return _get_field_once(object, field)
 
@@ -83,7 +80,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             return timestamp
         except Exception as e:
             LOGGER.error(f"Failed getting last cleanup: {e}, this should no automatically fix itself with the next request.")
-    
+
     def _cleanupCallback(self):
         if not self._storage_config.STORAGE_MONGODB_ENABLE_CLEANUP:
             return
@@ -99,9 +96,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             # Should we do cleanup anyway in such cases?
 
     def _indexCallback(self):
-        """ called whenever other functionality in MinHashIndex is used, intended for scheduling maintainance jobs etc. """
+        """called whenever other functionality in MinHashIndex is used, intended for scheduling maintainance jobs etc."""
         self._cleanupCallback()
-    
+
     #### STORAGE IO ####
     def getStorage(self):
         """Get an interface to the storage"""
@@ -142,12 +139,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getExportData(self, sample_ids=None, compress_data=False):
         storage = self.getStorage()
         exported_data = {
-            "content": {
-                "is_compressed": compress_data,
-                "num_families": 0,
-                "num_samples": 0,
-                "num_functions": 0
-            },
+            "content": {"is_compressed": compress_data, "num_families": 0, "num_samples": 0, "num_functions": 0},
             # config hashes need to be identical in order for minhashes to be reusable
             "config": {
                 "version": self.config.VERSION,
@@ -159,7 +151,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             # organize by sha256 to simplify avoiding redundancy during import
             "sample_entries": {},
             # organize by sha256 as well, to easily access functions of a sample
-            "function_entries": {}
+            "function_entries": {},
         }
         family_mapping = {}
         exported_sample_entries = {}
@@ -199,19 +191,19 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "num_functions_imported": 0,
             "num_functions_skipped": 0,
             "num_families_imported": 0,
-            "num_families_skipped": 0
+            "num_families_skipped": 0,
         }
         # TODO adjust minimum required MCRIT version if we ever extend in a way that objects become incompatible
         # TODO do not compare version as string
         if export_data["config"]["version"] <= "0.0.0":
             LOGGER.error("Cannot import data, version of export is incompatible / too old.")
-            return 
+            return
         if export_data["config"]["shingler"] != self._shingler_config.getConfigHash():
             LOGGER.error("Cannot import data, shingler configuration hash is incompatible.")
-            return 
+            return
         if export_data["config"]["minhash"] != self._minhash_config.getConfigHash():
             LOGGER.error("Cannot import data, MinHash configuration hash is incompatible.")
-            return 
+            return
         is_compressed = export_data["content"]["is_compressed"]
         # create a dictionary for pointing family_ids as contained in the export to family_ids as used in this instance
         family_id_remapping = {}
@@ -225,9 +217,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             else:
                 import_report["num_families_skipped"] += 1
             family_id_remapping[exported_family_id] = remapped_family_id
-        LOGGER.info("Family remapping created: %d families, %d samples.", 
-                len(family_id_remapping), 
-                len(export_data["sample_entries"]))
+        LOGGER.info("Family remapping created: %d families, %d samples.", len(family_id_remapping), len(export_data["sample_entries"]))
         # iterate samples
         index = 0
         function_entries_to_import = []
@@ -257,8 +247,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                     function_entry.family_id = remapped_sample_entry.family_id
                     function_entries_to_import.append(function_entry)
                     import_report["num_functions_imported"] += 1
-            LOGGER.info(f"Sample %d with SHA256 %s added...", index, sample_sha256)
-        
+            LOGGER.info("Sample %d with SHA256 %s added...", index, sample_sha256)
+
         adjusted_function_entries = storage.importFunctionEntries(function_entries_to_import)
         LOGGER.info(f"{len(adjusted_function_entries)} functions added")
         # we can only start indexing once our imported function_entries had their function_id adjusted to our DB
@@ -323,19 +313,16 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return {"existed": False, "sample_info": sample_entry.toDict(), "job_id": job_id}
 
     def addReportJson(self, report_json, calculate_hashes=True, calculate_matches=False, username=None):
-        storage = self.getStorage()
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches, username=username)
 
     def addReportFile(self, report_filepath, calculate_hashes=True, calculate_matches=False):
-        storage = self.getStorage()
-        with open(report_filepath, "r") as fin:
+        with open(report_filepath) as fin:
             report_json = json.load(fin)
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches)
-    
-    def getMatchesCross(self, sample_ids:List[int], sample_group_only=False, force_recalculation=False, **params):
-        storage = self.getStorage()
+
+    def getMatchesCross(self, sample_ids: List[int], sample_group_only=False, force_recalculation=False, **params):
         sample_to_job_id = {}
         for id in sample_ids:
             if sample_group_only:
@@ -345,26 +332,14 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             sample_to_job_id[id] = job_id
         return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation)
 
-    def getMatchesForSmdaFunction(self, 
-            smda_report_with_function:SmdaReport,
-            minhash_threshold=None, 
-            pichash_size=None, 
-            band_matches_required=None, 
-            exclude_self_matches=False
-        ):
-        storage = self.getStorage()
+    def getMatchesForSmdaFunction(self, smda_report_with_function: SmdaReport, minhash_threshold=None, pichash_size=None, band_matches_required=None, exclude_self_matches=False):
         # convert function to FunctionEntry
         smda_report = SmdaReport.fromDict(smda_report_with_function)
         function_offset = None
         if len(smda_report.xcfg) != 1:
             raise ValueError("SmdaReport has to contain exactly one function.")
         function_offset = int([k for k in smda_report.xcfg.keys()][0])
-        matcher = MatcherQueryFunction(self,
-            minhash_threshold=None, 
-            pichash_size=None, 
-            band_matches_required=band_matches_required, 
-            exclude_self_matches=False
-        )
+        matcher = MatcherQueryFunction(self, minhash_threshold=None, pichash_size=None, band_matches_required=band_matches_required, exclude_self_matches=False)
         # run Matcher for a single function
         match_report = matcher.getMatchesForSmdaFunction(smda_report)
         function_identifier = f"{smda_report.sha256[:8]}@0x{function_offset:x}"
@@ -372,7 +347,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         # return completed MatchingReport
         return match_report
 
-    def getMatchesFunctionVs(self, function_id_a:int, function_id_b:int):
+    def getMatchesFunctionVs(self, function_id_a: int, function_id_b: int):
         storage = self.getStorage()
         function_entry_a = storage.getFunctionById(function_id_a, with_xcfg=True)
         function_entry_b = storage.getFunctionById(function_id_b, with_xcfg=True)
@@ -385,25 +360,18 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
 
         score = None
         if minhash_a.minhash and minhash_b.minhash:
-            score = MinHash.calculateMinHashScore(
-                    minhash_a.minhash, minhash_b.minhash, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS
-                )
+            score = MinHash.calculateMinHashScore(minhash_a.minhash, minhash_b.minhash, minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
         match_flags = 0
         match_flags += MatcherFlags.IS_MINHASH_FLAG if score is not None and score >= self._minhash_config.MINHASH_MATCHING_THRESHOLD else 0
         match_flags += MatcherFlags.IS_PICHASH_FLAG if function_entry_a.pichash == function_entry_b.pichash else 0
         match_flags += MatcherFlags.IS_LIBRARY_FLAG if sample_entry_b.is_library else 0
-        match_tuple = [
-            function_entry_b.family_id, 
-            function_entry_b.sample_id, 
-            function_entry_b.function_id, 
-            score, 
-            match_flags]
+        match_tuple = [function_entry_b.family_id, function_entry_b.sample_id, function_entry_b.function_id, score, match_flags]
         result = {
             "function_entry_a": function_entry_a.toDict(),
             "function_entry_b": function_entry_b.toDict(),
             "sample_entry_a": sample_entry_a.toDict(),
             "sample_entry_b": sample_entry_b.toDict(),
-            "match_entry": MatchedFunctionEntry(function_id_a, function_entry_a.binweight, function_entry_a.offset, match_tuple).toDict()
+            "match_entry": MatchedFunctionEntry(function_id_a, function_entry_a.binweight, function_entry_a.offset, match_tuple).toDict(),
         }
         return result
 
@@ -472,16 +440,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return status
 
     def getVersion(self):
-        storage = self.getStorage()
         return {"version": self.config.VERSION}
 
     def getMatchesForPicHash(self, pichash):
         return self.getStorage().getMatchesForPicHash(pichash)
-        
+
     def getMatchesForPicBlockHash(self, picblockhash):
         return self.getStorage().getMatchesForPicBlockHash(picblockhash)
 
-    def getSampleBySha256(self, sample_sha256): 
+    def getSampleBySha256(self, sample_sha256):
         return self.getStorage().getSampleBySha256(sample_sha256)
 
     #### SEARCH ####
@@ -497,7 +464,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     #     "cursor": {
     #         "forward": forward cursor,
     #         "backward": backward cursor,
-    #     } 
+    #     }
     # }
     # To get further results, perform a search using the forward cursor.
     # To get back to the previous search results, use the backward cursor.
@@ -519,7 +486,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         is_backward_search = not full_cursor.is_forward_search
 
         parsed_search = self.search_query_parser.parse(search_term)
-        search_results_objects = search_function(parsed_search, cursor=full_cursor, max_num_results=limit+1)
+        search_results_objects = search_function(parsed_search, cursor=full_cursor, max_num_results=limit + 1)
 
         # Find last last_element_key, which is used for the forward cursor
         search_results_keys = list(search_results_objects.keys())
@@ -529,12 +496,12 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             last_element_key = search_results_keys[-1]
         else:
             last_element_key = None
-        
+
         forward_cursor_str = None
         if last_element_key:
             last_result = search_results_objects[last_element_key]
             forward_cursor = MinimalSearchCursor()
-            forward_cursor.is_forward_search = True ^ is_backward_search # switch for backward search, because of swap
+            forward_cursor.is_forward_search = True ^ is_backward_search  # switch for backward search, because of swap
             forward_cursor.record_values = [_get_field(last_result, field) for field in sort_fields]
             forward_cursor_str = forward_cursor.toStr()
 
@@ -542,7 +509,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         if len(search_results_objects) > 0 and cursor is not None:
             first_result = search_results_objects[search_results_keys[0]]
             backward_cursor = MinimalSearchCursor()
-            backward_cursor.is_forward_search = False ^ is_backward_search # switch for backward search, because of swap
+            backward_cursor.is_forward_search = False ^ is_backward_search  # switch for backward search, because of swap
             backward_cursor.record_values = [_get_field(first_result, field) for field in sort_fields]
             backward_cursor_str = backward_cursor.toStr()
 
@@ -558,18 +525,20 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "cursor": {
                 "forward": forward_cursor_str,
                 "backward": backward_cursor_str,
-            }
+            },
         }
 
     def _get_sort_data(self, standard_sort, sort_by, is_ascending):
         if sort_by == standard_sort or sort_by is None:
-            sort_by_list = [(standard_sort, is_ascending),]
+            sort_by_list = [
+                (standard_sort, is_ascending),
+            ]
         else:
             sort_by_list = [
                 (sort_by, is_ascending),
                 (standard_sort, True),
             ]
-        return sort_by_list 
+        return sort_by_list
 
     def getFamilySearchResults(self, search_term, sort_by="family_id", is_ascending=True, cursor=None, limit=100):
         storage = self.getStorage()
@@ -636,7 +605,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "num_instructions",
             "num_blocks",
         )
-        
+
         sort_data = self._get_sort_data("function_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(
             storage.findFunctionByString,
@@ -688,9 +657,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "sha256",
             "timestamp",
             "version",
-            "statistics.num_functions"
+            "statistics.num_functions",
         )
-        
+
         sort_data = self._get_sort_data("sample_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(
             storage.findSampleByString,
@@ -703,20 +672,16 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         result["sha_match"] = sha_match
         return result
 
-
     ##### CONFIG CHANGES ####
     def updateMinHashThreshold(self, threshold):
-        storage = self.getStorage()
         self.config.MINHASH_CONFIG.MINHASH_MATCHING_THRESHOLD = threshold
         self._minhash_config.MINHASH_MATCHING_THRESHOLD = threshold
 
     def updatePicHashSize(self, size):
-        storage = self.getStorage()
         self.config.MINHASH_CONFIG.PICHASH_SIZE = size
         self._minhash_config.PICHASH_SIZE = size
 
     def updateMinHasherConfig(self, config):
-        storage = self.getStorage()
         self._storage_config = config.STORAGE_CONFIG
         self._minhash_config = config.MINHASH_CONFIG
         self._shingler_config = config.SHINGLER_CONFIG

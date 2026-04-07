@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
-from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
 from AbstractShingler import AbstractShingler
+from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
+
 
 class TreeDfsShingler(AbstractShingler):
     """Encode call graph properties into a byte sequence"""
@@ -30,7 +31,7 @@ class TreeDfsShingler(AbstractShingler):
             shingle.append(child_node.node_label)
             node.is_visited = True
             if in_leaf:
-                dfs_shingles.append("treedfs-" + ''.join(map(str, shingle)))
+                dfs_shingles.append("treedfs-" + "".join(map(str, shingle)))
                 shingle = []
                 in_leaf = False
         return False

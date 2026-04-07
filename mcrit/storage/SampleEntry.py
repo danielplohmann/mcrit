@@ -1,15 +1,14 @@
-from dataclasses import dataclass
 import datetime
-from typing import Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict
 
-from mcrit.libs.utility import encode_two_complement, decode_two_complement
+from mcrit.libs.utility import decode_two_complement, encode_two_complement
 
-if TYPE_CHECKING: # pragma: no cover
+if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaReport import SmdaReport
 
-#@dataclass
-class SampleEntry(object):
 
+# @dataclass
+class SampleEntry:
     family_id: int
     sample_id: int
     architecture: str
@@ -83,7 +82,7 @@ class SampleEntry(object):
 
     @classmethod
     def fromDict(cls, entry_dict):
-        sample_entry = cls(None) #type: ignore
+        sample_entry = cls(None)  # type: ignore
         sample_entry.family_id = entry_dict["family_id"]
         sample_entry.sample_id = entry_dict["sample_id"]
         sample_entry.architecture = entry_dict["architecture"]
@@ -104,7 +103,7 @@ class SampleEntry(object):
 
     @classmethod
     def fromAlchemySample(cls, sample):
-        sample_entry = cls(None) #type:ignore
+        sample_entry = cls(None)  # type:ignore
         sample_entry.sample_id = sample.id
         sample_entry.family_id = sample.family.id
         sample_entry.family = sample.family.name
@@ -124,9 +123,7 @@ class SampleEntry(object):
         return sample_entry
 
     def __str__(self):
-        return "Sample {} ({}, {} bit) - {} ({}): ".format(
-            self.sample_id, self.architecture, self.bitness, self.filename, self.family
-        )
+        return "Sample {} ({}, {} bit) - {} ({}): ".format(self.sample_id, self.architecture, self.bitness, self.filename, self.family)
 
     def __hash__(self):
         """Override the default hash behavior"""

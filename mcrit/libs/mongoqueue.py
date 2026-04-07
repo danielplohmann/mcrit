@@ -16,12 +16,12 @@
 import json
 import traceback
 from datetime import datetime, timedelta
-from typing import List, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import List, Optional
 
 import gridfs
 import pymongo
-from pymongo import MongoClient, ReturnDocument
 from bson.objectid import ObjectId
+from pymongo import MongoClient, ReturnDocument
 
 DEFAULT_INSERT = {
     "locked_by": None,
@@ -37,19 +37,16 @@ DEFAULT_INSERT = {
     "notify_done": False,
 }
 
+
 # added to track incremental job numbers via MCRIT storage (apart from OIDs)
 def _useCounter(database, name: str) -> int:
-    result = database.counters.find_one_and_update(
-        filter={"name": name}, 
-        update={"$inc": {"value": 1}}, 
-        upsert=True
-    )
+    result = database.counters.find_one_and_update(filter={"name": name}, update={"$inc": {"value": 1}}, upsert=True)
     if result is None:
         return 0
     return result["value"]
 
 
-class MongoQueue(object):
+class MongoQueue:
     """A queue class"""
 
     def __init__(self, queue_config, consumer_id, timeout=300, max_attempts=3):
@@ -65,12 +62,19 @@ class MongoQueue(object):
         self._default_insert["attempts_left"] = max_attempts
         self.fs = None
         self.fs_files = None
-        self.cache_time = 10 ** 9
+        self.cache_time = 10**9
 
     def _getCollection(self):
         # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
         if self.collection is None:
-            userpw_url = f"{self.queue_config.QUEUE_MONGODB_USERNAME}:{self.queue_config.QUEUE_MONGODB_PASSWORD}@" if self.queue_config.QUEUE_MONGODB_USERNAME and len(self.queue_config.QUEUE_MONGODB_USERNAME) > 0 and self.queue_config.QUEUE_MONGODB_PASSWORD and len(self.queue_config.QUEUE_MONGODB_PASSWORD) > 0 else ""
+            userpw_url = (
+                f"{self.queue_config.QUEUE_MONGODB_USERNAME}:{self.queue_config.QUEUE_MONGODB_PASSWORD}@"
+                if self.queue_config.QUEUE_MONGODB_USERNAME
+                and len(self.queue_config.QUEUE_MONGODB_USERNAME) > 0
+                and self.queue_config.QUEUE_MONGODB_PASSWORD
+                and len(self.queue_config.QUEUE_MONGODB_PASSWORD) > 0
+                else ""
+            )
             port_url = f":{self.queue_config.QUEUE_PORT}" if self.queue_config.QUEUE_PORT else ""
             flags_url = f"?{self.queue_config.QUEUE_MONGODB_FLAGS}" if self.queue_config.QUEUE_MONGODB_FLAGS and len(self.queue_config.QUEUE_MONGODB_FLAGS) > 0 else ""
 
@@ -87,14 +91,14 @@ class MongoQueue(object):
             self.registerWorker()
             self._ensure_indices()
         return self.collection
-    
+
     def _getFs(self):
         if self.fs is None:
             collection = self._getCollection()
             self.fs = gridfs.GridFS(collection.database)
             self.fs_files = self.collection.database["fs.files"]
         return self.fs
-    
+
     def _getFsFiles(self):
         if self.fs_files is None:
             collection = self._getCollection()
@@ -125,7 +129,7 @@ class MongoQueue(object):
         elif doc["terminated"]:
             return "terminated"
         return "unknown"
-    
+
     def getQueueStatistics(self, refresh=False):
         self._getCollection()
         if refresh:
@@ -142,13 +146,7 @@ class MongoQueue(object):
         for doc in self.collection.find():
             method = doc["payload"]["method"]
             if method not in aggregated:
-                aggregated[method] = {
-                    "queued": 0,
-                    "failed": 0,
-                    "in_progress": 0,
-                    "finished": 0,
-                    "terminated": 0
-                }
+                aggregated[method] = {"queued": 0, "failed": 0, "in_progress": 0, "finished": 0, "terminated": 0}
             state = self._identifyJobState(doc)
             aggregated[method][state] += 1
         for key, counters in aggregated.items():
@@ -166,20 +164,12 @@ class MongoQueue(object):
 
     def registerWorker(self):
         if self.consumer_id != "index":
-            self.queue_counters.find_one_and_update(
-                {"name": "workers"},
-                {"$push": {"workers": self.consumer_id}},
-                upsert=True
-            )
+            self.queue_counters.find_one_and_update({"name": "workers"}, {"$push": {"workers": self.consumer_id}}, upsert=True)
         self.release_orphaned_jobs()
 
     def unregisterWorker(self):
         if self.queue_counters is not None:
-            self.queue_counters.find_one_and_update(
-                {"name": "workers"},
-                {"$pull": {"workers": self.consumer_id}},
-                upsert=True
-            )
+            self.queue_counters.find_one_and_update({"name": "workers"}, {"$pull": {"workers": self.consumer_id}}, upsert=True)
 
     def close(self):
         """Close the in memory queue connection."""
@@ -213,7 +203,7 @@ class MongoQueue(object):
         """ """
         self._getCollection().find_one_and_update({"attempts_left": {"$lte": 0}}, remove=True)
 
-    def put(self, payload, priority=0, await_jobs:List[str]=[]):
+    def put(self, payload, priority=0, await_jobs: List[str] = []):
         """Place a job into the queue"""
         job = dict(self._default_insert)
         job["number"] = _useCounter(self._getCollection().database, "job")
@@ -232,47 +222,44 @@ class MongoQueue(object):
             return job_id
         return None
 
-    def _notify_on_done(self, notifying_job_id:str, notified_job_id:str):
-        self._getCollection().find_one_and_update(
-            filter={"_id": ObjectId(notifying_job_id)},
-            update={"$push": {'required_by': notified_job_id}}
-        )
+    def _notify_on_done(self, notifying_job_id: str, notified_job_id: str):
+        self._getCollection().find_one_and_update(filter={"_id": ObjectId(notifying_job_id)}, update={"$push": {"required_by": notified_job_id}})
         notifying_job = self._getCollection().find_one({"_id": ObjectId(notifying_job_id)})
         if notifying_job["notify_done"]:
             self._getCollection().find_one_and_update(
                 filter={"_id": ObjectId(notified_job_id)},
-                update={"$pull": {'unfinished_dependencies': notifying_job_id}},
+                update={"$pull": {"unfinished_dependencies": notifying_job_id}},
             )
         #     # atomically
         #     # should handle already deleted deps gracefully
         #     remove job.id from job_to_notify.unfinished_deps
-    
-    def _notify_dependent_jobs(self, job_id:str):
+
+    def _notify_dependent_jobs(self, job_id: str):
         job = self._getCollection().find_one_and_update(
             filter={"_id": ObjectId(job_id)},
-            update={"$set": {'notify_done': True}},
+            update={"$set": {"notify_done": True}},
         )
         for job_id_to_notify in job["required_by"]:
             self._getCollection().find_one_and_update(
                 filter={"_id": ObjectId(job_id_to_notify)},
-                update={"$pull": {'unfinished_dependencies': job_id}},
+                update={"$pull": {"unfinished_dependencies": job_id}},
             )
 
     def next(self):
         current_time = datetime.now()
-        job =  self._getCollection().find_one_and_update(
-                filter={
-                    "locked_by": None,
-                    "locked_at": None,
-                    "attempts_left": {"$gt": 0},
-                    "finished_at": None,
-                    "unfinished_dependencies": [],
-                },
-                update={"$set": {"locked_by": self.consumer_id, "locked_at": current_time, "started_at": current_time}},
-                sort=[("priority", pymongo.DESCENDING), ("created_at", pymongo.ASCENDING)],
-                new=1,
-                # limit=1
-            )
+        job = self._getCollection().find_one_and_update(
+            filter={
+                "locked_by": None,
+                "locked_at": None,
+                "attempts_left": {"$gt": 0},
+                "finished_at": None,
+                "unfinished_dependencies": [],
+            },
+            update={"$set": {"locked_by": self.consumer_id, "locked_at": current_time, "started_at": current_time}},
+            sort=[("priority", pymongo.DESCENDING), ("created_at", pymongo.ASCENDING)],
+            new=1,
+            # limit=1
+        )
         if job:
             self.updateQueueCounter(job["payload"]["method"], "in_progress", 1)
             self.updateQueueCounter(job["payload"]["method"], "queued", -1)
@@ -326,7 +313,7 @@ class MongoQueue(object):
 
     def get_jobs(self, start_index: int, limit: int, method=None, state=None, ascending=False) -> Optional[List["Job"]]:
         jobs = []
-        query_filter = {} if method == None else {"payload.method": method}
+        query_filter = {} if method is None else {"payload.method": method}
         if state is None:
             if ascending:
                 for job_document in self._getCollection().find(query_filter).skip(start_index).limit(limit):
@@ -348,7 +335,7 @@ class MongoQueue(object):
                         all_jobs.append(self._wrap_one(job_document))
             # apply skip/limit as slice on the result
             if limit:
-                jobs = all_jobs[start_index:start_index+limit]
+                jobs = all_jobs[start_index : start_index + limit]
             else:
                 jobs = all_jobs[start_index:]
         return jobs
@@ -370,16 +357,12 @@ class MongoQueue(object):
                     file_object_id = ObjectId(file_object_id)
                     # update gridFs entry of file to not link
                     # to this job anymore
-                    self._getFsFiles().update_one(
-                        {"_id": file_object_id}, {"$pull": {"metadata.jobs": str(job_id)}}
-                    )
+                    self._getFsFiles().update_one({"_id": file_object_id}, {"$pull": {"metadata.jobs": str(job_id)}})
                     # check if file is safe to delete
-                    if self._getFsFiles().count_documents(
-                        {"_id": file_object_id, "metadata.jobs": [], "metadata.tmp_lock": 0}
-                    ) > 0:
+                    if self._getFsFiles().count_documents({"_id": file_object_id, "metadata.jobs": [], "metadata.tmp_lock": 0}) > 0:
                         self._getFsFiles().delete_one({"_id": file_object_id})
             if with_result:
-                # delete result from GridFS  
+                # delete result from GridFS
                 self._getFsFiles().delete_one({"_id": ObjectId(deletable_job["result"])})
         job_deletion_result = self._getCollection().delete_one({"_id": job_id})
         return job_deletion_result.deleted_count
@@ -414,8 +397,8 @@ class MongoQueue(object):
         for deletable_job in jobs_to_be_deleted:
             self.updateQueueCounter(deletable_job["payload"]["method"], self._identifyJobState(deletable_job), -1)
             if with_results and deletable_job["result"]:
-                    # delete result from GridFS  
-                    self._getFs().delete(ObjectId(deletable_job["result"]))
+                # delete result from GridFS
+                self._getFs().delete(ObjectId(deletable_job["result"]))
         job_deletion_result = self._getCollection().delete_many(combined_filter)
         if len(jobs_to_be_deleted) != job_deletion_result.deleted_count:
             raise Exception("Number of deleted jobs was unequal to number of jobs to delete!")
@@ -432,7 +415,7 @@ class MongoQueue(object):
         entry = self._getFs().get(oid)
         if results_only:
             metadata = entry.metadata
-            if not "result" in metadata or not metadata["result"]:
+            if "result" not in metadata or not metadata["result"]:
                 return b'"Access Not Allowed"'
         result = entry.read()
         return result
@@ -444,7 +427,6 @@ class MongoQueue(object):
         result = None
         grid_file = self._grid_to_file(grid, **kwargs)
         if grid_file is not None:
-            decoded_file = grid_file.decode("ascii")
             result = json.loads(grid_file)
         return result
 
@@ -481,9 +463,7 @@ class MongoQueue(object):
 
     def add_job_id_to_file(self, job_id, file_id):
         file_id = ObjectId(file_id)
-        self._getFsFiles().find_one_and_update(
-            {"_id": file_id}, {"$inc": {"metadata.tmp_lock": -1}, "$addToSet": {"metadata.jobs": job_id}}
-        )
+        self._getFsFiles().find_one_and_update({"_id": file_id}, {"$inc": {"metadata.tmp_lock": -1}, "$addToSet": {"metadata.jobs": job_id}})
 
     def clean(self):
         # TODO consider a good way to implement this
@@ -501,9 +481,7 @@ class MongoQueue(object):
 
         # remove job from params
         for job, params in file_params.items():
-            self._getFsFiles().update_many(
-                {"_id": {"$in": [ObjectId(p) for p in params]}}, {"$pull": {"metadata.jobs": str(job)}}
-            )
+            self._getFsFiles().update_many({"_id": {"$in": [ObjectId(p) for p in params]}}, {"$pull": {"metadata.jobs": str(job)}})
 
         # delete params
         all_params = [ObjectId(j) for i in file_params.values() for j in i]
@@ -514,9 +492,7 @@ class MongoQueue(object):
             {"$set": {"metadata.sha256": None}},
         )
         # now get the list of files to be deleted
-        params_to_delete = self._getFsFiles().find(
-            {"_id": {"$in": all_params}, "metadata.jobs": [], "metadata.tmp_lock": 0, "metadata.sha256": None}
-        )
+        params_to_delete = self._getFsFiles().find({"_id": {"$in": all_params}, "metadata.jobs": [], "metadata.tmp_lock": 0, "metadata.sha256": None})
         # delete them
         for p in params_to_delete:
             self._getFs().delete(ObjectId(p["_id"]))
@@ -527,8 +503,8 @@ class MongoQueue(object):
     def release_all_jobs(self, consumer_id=None):
         # release all jobs associated with our consumer id if they are started, locked, but not finished.
         self._getCollection().update_many(
-        filter={"locked_by": consumer_id if consumer_id else self.consumer_id, "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
-        update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}}
+            filter={"locked_by": consumer_id if consumer_id else self.consumer_id, "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
+            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
         )
 
     def release_orphaned_jobs(self):
@@ -544,19 +520,20 @@ class MongoQueue(object):
 
         orphaned_jobs = []
         for orphan_id in orphan_ids:
-            for job in self._getCollection().find(filter={"locked_by": orphan_id , "started_at": {"$ne": None}, "finished_at": {"$eq": None}}):
+            for job in self._getCollection().find(filter={"locked_by": orphan_id, "started_at": {"$ne": None}, "finished_at": {"$eq": None}}):
                 orphaned_jobs.append(job)
 
         for orphan_consumer_id in orphan_ids:
             self._getCollection().update_many(
-            filter={"locked_by": orphan_consumer_id , "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
-            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}}
+                filter={"locked_by": orphan_consumer_id, "started_at": {"$ne": None}, "finished_at": {"$eq": None}},
+                update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
             )
 
     def terminate_all_jobs(self):
         pass
 
-class Job(object):
+
+class Job:
     def __init__(self, queue, data):
         """ """
         self._queue = queue
@@ -633,7 +610,7 @@ class Job(object):
                 try:
                     int(k)
                     indexed_key_values.append(v)
-                except:
+                except (TypeError, ValueError):
                     named_key_values.append(v)
             combined_values = indexed_key_values + named_key_values
             method_str += "(" + ", ".join([str(v) for v in combined_values]) + ")"
@@ -642,7 +619,6 @@ class Job(object):
     @property
     def progress(self):
         return self._data["progress"]
-
 
     # This is a GridFS id, not the actual result
     @property
@@ -660,28 +636,22 @@ class Job(object):
         if result:
             self._data["result"] = result
         job = self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id},
-            update={"$set": {"finished_at": datetime.now(), "progress": 1}},
-            return_document=ReturnDocument.AFTER
+            filter={"_id": self.job_id}, update={"$set": {"finished_at": datetime.now(), "progress": 1}}, return_document=ReturnDocument.AFTER
         )
         # job result was not set by another completion before, or if it is forced by argument
         if (job and job["result"] is None) or result:
-            job = self._queue.collection.find_one_and_update(
-                filter={"_id": self.job_id},
-                update={"$set": {"result": self._data["result"]}},
-                return_document=ReturnDocument.AFTER
-            )
+            job = self._queue.collection.find_one_and_update(filter={"_id": self.job_id}, update={"$set": {"result": self._data["result"]}}, return_document=ReturnDocument.AFTER)
         self._queue.updateQueueCounter(self.method, "in_progress", -1)
         self._queue.updateQueueCounter(self.method, "finished", 1)
         self._queue._notify_dependent_jobs(str(self.job_id))
-        return job 
+        return job
 
     def error(self, message=None):
         """note an error processing a job, and return it to the queue."""
         job = self._queue.collection.find_one_and_update(
             filter={"_id": self.job_id},
             update={"$set": {"locked_by": None, "locked_at": None, "last_error": message}, "$inc": {"attempts_left": -1}},
-            return_document=ReturnDocument.AFTER
+            return_document=ReturnDocument.AFTER,
         )
         self._queue.updateQueueCounter(self.method, "in_progress", -1)
         self._queue.updateQueueCounter(self.method, "queued", 1)
@@ -690,21 +660,16 @@ class Job(object):
             self._queue.updateQueueCounter(self.method, "queued", -1)
             self._queue.updateQueueCounter(self.method, "failed", 1)
 
-
     def progressor(self, count=0):
         """note progress on a long running task."""
         return self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id},
-            update={"$set": {"progress": count, "locked_at": datetime.now()}},
-            return_document=ReturnDocument.AFTER
+            filter={"_id": self.job_id}, update={"$set": {"progress": count, "locked_at": datetime.now()}}, return_document=ReturnDocument.AFTER
         )
 
     def release(self):
         """put the job back into_queue."""
         job = self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id},
-            update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
-            return_document=ReturnDocument.AFTER
+            filter={"_id": self.job_id}, update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}}, return_document=ReturnDocument.AFTER
         )
         self._queue.updateQueueCounter(self.method, "in_progress", -1)
         self._queue.updateQueueCounter(self.method, "queued", 1)
@@ -741,9 +706,7 @@ class Job(object):
     # only works for jobs that report progress
     def terminate(self):
         job = self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id}, 
-            update={"$set": {"terminated": True, "locked_at": datetime.now()}},
-            return_document=ReturnDocument.AFTER
+            filter={"_id": self.job_id}, update={"$set": {"terminated": True, "locked_at": datetime.now()}}, return_document=ReturnDocument.AFTER
         )
         self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
         self._queue.updateQueueCounter(job["payload"]["method"], "terminated", 1)

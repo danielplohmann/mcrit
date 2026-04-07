@@ -1,17 +1,17 @@
+import datetime
 import functools
+import logging
 import operator
 import re
 import uuid
-import logging
-import datetime
-from copy import deepcopy
 from collections import defaultdict
+from copy import deepcopy
 from itertools import zip_longest
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from picblocks.blockhasher import BlockHasher
-from mcrit.index.SearchCursor import FullSearchCursor
 
+from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FamilyEntry import FamilyEntry
@@ -21,12 +21,11 @@ from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
 
-if TYPE_CHECKING: # pragma: no cover
-    from mcrit.config.McritConfig import McritConfig
-    from mcrit.config.StorageConfig import StorageConfig
-    from mcrit.config.MinHashConfig import MinHashConfig
+if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaFunction import SmdaFunction
     from smda.common.SmdaReport import SmdaReport
+
+    from mcrit.config.McritConfig import McritConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,15 +41,13 @@ def _get_field_once(object, field):
     except Exception:
         pass
 
+
 def _get_field(object, field):
     dot_index = field.find(".")
     if dot_index >= 0:
         first_field = field[:dot_index]
-        remaining_fields = field[dot_index+1:]
-        return _get_field(
-            _get_field_once(object, first_field),
-            remaining_fields
-        )
+        remaining_fields = field[dot_index + 1 :]
+        return _get_field(_get_field_once(object, first_field), remaining_fields)
     else:
         return _get_field_once(object, field)
 
@@ -60,25 +57,30 @@ class MemorySearchTranspiler(BaseVisitor):
     Converts a tree to a filter function that can be applied to an entry, returning True or False.
     The input tree MUST NOT contain Not or SearchTerm nodes.
     """
-    def visitAndNode(self, node:AndNode) -> Callable:
+
+    def visitAndNode(self, node: AndNode) -> Callable:
         visited_children: List[Callable] = [self.visit(child) for child in node.children]
+
         def and_function(entry):
             for function in visited_children:
                 if not function(entry):
                     return False
             return True
+
         return and_function
 
-    def visitOrNode(self, node:OrNode) -> Callable:
+    def visitOrNode(self, node: OrNode) -> Callable:
         visited_children: List[Callable] = [self.visit(child) for child in node.children]
+
         def or_function(entry):
             for function in visited_children:
                 if function(entry):
                     return True
             return False
+
         return or_function
 
-    def visitSearchConditionNode(self, node:SearchConditionNode) -> Callable:
+    def visitSearchConditionNode(self, node: SearchConditionNode) -> Callable:
         string_to_operator = {
             "<": operator.lt,
             "<=": operator.le,
@@ -94,11 +96,13 @@ class MemorySearchTranspiler(BaseVisitor):
         if node.operator.endswith("?"):
             regex = re.compile(re.escape(node.value), re.IGNORECASE)
             inverse = node.operator == "!?"
+
             def check_regex(entry):
                 value = _get_field(entry, node.field)
                 if not isinstance(value, str):
                     return False
                 return (regex.search(value) is not None) ^ inverse
+
             return check_regex
 
         if node.field in ("pichash", "offset") or node.field.endswith("_id") or "num_" in node.field:
@@ -108,9 +112,12 @@ class MemorySearchTranspiler(BaseVisitor):
                 pass
 
         chosen_operator = string_to_operator[node.operator]
+
         def compare(entry):
             return chosen_operator(_get_field(entry, node.field), value)
+
         return compare
+
 
 class MemoryStorage(StorageInterface):
     _families: Dict[int, FamilyEntry]
@@ -145,7 +152,7 @@ class MemoryStorage(StorageInterface):
         self._pichashes = {}
         self._bands = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         self._counters = defaultdict(lambda: 0)
-        # initialize query sample/function ids 
+        # initialize query sample/function ids
         if self._counters["query_samples"] == 0:
             self._counters["query_samples"] += 1
         if self._counters["query_functions"] == 0:
@@ -176,7 +183,7 @@ class MemoryStorage(StorageInterface):
         family_entry.num_library_samples += num_library_samples_inc
 
     def dbLogEvent(self, event_msg, username=None, details=None):
-        """ For MemoryStorage, this is a dummy function and we do not persist logging messages """
+        """For MemoryStorage, this is a dummy function and we do not persist logging messages"""
         logging.info(event_msg)
 
     # TODO check if this works
@@ -224,11 +231,12 @@ class MemoryStorage(StorageInterface):
     def modifySample(self, sample_id: int, update_information: dict) -> bool:
         if not self.isSampleId(sample_id):
             return False
+        current_family_id = self._samples[sample_id].family_id
         if "is_library" in update_information:
             is_library_info_changed = self._samples[sample_id].is_library != update_information["is_library"]
             self._samples[sample_id].is_library = update_information["is_library"]
             if is_library_info_changed:
-                self._families[family_id].num_library_samples += 1 if update_information["is_library"] else -1
+                self._families[current_family_id].num_library_samples += 1 if update_information["is_library"] else -1
         if "family_name" in update_information:
             family_name = update_information["family_name"]
             old_family_id = self._samples[sample_id].family_id
@@ -239,7 +247,7 @@ class MemoryStorage(StorageInterface):
             for function_id, function_entry in self._functions.items():
                 if function_entry.sample_id == sample_id:
                     function_entry.family_id = family_id
-                    self._functions[function_id] = function_entry  
+                    self._functions[function_id] = function_entry
                     self._pichashes[function_entry.pichash].remove((old_family_id, sample_id, function_id))
                     self._pichashes[function_entry.pichash].add((family_id, sample_id, function_id))
             # update family information itself
@@ -317,7 +325,7 @@ class MemoryStorage(StorageInterface):
                 if function_entry.family_id == family_id:
                     function_ids_to_modify.add(function_id)
             for function_id in function_ids_to_modify:
-                    self._functions[function_id]["family_id"] = 0
+                self._functions[function_id]["family_id"] = 0
             self._families[0].num_samples += len(sample_entries)
             self._families[0].num_functions += len(function_ids_to_modify)
             self._families[0].num_library_samples += len([s for s in sample_entries if s.is_library])
@@ -339,7 +347,6 @@ class MemoryStorage(StorageInterface):
                 extracted_labels[smda_function.offset] = function_name
         # get the respective FunctionEntries and check if the label is novel
         sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
-        label_updates = []
         for label_offset, extracted_label in extracted_labels.items():
             is_new_label = False
             if label_offset in sample_function_entries:
@@ -356,9 +363,7 @@ class MemoryStorage(StorageInterface):
     def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
         sample_entry = None
         if isQuery:
-            sample_entry = SampleEntry(
-                smda_report, sample_id=-1 * self._useCounter("query_samples"), family_id=0
-            )
+            sample_entry = SampleEntry(smda_report, sample_id=-1 * self._useCounter("query_samples"), family_id=0)
             self._query_samples[sample_entry.sample_id] = sample_entry
             function_ids = []
             for smda_function in smda_report.getFunctions():
@@ -368,9 +373,7 @@ class MemoryStorage(StorageInterface):
         else:
             if not self.getSampleBySha256(smda_report.sha256):
                 family_id = self.addFamily(smda_report.family)
-                sample_entry = SampleEntry(
-                    smda_report, sample_id=self._useCounter("samples"), family_id=family_id
-                )
+                sample_entry = SampleEntry(smda_report, sample_id=self._useCounter("samples"), family_id=family_id)
                 self._samples[sample_entry.sample_id] = sample_entry
                 self._sample_by_sha256[sample_entry.sha256] = sample_entry.sample_id
                 function_ids = []
@@ -434,9 +437,7 @@ class MemoryStorage(StorageInterface):
         sample_entry = self._samples[sample_id]
         return {"family": sample_entry.family, "version": sample_entry.version} if sample_entry.is_library else None
 
-    def _addFunction(
-        self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", minhash: Optional["MinHash"] = None, isQuery=False
-    ) -> "FunctionEntry":
+    def _addFunction(self, sample_entry: "SampleEntry", smda_function: "SmdaFunction", minhash: Optional["MinHash"] = None, isQuery=False) -> "FunctionEntry":
         """Add a function (and optionally its MinHash) to storage, using the respective SampleEntry for reference.
 
         Args:
@@ -518,9 +519,7 @@ class MemoryStorage(StorageInterface):
     def getSamplesByFamilyId(self, family_id: int) -> Optional[List[SampleEntry]]:
         if family_id not in self._families:
             return None
-        return [
-            self._samples[sample_id] for sample_id in self._samples if self._samples[sample_id].family_id == family_id
-        ]
+        return [self._samples[sample_id] for sample_id in self._samples if self._samples[sample_id].family_id == family_id]
 
     def getFamilyIds(self) -> List[int]:
         # TODO is deepcopy necessary?
@@ -566,7 +565,7 @@ class MemoryStorage(StorageInterface):
         family_id = self.getFamilyId(family_name)
         if family_id is None:
             family_id = self._useCounter("families")
-            self._families[family_id] = FamilyEntry(family_name = family_name, family_id=family_id)
+            self._families[family_id] = FamilyEntry(family_name=family_name, family_id=family_id)
         return family_id
 
     def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
@@ -775,20 +774,12 @@ class MemoryStorage(StorageInterface):
                 self._bands[band_number][band_hash] = []
             self._bands[band_number][band_hash].append(minhash.function_id)
 
-
     def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
         block_statistics = {
-            "by_sample_id": {
-                sample_id: {
-                    "sample_id": sample_id,
-                    "total_blocks": 0,
-                    "characteristic_blocks": 0,
-                    "unique_blocks": 0
-                } for sample_id in sample_ids
-            },
+            "by_sample_id": {sample_id: {"sample_id": sample_id, "total_blocks": 0, "characteristic_blocks": 0, "unique_blocks": 0} for sample_id in sample_ids},
             "unique_blocks_overall": 0,
-            "num_samples": len(sample_ids)
+            "num_samples": len(sample_ids),
         }
         candidate_picblockhashes = {}
         for function_id, entry in self._functions.items():
@@ -801,7 +792,7 @@ class MemoryStorage(StorageInterface):
                         "length": block_entry["length"],
                         "function_id": entry["function_id"],
                         "offset": block_entry["offset"],
-                        "instructions": []
+                        "instructions": [],
                     }
                 candidate_picblockhashes[block_hash]["samples"].add(sample_id)
         # update statistics based on candidates
@@ -838,7 +829,7 @@ class MemoryStorage(StorageInterface):
         return {"statistics": block_statistics, "unique_blocks": candidate_picblockhashes}
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):
-        # TODO while minhashes are considerably small, there is a still chance that the 
+        # TODO while minhashes are considerably small, there is a still chance that the
         # sum of all minhashes will eventually exceed available memory on a given system.
         # in this case we can start doing batches in our database interation already
         minhashes = []
@@ -849,14 +840,13 @@ class MemoryStorage(StorageInterface):
                 minhashes.append(minhash_obj)
         # drop band collections
         # recreate indices for band collections
-        collections = []
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             self._bands[band_id] = {}
         # re-add minhashes in batches
         batch_size = self._minhash_config.MINHASH_BAND_REBUILD_WORK_PACKAGE_SIZE
         if progress_reporter:
             progress_reporter.set_total((len(minhashes) // batch_size) + 1)
-        for minhash_batch in zip_longest(*[iter(minhashes)]*batch_size):
+        for minhash_batch in zip_longest(*[iter(minhashes)] * batch_size):
             minhash_batch = [mh for mh in minhash_batch if mh is not None]
             for mh in minhash_batch:
                 self._addMinHashToBands(mh)
@@ -874,9 +864,10 @@ class MemoryStorage(StorageInterface):
         def get_tuple_from_entry(entry):
             return tuple(_get_field(entry, field) for field in full_cursor.sort_fields)
 
-        # custom tuple compare function considering sort direction per dimension 
+        # custom tuple compare function considering sort direction per dimension
         is_backward_search = not full_cursor.is_forward_search
         sort_directions = [1 if direction ^ is_backward_search else -1 for direction in full_cursor.sort_directions]
+
         def compare_tuple(tuple1, tuple2):
             for i in range(len(full_cursor.sort_fields)):
                 direction = sort_directions[i]
@@ -896,8 +887,7 @@ class MemoryStorage(StorageInterface):
 
         return lambda entry: functools.cmp_to_key(compare_tuple)(get_tuple_from_entry(entry))
 
-
-    def _get_search_filter(self, search_fields:List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None) -> Callable:
+    def _get_search_filter(self, search_fields: List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None) -> Callable:
         if cursor is not None:
             full_tree = AndNode([search_tree, cursor.toTree()])
         else:
@@ -928,8 +918,13 @@ class MemoryStorage(StorageInterface):
 
     def findSampleByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
         result_dict = {}
-        search_fields = ["filename", "family", "component", "version",]
-        conditional_field = ("sha256", lambda search_term: len(search_term)>=3)
+        search_fields = [
+            "filename",
+            "family",
+            "component",
+            "version",
+        ]
+        conditional_field = ("sha256", lambda search_term: len(search_term) >= 3)
         filter = self._get_search_filter(search_fields, search_tree, cursor, conditional_search_fields=[conditional_field])
         sort_key = self._get_sort_key_from_cursor(cursor)
         for entry in sorted(self._samples.values(), key=sort_key):

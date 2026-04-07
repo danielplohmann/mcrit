@@ -1,30 +1,142 @@
-name: Test
+name: CI
 
-on: ["push", "pull_request"]
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  testing:
-    name: Testing
+  lint:
+    name: Ruff
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Ruff
+        run: python -m pip install --upgrade pip ruff==0.15.9
+
+      - name: Check formatting
+        run: ruff format --check .
+
+      - name: Lint
+        run: ruff check .
+
+  unit:
+    name: Unit tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
-        mongodb-version: [5.0]
+        python-version: ["3.11", "3.12"]
 
     steps:
-      - name: Clone repository
-        uses: actions/checkout@v3
+      - name: Check out repository
+        uses: actions/checkout@v6
 
-      - name: Install dependencies for the client
-        run:  |
-              pip3 install -r requirements.txt
-              pip install -e .
-        shell: bash
-
-      - name: Start MongoDB v${{ matrix.mongodb-version }}
-        uses: supercharge/mongodb-github-action@1.2.0
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
-          mongodb-version: ${{ matrix.mongodb-version }}
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements.txt
 
-      - name: Test
-        run: make test
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+
+      - name: Run unit tests
+        run: python -m pytest -m "not mongo and not sleep"
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    env:
+      TEST_MONGODB: 127.0.0.1:27017
+    services:
+      mongo:
+        image: mongo:5.0
+        ports:
+          - 27017:27017
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -e . --no-deps
+
+      - name: Wait for MongoDB
+        run: |
+          python - <<'PY'
+          import os
+          import time
+          import pymongo
+
+          uri = f"mongodb://{os.environ['TEST_MONGODB']}/"
+          deadline = time.time() + 60
+          last_error = None
+          while time.time() < deadline:
+              try:
+                  client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=1000)
+                  client.admin.command("ping")
+                  print("MongoDB is ready.")
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise SystemExit(f"MongoDB did not become ready: {last_error}")
+          PY
+
+      - name: Run integration tests
+        run: python -m pytest
+
+  build:
+    name: Build package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build twine
+
+      - name: Build distributions
+        run: python -m build --sdist --wheel
+
+      - name: Validate distributions
+        run: python -m twine check dist/*

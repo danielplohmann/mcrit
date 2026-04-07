@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from AbstractShingler import AbstractShingler
+
 from mcrit.libs.utility import generate_unique_pairs
 
 
@@ -14,7 +15,6 @@ class FuzzyStatPairShingler(AbstractShingler):
 
     def _getStackSize(self, function_object):
         stack_size = 0
-        trace = ""
         for ins in function_object.blocks[function_object.offset][:10]:
             if ins.mnemonic == "sub":
                 operands = [op.strip() for op in ins.operands.split(",")]
@@ -22,12 +22,12 @@ class FuzzyStatPairShingler(AbstractShingler):
                     try:
                         stack_size = int(operands[1], 16)
                         break
-                    except:
+                    except ValueError:
                         pass
                     try:
                         stack_size = int(operands[1])
                         break
-                    except:
+                    except ValueError:
                         pass
         return stack_size
 
@@ -41,7 +41,7 @@ class FuzzyStatPairShingler(AbstractShingler):
             "num_calls": function_object.num_calls,
             "num_returns": function_object.num_returns,
             "num_loops": num_loops,
-            "stack_size": stack_size
+            "stack_size": stack_size,
         }
         field_values = []
         for field_name, value in fields.items():

@@ -1,32 +1,27 @@
 #!/usr/bin/env python3
 
-import os
-import re
-import uuid
-import json
-import logging
 import hashlib
-from random import sample
+import logging
+import os
+import uuid
 from datetime import datetime, timedelta
-from collections import defaultdict
 from itertools import zip_longest
 from multiprocessing import Pool, cpu_count
-from typing import Dict, List, Optional, TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, List, Optional
 
 import tqdm
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
+from smda.common.SmdaInstruction import SmdaInstruction
 from smda.common.SmdaReport import SmdaReport
 from smda.Disassembler import Disassembler
-from smda.SmdaConfig import SmdaConfig
-from smda.common.SmdaInstruction import SmdaInstruction
 from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
+from smda.SmdaConfig import SmdaConfig
 
 from mcrit.config.McritConfig import McritConfig
 from mcrit.config.MinHashConfig import MinHashConfig
-from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.QueueConfig import QueueConfig
-from mcrit.config.McritConfig import McritConfig
+from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
 from mcrit.matchers.MatcherCross import MatcherCross
 from mcrit.matchers.MatcherQuery import MatcherQuery
@@ -59,7 +54,7 @@ class Worker(QueueRemoteCallee):
 
         if profiling:
             print("[!] Running as profiled application.")
-            profiling_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__ )), "..", "profiler"))
+            profiling_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "profiler"))
             os.makedirs(profiling_path, exist_ok=True)
         else:
             profiling_path = None
@@ -76,10 +71,10 @@ class Worker(QueueRemoteCallee):
         else:
             self._storage = StorageFactory.getStorage(config)
 
-    def  __enter__(self):
+    def __enter__(self):
         return self
 
-    def  __exit__(self, *args):
+    def __exit__(self, *args):
         # TODO unregister our worker_id from all in-progress jobs found in the queue
         self.queue.unregisterWorker()
         self.queue.release_all_jobs()
@@ -147,7 +142,6 @@ class Worker(QueueRemoteCallee):
         LOGGER.info("Added %s", sample_entry)
         function_entries = self._storage.getFunctionsBySampleId(sample_entry.sample_id)
         LOGGER.info("Added %d function entries.", len(function_entries))
-        job_id = None
         if calculate_hashes:
             self.updateMinHashesForSample(sample_entry.sample_id)
         return sample_entry
@@ -180,14 +174,14 @@ class Worker(QueueRemoteCallee):
             return {"sample_info": sample_entry.toDict()}
         else:
             return None
-        
+
     # Reports PROGRESS
     @Remote(progress=True)
     def doDbCleanup(self, progress_reporter=NoProgressReporter()):
         now = datetime.now()
         delta = timedelta(seconds=self._storage_config.STORAGE_MONGODB_CLEANUP_TTL)
         time_cutoff = now - delta
-        LOGGER.info(f"Fetching data from the queues.")
+        LOGGER.info("Fetching data from the queues.")
         unmapped_finished = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="finished")
         mapped_finished = self.getQueueData(0, 0, method="getMatchesForMappedBinary", state="finished")
         unmapped_failed = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="failed")
@@ -199,7 +193,7 @@ class Worker(QueueRemoteCallee):
         LOGGER.info(
             f"Collected all data from the queues, now iterating {len(unmapped_finished) + len(mapped_finished) + len(unmapped_failed) + len(mapped_failed) + len(smda_finished)} items."
         )
-        # first iterate and collect all potentially stale sample_entries by their submission/processing timestamp 
+        # first iterate and collect all potentially stale sample_entries by their submission/processing timestamp
         for sample_entry in self._storage.getSamples(start_index=0, limit=0, is_query=True):
             if sample_entry.timestamp is None:
                 LOGGER.warning(f"Found query_samples entry without timestamp: {sample_entry}")
@@ -234,7 +228,7 @@ class Worker(QueueRemoteCallee):
                     if reference_sample_entry.sha256 not in samples_to_be_deleted:
                         samples_to_be_deleted[reference_sample_entry.sha256] = []
                     samples_to_be_deleted[reference_sample_entry.sha256].append(reference_sample_entry)
-        LOGGER.info(f"Decoding SMDA reports for SHA256 hashes.")
+        LOGGER.info("Decoding SMDA reports for SHA256 hashes.")
         for job_dict in smda_finished:
             job = Job(job_dict, None)
             result = self.getResultForJob(job.job_id)
@@ -259,18 +253,18 @@ class Worker(QueueRemoteCallee):
         LOGGER.info(f"Found {len(jobs_to_be_deleted)} query jobs that can be deleted.")
         for job in jobs_to_be_deleted:
             self.queue.delete_job(job.job_id)
-        
+
     # Reports PROGRESS
     @Remote(progress=True)
     def rebuildIndex(self, progress_reporter=NoProgressReporter()):
         return self._storage.rebuildMinhashBandIndex(progress_reporter=progress_reporter)
-    
+
     # Reports PROGRESS
     @Remote(progress=True)
     def recalculatePicHashes(self, progress_reporter=NoProgressReporter()):
         return self._storage.recalculateAllPicHashes(progress_reporter=progress_reporter)
-    
-     # Reports PROGRESS
+
+    # Reports PROGRESS
     @Remote(progress=True)
     def recalculateMinHashes(self, progress_reporter=NoProgressReporter()):
         self._storage.deleteAllMinHashes(progress_reporter=progress_reporter)
@@ -285,9 +279,11 @@ class Worker(QueueRemoteCallee):
             unhashed_function_ids = self._storage.getUnhashedFunctions(None, only_function_ids=True)
             # to up to 10.000 function per batch
             LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_function_ids))
-            total_batches = len(unhashed_function_ids) // self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE + (1 if len(unhashed_function_ids) % self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE else 0)
+            total_batches = len(unhashed_function_ids) // self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE + (
+                1 if len(unhashed_function_ids) % self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE else 0
+            )
             progress_reporter.set_total(total_batches)
-            for sliced_ids in zip_longest(*[iter(unhashed_function_ids)]*self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
+            for sliced_ids in zip_longest(*[iter(unhashed_function_ids)] * self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
                 unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
                 minhashes = self.calculateMinHashes(unhashed_functions, progress_reporter=progress_reporter)
@@ -297,9 +293,11 @@ class Worker(QueueRemoteCallee):
                 progress_reporter.step()
         else:
             LOGGER.info("Updating MinHashes: %d function entries considered.", len(function_ids))
-            total_batches = len(function_ids) // self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE + (1 if len(function_ids) % self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE else 0)
+            total_batches = len(function_ids) // self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE + (
+                1 if len(function_ids) % self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE else 0
+            )
             progress_reporter.set_total(total_batches)
-            for sliced_ids in zip_longest(*[iter(function_ids)]*self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
+            for sliced_ids in zip_longest(*[iter(function_ids)] * self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
                 unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
                 LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_functions))
@@ -339,7 +337,6 @@ class Worker(QueueRemoteCallee):
         yara_rule = []
         sample_coverage = {sample_id: 0 for sample_id in sample_ids}
         covers_required = 10
-        functions_used = set()
         samples_covered = set()
         while True:
             # calculate block_scores as how much benefit they bring, i.e. how many uncovered samples they can cover at once
@@ -347,12 +344,7 @@ class Worker(QueueRemoteCallee):
             for block_hash, entry in unique_blocks.items():
                 sample_ids_coverable = set(entry["samples"]).difference(samples_covered)
                 if sample_ids_coverable and block_hash not in yara_rule:
-                    candidate = {
-                        "block_hash": block_hash,
-                        "coverable": sample_ids_coverable,
-                        "value": len(sample_ids_coverable),
-                        "score": entry["score"]
-                    }
+                    candidate = {"block_hash": block_hash, "coverable": sample_ids_coverable, "value": len(sample_ids_coverable), "score": entry["score"]}
                     block_candidates.append(candidate)
             # check if we are done yet, successful or not
             if len(samples_covered) == len(sample_ids):
@@ -383,7 +375,14 @@ class Worker(QueueRemoteCallee):
             escaped_sequences = []
             for instruction in entry["instructions"]:
                 smda_instruction = SmdaInstruction(instruction)
-                escaped_sequences.append(smda_instruction.getEscapedBinary(IntelInstructionEscaper, escape_intraprocedural_jumps=True, lower_addr=sample_addr_borders[sample_id]["lower"], upper_addr=sample_addr_borders[sample_id]["upper"]))
+                escaped_sequences.append(
+                    smda_instruction.getEscapedBinary(
+                        IntelInstructionEscaper,
+                        escape_intraprocedural_jumps=True,
+                        lower_addr=sample_addr_borders[sample_id]["lower"],
+                        upper_addr=sample_addr_borders[sample_id]["upper"],
+                    )
+                )
             unique_blocks[block_hash]["escaped_sequence"] = " ".join(escaped_sequences)
         blocks_result_dict["unique_blocks"] = unique_blocks
         progress_reporter.step()
@@ -391,20 +390,9 @@ class Worker(QueueRemoteCallee):
 
     # Reports PROGRESS
     @Remote(progress=True, json_locations=[0])
-    def getMatchesForSmdaReport(
-        self, 
-        report_json, 
-        minhash_threshold=None, 
-        pichash_size=None, 
-        band_matches_required=None, 
-        progress_reporter=NoProgressReporter()
-    ):
+    def getMatchesForSmdaReport(self, report_json, minhash_threshold=None, pichash_size=None, band_matches_required=None, progress_reporter=NoProgressReporter()):
         matcher = MatcherQuery(
-            self, 
-            minhash_threshold=minhash_threshold, 
-            pichash_size=pichash_size, 
-            band_matches_required=band_matches_required,
-            progress_reporter=progress_reporter
+            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, band_matches_required=band_matches_required, progress_reporter=progress_reporter
         )
         smda_report = SmdaReport.fromDict(report_json)
         match_report = matcher.getMatchesForSmdaReport(smda_report)
@@ -412,69 +400,35 @@ class Worker(QueueRemoteCallee):
 
     # Reports PROGRESS
     @Remote(progress=True, file_locations=[0])
-    def getMatchesForMappedBinary(
-        self, 
-        binary, 
-        base_address, 
-        minhash_threshold=None, 
-        pichash_size=None, 
-        band_matches_required=None,
-        progress_reporter=NoProgressReporter()
-    ):
+    def getMatchesForMappedBinary(self, binary, base_address, minhash_threshold=None, pichash_size=None, band_matches_required=None, progress_reporter=NoProgressReporter()):
         config = SmdaConfig()
         SMDA_REPORT = None
         DISASSEMBLER = Disassembler(config)
         SMDA_REPORT = DISASSEMBLER.disassembleBuffer(binary, base_address)
         matcher = MatcherQuery(
-            self, 
-            minhash_threshold=minhash_threshold, 
-            pichash_size=pichash_size, 
-            band_matches_required=band_matches_required,
-            progress_reporter=progress_reporter
+            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, band_matches_required=band_matches_required, progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSmdaReport(SMDA_REPORT)
         return match_report
 
     # Reports PROGRESS
     @Remote(progress=True, file_locations=[0])
-    def getMatchesForUnmappedBinary(
-        self, 
-        binary, 
-        minhash_threshold=None, 
-        pichash_size=None, 
-        band_matches_required=None,
-        progress_reporter=NoProgressReporter()
-    ):
+    def getMatchesForUnmappedBinary(self, binary, minhash_threshold=None, pichash_size=None, band_matches_required=None, progress_reporter=NoProgressReporter()):
         config = SmdaConfig()
         SMDA_REPORT = None
         DISASSEMBLER = Disassembler(config)
         SMDA_REPORT = DISASSEMBLER.disassembleUnmappedBuffer(binary)
         matcher = MatcherQuery(
-            self, 
-            minhash_threshold=minhash_threshold, 
-            pichash_size=pichash_size, 
-            band_matches_required=band_matches_required,
-            progress_reporter=progress_reporter
+            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, band_matches_required=band_matches_required, progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSmdaReport(SMDA_REPORT)
         return match_report
 
     # Reports PROGRESS
     @Remote(progress=True)
-    def getMatchesForSample(
-        self, 
-        sample_id, 
-        minhash_threshold=None, 
-        pichash_size=None, 
-        band_matches_required=None,
-        progress_reporter=NoProgressReporter()
-    ):
+    def getMatchesForSample(self, sample_id, minhash_threshold=None, pichash_size=None, band_matches_required=None, progress_reporter=NoProgressReporter()):
         matcher = MatcherSample(
-            self, 
-            minhash_threshold=minhash_threshold, 
-            pichash_size=pichash_size, 
-            band_matches_required=band_matches_required,
-            progress_reporter=progress_reporter
+            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, band_matches_required=band_matches_required, progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSample(sample_id)
         return match_report
@@ -490,37 +444,20 @@ class Worker(QueueRemoteCallee):
         band_matches_required=None,
         progress_reporter=NoProgressReporter(),
     ):
-        matcher = MatcherVs(
-            self, 
-            minhash_threshold=minhash_threshold, 
-            pichash_size=pichash_size, 
-            band_matches_required=band_matches_required,
-            progress_reporter=progress_reporter
-        )
+        matcher = MatcherVs(self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, band_matches_required=band_matches_required, progress_reporter=progress_reporter)
         match_report = matcher.getMatchesForSample(sample_id, other_sample_id)
         return match_report
 
     # Reports PROGRESS
     @Remote(progress=True)
     def getMatchesForSampleVsGroup(
-        self, 
-        sample_id, 
-        other_sample_ids:List[int],
-        minhash_threshold=None, 
-        pichash_size=None, 
-        band_matches_required=None,
-        progress_reporter=NoProgressReporter()
+        self, sample_id, other_sample_ids: List[int], minhash_threshold=None, pichash_size=None, band_matches_required=None, progress_reporter=NoProgressReporter()
     ):
         matcher = MatcherVsGroup(
-            self, 
-            minhash_threshold=minhash_threshold, 
-            pichash_size=pichash_size, 
-            band_matches_required=band_matches_required,
-            progress_reporter=progress_reporter
+            self, minhash_threshold=minhash_threshold, pichash_size=pichash_size, band_matches_required=band_matches_required, progress_reporter=progress_reporter
         )
         match_report = matcher.getMatchesForSample(sample_id, other_sample_ids)
         return match_report
-
 
     @Remote()
     def combineMatchesToCross(self, sample_to_job_id):
@@ -529,12 +466,11 @@ class Worker(QueueRemoteCallee):
             result = self.getResultForJob(job_id)
             if result is None:
                 raise ValueError("Cannot evaluate Cross Compare. A child job failed.")
-            # here we strip the results to sample level only, as function level matches are 
+            # here we strip the results to sample level only, as function level matches are
             # not required and may easily blow up memory
             result["matches"].pop("functions")
             child_results.append(result)
         return MatcherCross().create_result(child_results)
-
 
     def _groupItems(self, items, packsize=500):
         packed_items = []
@@ -556,11 +492,7 @@ class Worker(QueueRemoteCallee):
             binary_info.architecture = func.architecture
             smda_functions.append((func.function_id, SmdaFunction.fromDict(func.xcfg, binary_info=binary_info)))
         # filter down to functions that fulfill size requirements
-        smda_functions = [
-            (function_id, smda_function)
-            for function_id, smda_function in smda_functions
-            if self.minhasher.isMinHashableFunction(smda_function)
-        ]
+        smda_functions = [(function_id, smda_function) for function_id, smda_function in smda_functions if self.minhasher.isMinHashableFunction(smda_function)]
         LOGGER.info("Calculating MinHashes: %d function entries are indexable.", len(smda_functions))
         is_stepping = False
         if smda_functions:
