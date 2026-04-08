@@ -295,13 +295,16 @@ class MemoryStorageTest(TestCase):
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
     def setUp(self):
-        mongodb_server = os.environ.get("TEST_MONGODB")
-        # assume localhost if no explicit test server is set
-        if not mongodb_server:
-            mongodb_server = "127.0.0.1"
+        mongodb_server = os.environ.get("TEST_MONGODB", "127.0.0.1")
+        # split host:port when the env var contains both
+        if ":" in mongodb_server:
+            server, port = mongodb_server.rsplit(":", 1)
+        else:
+            server, port = mongodb_server, "27017"
         self._storage_config = StorageConfig(
             STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB,
-            STORAGE_SERVER=mongodb_server,
+            STORAGE_SERVER=server,
+            STORAGE_PORT=port,
             STORAGE_MONGODB_DBNAME="test_mongodbstorage_mcrit",
             STORAGE_DROP_DISASSEMBLY=False,
         )
