@@ -14,7 +14,7 @@ setup(
     author="Daniel Plohmann, Manuel Blatt, Steffen Enders, Paul Hordiienko",
     author_email="daniel.plohmann@fkie.fraunhofer.de",
     url="https://github.com/danielplohmann/mcrit",
-    license="NU General Public License v3 (GPLv3)",
+    license="GPL-3.0-only",
     packages=find_packages(exclude=("tests", "data", "docs", "examples", "plugins")),
     install_requires=open("requirements.txt").read().splitlines(),
     python_requires=">=3.11,<3.13",
@@ -23,7 +23,6 @@ setup(
     ],
     classifiers=[
         "Development Status :: 4 - Beta",
-        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: OS Independent",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.11",
