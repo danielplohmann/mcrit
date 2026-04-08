@@ -22,11 +22,9 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
+        
       - name: Install Ruff
-        run: python -m pip install --upgrade pip ruff==0.15.9
+        run: python -m pip install --upgrade pip ruff
 
       - name: Check formatting
         run: ruff format --check .
@@ -81,7 +79,6 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
-          python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.txt
 
@@ -127,9 +124,7 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v6
-        with:
-          python-version: "3.11"
-
+        
       - name: Install build tooling
         run: |
           python -m pip install --upgrade pip
