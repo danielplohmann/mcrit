@@ -45,7 +45,7 @@ class UniqueBlocksResult:
         yara_rule += "    meta:\n"
         yara_rule += '        author = "MCRIT YARA Generator"\n'
         yara_rule += '        description = "Code-based YARA rule composed from potentially unique basic blocks for the selected set of samples/family."\n'
-        rule_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        rule_date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
         yara_rule += f'        date = "{rule_date}"\n'
         yara_rule += "    strings:\n"
         yara_rule += (

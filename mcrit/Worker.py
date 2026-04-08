@@ -6,7 +6,6 @@ import os
 import uuid
 from datetime import datetime, timedelta
 from itertools import zip_longest
-from multiprocessing import Pool, cpu_count
 from typing import TYPE_CHECKING, List, Optional
 
 import tqdm
@@ -23,6 +22,7 @@ from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.QueueConfig import QueueConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.libs.parallel import create_process_pool
 from mcrit.matchers.MatcherCross import MatcherCross
 from mcrit.matchers.MatcherQuery import MatcherQuery
 from mcrit.matchers.MatcherSample import MatcherSample
@@ -501,7 +501,7 @@ class Worker(QueueRemoteCallee):
                 if not progress_reporter.has_total_set():
                     progress_reporter.set_total(len(packed_smda_functions))
                     is_stepping = True
-                with Pool(cpu_count()) as pool:
+                with create_process_pool() as pool:
                     for result in tqdm.tqdm(
                         pool.imap_unordered(self.minhasher.calculateMinHashesFromStorage, packed_smda_functions),
                         total=len(packed_smda_functions),

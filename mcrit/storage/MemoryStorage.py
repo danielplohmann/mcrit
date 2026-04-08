@@ -164,7 +164,7 @@ class MemoryStorage(StorageInterface):
         assert unknown_family_id == 0
 
     def _getCurrentTimestamp(self) -> datetime.datetime:
-        return datetime.datetime.utcnow()
+        return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
     def _updateDbState(self):
         self._db_state += 1

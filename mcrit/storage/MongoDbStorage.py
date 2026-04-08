@@ -181,7 +181,7 @@ class MongoDbStorage(StorageInterface):
     ###############################################################################
 
     def _getCurrentTimestamp(self) -> datetime.datetime:
-        return datetime.datetime.utcnow()
+        return datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
     def _convertTimestampToString(self, timestamp) -> str:
         return datetime.datetime.fromtimestamp(timestamp).strftime(self._DATETIME_FORMAT)

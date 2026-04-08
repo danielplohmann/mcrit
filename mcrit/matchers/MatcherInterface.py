@@ -3,13 +3,13 @@ import functools
 import logging
 import math
 from collections import Counter, defaultdict
-from multiprocessing import Pool, cpu_count
 from timeit import default_timer as timer
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import tqdm
 
 import mcrit.matchers.MatcherFlags as MatcherFlags
+from mcrit.libs.parallel import create_process_pool
 from mcrit.queue.QueueRemoteCalls import NoProgressReporter
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -186,7 +186,7 @@ class MatcherInterface:
         packed_tuples = [p for p in packed_tuples]
         counted_scores = Counter()
         if self._worker._minhash_config.MINHASH_POOL_MATCHING:
-            with Pool(cpu_count()) as pool:
+            with create_process_pool() as pool:
                 for pool_result in tqdm.tqdm(
                     pool.imap_unordered(calculation_function, packed_tuples),
                     total=num_packed_tuples,

@@ -75,7 +75,7 @@ from pyparsing import (
     ZeroOrMore,
     identbodychars,
     identchars,
-    oneOf,
+    one_of,
 )
 
 from mcrit.index.SearchQueryTree import AndNode, NodeType, NotNode, OrNode, SearchConditionNode, SearchTermNode
@@ -97,26 +97,26 @@ class SearchQueryParser:
             QuotedString('"', esc_char="\\", esc_quote='\\"') | QuotedString("'", esc_char="\\", esc_quote="\\'") | ZeroOrMore(Suppress(whitespace)) + CharsNotIn(whitespace + "()")
         )
         identifier = Word(identchars, identbodychars + ".")
-        operator = oneOf("< <= > >= = != ? !?")
+        operator = one_of("< <= > >= = != ? !?")
         condition_compare = identifier + (":" + operator + search_term).leave_whitespace()
         condition_equal = identifier + (":" + search_term).leave_whitespace()
-        one_filter = Group(condition_compare | condition_equal | search_term).setResultsName("one_filter")
+        one_filter = Group(condition_compare | condition_equal | search_term).set_results_name("one_filter")
 
         operatorOr = Forward()
 
-        operatorParenthesis = Group(Suppress("(") + operatorOr + Suppress(")")).setResultsName("parenthesis") | one_filter
+        operatorParenthesis = Group(Suppress("(") + operatorOr + Suppress(")")).set_results_name("parenthesis") | one_filter
 
         operatorNot = Forward()
-        operatorNot << (Group(Suppress(Keyword("NOT")) + operatorNot).setResultsName("not") | operatorParenthesis)
+        operatorNot << (Group(Suppress(Keyword("NOT")) + operatorNot).set_results_name("not") | operatorParenthesis)
 
         operatorAnd = Forward()
         operatorAnd << (
-            Group(operatorNot + Suppress(Keyword("AND")) + operatorAnd).setResultsName("and")
-            | Group(operatorNot + OneOrMore(~oneOf("AND OR") + operatorAnd)).setResultsName("and")
+            Group(operatorNot + Suppress(Keyword("AND")) + operatorAnd).set_results_name("and")
+            | Group(operatorNot + OneOrMore(~one_of("AND OR") + operatorAnd)).set_results_name("and")
             | operatorNot
         )
 
-        operatorOr << (Group(operatorAnd + Suppress(Keyword("OR")) + operatorOr).setResultsName("or") | operatorAnd)
+        operatorOr << (Group(operatorAnd + Suppress(Keyword("OR")) + operatorOr).set_results_name("or") | operatorAnd)
 
         parser = operatorOr + StringEnd()
         return parser

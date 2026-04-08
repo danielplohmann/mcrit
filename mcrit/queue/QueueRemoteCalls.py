@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
 from typing import List
 
@@ -287,10 +287,10 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
 
         @wraps(function)
         def wrapped_function(job, *args, **kwargs):
-            start = datetime.utcnow()
+            start = datetime.now(UTC).replace(tzinfo=None)
             with cProfile.Profile() as pr:
                 result = function(job, *args, **kwargs)
-            end = datetime.utcnow()
+            end = datetime.now(UTC).replace(tzinfo=None)
             method = job.payload["method"]
             duration = int((end - start).total_seconds() * 1000)
             filename = f"WORKER-{method}-{int(start.timestamp())}-{duration}ms.prof"

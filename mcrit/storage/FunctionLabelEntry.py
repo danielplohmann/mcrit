@@ -15,7 +15,7 @@ class FunctionLabelEntry:
         self.function_id = function_id
         self.timestamp = timestamp
         if timestamp is None:
-            self.timestamp = datetime.datetime.utcnow()
+            self.timestamp = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
     def setFunctionId(self, function_id):
         self.function_id = function_id
