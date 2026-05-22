@@ -65,6 +65,28 @@ class SpawningWorker(Worker):
         console_handle = subprocess.Popen(["python", "-m", "mcrit", "singlejobworker", "--job_id", str(job.job_id)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         # extract result_id from console_output
         result_id = None
+        stdout_lines = []
+
+        def reader(pipe, label, accum):
+            try:
+                for line in iter(pipe.readline, b''):
+                    decoded_line = line.decode("utf-8", errors="replace").rstrip()
+                    if decoded_line:
+                        LOGGER.info("%s logs from subprocess: %s", label, decoded_line)
+                    if accum is not None:
+                        accum.append(decoded_line)
+            except Exception:
+                LOGGER.exception("Exception in subprocess reader thread")
+            finally:
+                pipe.close()
+
+        t1 = threading.Thread(target=reader, args=(console_handle.stdout, "STDOUT", stdout_lines))
+        t2 = threading.Thread(target=reader, args=(console_handle.stderr, "STDERR", None))
+        t1.daemon = True
+        t2.daemon = True
+        t1.start()
+        t2.start()
+
         try:
             stdout_result, stderr_result = console_handle.communicate(timeout=self._queue_config.QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT)
             stdout_result = stdout_result.strip().decode("utf-8")
@@ -83,6 +105,20 @@ class SpawningWorker(Worker):
                 result_id = match.group("result_id")
         except subprocess.TimeoutExpired:
             LOGGER.error(f"Job {str(job.job_id)} running as child from SpawningWorker timed out during processing.")
+            console_handle.kill()
+            console_handle.wait()
+
+        t1.join()
+        t2.join()
+
+        if stdout_lines:
+            # Search backwards for result_id in case there are trailing empty lines or other output
+            for line in reversed(stdout_lines):
+                if line.strip():
+                    match = re.match("(?P<result_id>[0-9a-fA-F]{24})", line.strip())
+                    if match:
+                        result_id = match.group("result_id")
+                        break
         return result_id
 
     def _executeJob(self, job):

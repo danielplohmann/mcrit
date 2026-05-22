@@ -402,6 +402,25 @@ class MongoDbStorage(StorageInterface):
             return None
         return function_document["sample_id"]
 
+    def getSampleIdsByFunctionIds(self, function_ids: List[int]) -> Dict[int, int]:
+        sample_ids = {}
+        positive_function_ids = [function_id for function_id in set(function_ids) if function_id >= 0]
+        negative_function_ids = [function_id for function_id in set(function_ids) if function_id < 0]
+        for collection_name, collection_ids in (
+            ("functions", positive_function_ids),
+            ("query_functions", negative_function_ids),
+        ):
+            if not collection_ids:
+                continue
+            for sliced_ids in zip_longest(*[iter(collection_ids)] * 500000):
+                query_function_ids = [function_id for function_id in sliced_ids if function_id is not None]
+                for function_document in self._getDb()[collection_name].find(
+                    {"function_id": {"$in": query_function_ids}},
+                    {"_id": 0, "function_id": 1, "sample_id": 1},
+                ):
+                    sample_ids[function_document["function_id"]] = function_document["sample_id"]
+        return sample_ids
+
     def deleteSample(self, sample_id: int) -> bool:
         sample_entry = self.getSampleById(sample_id)
         if sample_entry is None:
@@ -411,17 +430,14 @@ class MongoDbStorage(StorageInterface):
             self._getDb().query_functions.delete_many({"sample_id": sample_id})
             # remove sample
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
-            return
-        function_entries = self.getFunctionsBySampleId(sample_id)
-        if function_entries is None:
-            # in this case sample_id is does not exist
-            return False
+            return 
+        function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
 
         # collect all band entries that need updating and pull all function_ids at once.
         # might need to batch this into slices of function_ids again
         minhashes_to_remove = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
-        for function_entry in function_entries:
-            minhash = function_entry.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
+        for function_minhash in function_minhashes:
+            minhash = self._getMinHashFromStorage(function_minhash)
             # remove minhash entries, if necessary
             if not minhash or not minhash.hasMinHash():
                 continue
@@ -429,8 +445,7 @@ class MongoDbStorage(StorageInterface):
             for band_number, band_hash in sorted(band_hashes.items()):
                 if band_hash not in minhashes_to_remove[band_number]:
                     minhashes_to_remove[band_number][band_hash] = []
-                if function_entry.function_id not in minhashes_to_remove[band_number][band_hash]:
-                    minhashes_to_remove[band_number][band_hash].append(function_entry.function_id)
+                minhashes_to_remove[band_number][band_hash].append(function_minhash["function_id"])
         self._updateBands(minhashes_to_remove, method="pull")
 
         # update family stats
@@ -706,6 +721,22 @@ class MongoDbStorage(StorageInterface):
             functions.append(FunctionEntry.fromDict(f))
         return functions
 
+    def _getFunctionMinHashesBySampleId(self, sample_id: int) -> List[Dict[str, Any]]:
+        field_selection = {"_id": 0, "function_id": 1, "minhash": 1}
+        if sample_id < 0:
+            return list(self._getDb().query_functions.find({"sample_id": sample_id}, field_selection))
+        return list(self._getDb().functions.find({"sample_id": sample_id}, field_selection))
+
+    def _getMinHashFromStorage(self, function_document: Dict[str, Any]) -> Optional["MinHash"]:
+        minhash_hex = function_document.get("minhash")
+        if not minhash_hex:
+            return None
+        return MinHash(
+            function_id=function_document["function_id"],
+            minhash_bytes=bytes.fromhex(minhash_hex),
+            minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS,
+        )
+
     def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
         function_ids = None
         if not self.isSampleId(sample_id):
@@ -716,7 +747,7 @@ class MongoDbStorage(StorageInterface):
         else:
             function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0, "function_id": 1}))
         for f in function_dicts:
-            function_ids(f["function_ids"])
+            function_ids.append(f["function_id"])
         return function_ids
 
     def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
@@ -921,17 +952,28 @@ class MongoDbStorage(StorageInterface):
         sample_to_func_ids = {}
         minhashes = {}
         # process this in batches as the number of function_ids can be exceedingly large, pushing beyond Mongo's 16M limit
-        for sliced_ids in zip_longest(*[iter(function_ids)] * 500000):
-            query_function_ids = [fid for fid in sliced_ids if fid is not None]
-            for function_document in self._getDb().functions.find({"function_id": {"$in": list(query_function_ids)}}, {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1}):
-                function_id = function_document["function_id"]
-                sample_id = function_document["sample_id"]
-                minhash = bytes.fromhex(function_document["minhash"])
-                minhashes[function_id] = minhash
-                sample_ids[function_id] = sample_id
-                if sample_id not in sample_to_func_ids:
-                    sample_to_func_ids[sample_id] = set()
-                sample_to_func_ids[sample_id].add(function_id)
+        positive_function_ids = [function_id for function_id in set(function_ids) if function_id >= 0]
+        negative_function_ids = [function_id for function_id in set(function_ids) if function_id < 0]
+        for collection_name, collection_ids in (
+            ("functions", positive_function_ids),
+            ("query_functions", negative_function_ids),
+        ):
+            if not collection_ids:
+                continue
+            for sliced_ids in zip_longest(*[iter(collection_ids)] * 500000):
+                query_function_ids = [function_id for function_id in sliced_ids if function_id is not None]
+                for function_document in self._getDb()[collection_name].find(
+                    {"function_id": {"$in": query_function_ids}},
+                    {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1},
+                ):
+                    function_id = function_document["function_id"]
+                    sample_id = function_document["sample_id"]
+                    minhash = bytes.fromhex(function_document["minhash"])
+                    minhashes[function_id] = minhash
+                    sample_ids[function_id] = sample_id
+                    if sample_id not in sample_to_func_ids:
+                        sample_to_func_ids[sample_id] = set()
+                    sample_to_func_ids[sample_id].add(function_id)
         cache_data["func_id_to_minhash"] = minhashes
         cache_data["func_id_to_sample_id"] = sample_ids
         cache_data["sample_id_to_func_ids"] = sample_to_func_ids
@@ -1008,7 +1050,7 @@ class MongoDbStorage(StorageInterface):
         self._encodeFunction(function_dict)
         return function_dict
 
-    def createMatchingCache(self, function_ids: List[int]) -> MatchingCache:
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> MatchingCache:
         cache_data = self._getCacheDataForFunctionIds(function_ids)
         # TODO dont store this as attribute
         self._matching_cache = MatchingCache(cache_data)

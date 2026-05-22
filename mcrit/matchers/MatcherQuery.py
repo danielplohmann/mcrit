@@ -56,6 +56,6 @@ class MatcherQuery(MatcherInterface):
             for function_id in other_function_ids:
                 if function_id >= 0:
                     function_ids_from_storage.add(function_id)
-        cache = self._storage.createMatchingCache(function_ids_from_storage)
+        cache = self._storage.createMatchingCache(function_ids_from_storage, allow_self_return=True)
         cache.addFunctionEntriesToCache(self._function_entries)
         return cache
