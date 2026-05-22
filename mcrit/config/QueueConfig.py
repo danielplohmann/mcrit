@@ -1,7 +1,6 @@
-import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 
-from mcrit.config.ConfigInterface import ConfigInterface, default_field
+from mcrit.config.ConfigInterface import ConfigInterface
 from mcrit.queue.QueueFactory import QueueFactory
 
 

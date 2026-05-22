@@ -7,10 +7,11 @@ import falcon
 from mcrit.config.McritConfig import McritConfig
 from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.server.FamilyResource import FamilyResource
+
+from .BlocksResource import BlocksResource
 from .FunctionResource import FunctionResource
 from .JobResource import JobResource
 from .MatchResource import MatchResource
-from .BlocksResource import BlocksResource
 from .QueryResource import QueryResource
 from .SampleResource import SampleResource
 from .StatusResource import StatusResource
@@ -26,31 +27,28 @@ class AuthMiddleware:
     def process_request(self, req, resp):
         if McritConfig.AUTH_TOKEN in [None, ""]:
             return
-        token = req.get_header('apitoken')
+        token = req.get_header("apitoken")
 
         if token is None:
-            description = 'Please provide an auth token as part of the request.'
+            description = "Please provide an auth token as part of the request."
 
             raise falcon.HTTPUnauthorized(
-                title='API token required',
+                title="API token required",
                 description=description,
             )
 
         if not self._token_is_valid(token):
-            description = (
-                'The provided API token is not valid. '
-                'Please request a new token and try again.'
-            )
+            description = "The provided API token is not valid. Please request a new token and try again."
 
             raise falcon.HTTPUnauthorized(
-                title='Authentication required',
+                title="Authentication required",
                 description=description,
             )
 
     def _token_is_valid(self, token):
         if McritConfig.AUTH_TOKEN in [None, ""]:
             return True
-        return token ==  McritConfig.AUTH_TOKEN
+        return token == McritConfig.AUTH_TOKEN
 
 
 def create_index():
@@ -62,7 +60,7 @@ def create_index():
     index_json = None
     if os.path.isfile(index_path):
         LOGGER.info("Found index.json, loading and using data...")
-        with open(index_path, "r") as fjson:
+        with open(index_path) as fjson:
             index_json = json.load(fjson)
         index.setStorageData(index_json)
     return index

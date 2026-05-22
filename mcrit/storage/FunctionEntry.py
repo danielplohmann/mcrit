@@ -3,13 +3,14 @@ from typing import TYPE_CHECKING, Dict, Optional
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
 
-from mcrit.libs.utility import encode_two_complement, decode_two_complement
+from mcrit.libs.utility import decode_two_complement, encode_two_complement
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 
 if TYPE_CHECKING:  # pragma: no cover
-    from mcrit.storage.SampleEntry import SampleEntry
     from smda.common.SmdaFunction import SmdaFunction
+
+    from mcrit.storage.SampleEntry import SampleEntry
 
 # Dataclass, post init
 # constructor -> .fromSmdaFunction
@@ -74,16 +75,14 @@ class FunctionEntry(object):
     def toDict(self):
         empty_minhash = MinHash()
         minhash = self.minhash if self.minhash else empty_minhash.getMinHash()
-        shingler_composition = (
-            self.minhash_shingle_composition if self.minhash_shingle_composition else empty_minhash.getComposition()
-        )
+        shingler_composition = self.minhash_shingle_composition if self.minhash_shingle_composition else empty_minhash.getComposition()
         function_entry = {
             "architecture": self.architecture,
             "binweight": self.binweight,
             "family_id": self.family_id,
             "function_id": self.function_id,
             "function_name": self.function_name,
-            "function_labels": [l.toDict() for l in self.function_labels],
+            "function_labels": [label.toDict() for label in self.function_labels],
             "matches": self.matches,
             "minhash": minhash.hex(),
             "minhash_shingle_composition": shingler_composition,
@@ -105,7 +104,7 @@ class FunctionEntry(object):
         function_entry.sample_id = entry_dict["sample_id"]
         function_entry.architecture = entry_dict["architecture"]
         function_entry.function_name = entry_dict["function_name"]
-        function_entry.function_labels = [FunctionLabelEntry.fromDict(l) for l in entry_dict["function_labels"]] if "function_labels" in entry_dict else []
+        function_entry.function_labels = [FunctionLabelEntry.fromDict(label) for label in entry_dict["function_labels"]] if "function_labels" in entry_dict else []
         for label in function_entry.function_labels:
             label.setFunctionId(entry_dict["function_id"])
         function_entry.matches = entry_dict["matches"]

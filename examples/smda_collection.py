@@ -1,18 +1,16 @@
 #!/usr/bin/env python
+import errno
+import hashlib
+import json
+import logging
 import os
 import re
-import sys
-import sys
-import json
-import errno
 import struct
-import logging
-import hashlib
+import sys
 import traceback
 from multiprocessing import Pool, cpu_count
 
 import tqdm
-
 from smda.Disassembler import Disassembler
 from smda.SmdaConfig import SmdaConfig
 
@@ -33,18 +31,15 @@ def _get_binary_data(buffer, start, length):
     if length not in _unsigned_unpack_formats:
         raise RuntimeError("Unsupported data length")
 
-    return struct.unpack(_unsigned_unpack_formats[length], buffer[start:start + length])[0]
+    return struct.unpack(_unsigned_unpack_formats[length], buffer[start : start + length])[0]
 
 
-_unsigned_unpack_formats = {
-    2: "H",
-    4: "I",
-    8: "Q"
-}
+_unsigned_unpack_formats = {2: "H", 4: "I", 8: "Q"}
+
 
 def get_pe_offset(content):
     if len(content) >= 0x40:
-        pe_offset = get_word(content, 0x3c)
+        pe_offset = get_word(content, 0x3C)
         return pe_offset
     raise RuntimeError("Buffer too small to extract PE offset (< 0x40)")
 
@@ -54,15 +49,13 @@ def check_bitness(content):
     pe_offset = get_pe_offset(content)
     if pe_offset and len(content) >= pe_offset + 6:
         bitness = get_word(content, pe_offset + 4)
-        bitness_map = {0x14c: 32, 0x8664: 64}
+        bitness_map = {0x14C: 32, 0x8664: 64}
         bitness = bitness_map[bitness] if bitness in bitness_map else 0
     return bitness
 
 
-class NativeCodeIdentifier(object):
-
-    family_override = [
-    ]
+class NativeCodeIdentifier:
+    family_override = []
 
     def _identifyDotnet(self, content):
         if not check_bitness(content):
@@ -71,9 +64,9 @@ class NativeCodeIdentifier(object):
         file_characteristics_offset = pe_offset + 0x18
         file_characteristics = get_word(content, file_characteristics_offset)
         field_offset = 0
-        if file_characteristics == 0x10b:
+        if file_characteristics == 0x10B:
             field_offset = 0xE8
-        elif file_characteristics == 0x20b:
+        elif file_characteristics == 0x20B:
             field_offset = 0xF8
         image_dir_com_descriptor_offset = pe_offset + field_offset
         # only .NET binaries will feature a COM dscription table in the data directory
@@ -87,7 +80,7 @@ class NativeCodeIdentifier(object):
         if b"CODE" in content[:0x400] and b"DATA" in content[:0x400]:
             return True
         # check CODE for typical Delphi class names
-        if b"\x07TObject" in content[:0x2000] or b"\x0AWideString" in content[:0x2000]:
+        if b"\x07TObject" in content[:0x2000] or b"\x0aWideString" in content[:0x2000]:
             return True
         return False
 
@@ -147,6 +140,7 @@ def readFileContent(file_path):
 def sha256(content):
     return hashlib.sha256(content).hexdigest()
 
+
 def ensurePath(relative_path):
     try:
         abs_path = os.path.abspath(relative_path)
@@ -186,40 +180,40 @@ def getSampleVersion(input_path, family):
 
 def getFolderFilePath(input_root, input_path):
     abs_path = os.path.abspath(input_path)
-    relative_filepath = abs_path[len(input_root):]
+    relative_filepath = abs_path[len(input_root) :]
     return relative_filepath
 
 
 def work(input_element):
-    OUTPUT_FILENAME = input_element['sha256'] + ".smda"
-    if OUTPUT_FILENAME in input_element['finished_reports']:
+    OUTPUT_FILENAME = input_element["sha256"] + ".smda"
+    if OUTPUT_FILENAME in input_element["finished_reports"]:
         # print("Skipping file {}".format(input_element['filepath']))
         return
     REPORT = None
-    INPUT_ROOT = input_element['folder_path']
-    INPUT_FILEPATH = input_element['filepath']
-    INPUT_FILENAME = input_element['filename']
+    INPUT_ROOT = input_element["folder_path"]
+    INPUT_FILEPATH = input_element["filepath"]
+    INPUT_FILENAME = input_element["filename"]
     identifier = NativeCodeIdentifier()
     if not identifier.isNativeCode(INPUT_FILEPATH):
         return
     folder_relative_path = getFolderFilePath(INPUT_ROOT, INPUT_FILEPATH)
     disassembler = Disassembler()
     try:
-        if re.search(dump_file_pattern, input_element['filename']):
+        if re.search(dump_file_pattern, input_element["filename"]):
             print("Analyzing file: {}".format(INPUT_FILEPATH))
             BUFFER = readFileContent(INPUT_FILEPATH)
             BASE_ADDR = parseBaseAddrFromArgs(INPUT_FILENAME)
             BITNESS = getBitnessFromFilename(INPUT_FILENAME)
             try:
                 smda_config = SmdaConfig()
-                if "_dump7_" in input_element['filename']:
+                if "_dump7_" in input_element["filename"]:
                     smda_config.API_COLLECTION_FILES = {"win_7": os.sep.join([smda_config.PROJECT_ROOT, "data", "apiscout_win7_prof-n_sp1.json"])}
-                elif "_dump_" in input_element['filename']:
+                elif "_dump_" in input_element["filename"]:
                     smda_config.API_COLLECTION_FILES = {"win_xp": os.sep.join([smda_config.PROJECT_ROOT, "data", "apiscout_winxp_prof_sp3.json"])}
                 REPORT = disassembler.disassembleBuffer(BUFFER, BASE_ADDR, BITNESS)
             except AttributeError:
                 logger.error("AttributeError for: " + str(INPUT_FILENAME))
-        elif "_unpacked" in input_element['filename']:
+        elif "_unpacked" in input_element["filename"]:
             print("Analyzing file: {}".format(INPUT_FILEPATH))
             try:
                 REPORT = disassembler.disassembleFile(INPUT_FILEPATH)
@@ -234,20 +228,15 @@ def work(input_element):
                 logger.info("Wrote " + "smda-output/" + OUTPUT_FILENAME)
     except Exception:
         print("RunTimeError, we skip!")
-        print("smda: " + str( INPUT_FILENAME ))
+        print("smda: " + str(INPUT_FILENAME))
         traceback.print_exc()
 
 
 if __name__ == "__main__":
+    logging.basicConfig(filename="smda.log", filemode="a", format="[%(asctime)s:%(msecs)d] %(name)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S", level=logging.INFO)
 
-    logging.basicConfig(filename="smda.log",
-                        filemode='a',
-                        format='[%(asctime)s:%(msecs)d] %(name)s %(levelname)s %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S',
-                        level=logging.INFO)
-
-    logger = logging.getLogger('smda-multithreaded')
-    formatter = logging.Formatter('%(process)d - %(processName)s - %(threadName)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("smda-multithreaded")
+    formatter = logging.Formatter("%(process)d - %(processName)s - %(threadName)s - %(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     # Add logger to stdout
     handler = logging.StreamHandler(sys.stdout)
@@ -278,7 +267,7 @@ if __name__ == "__main__":
                 "finished_reports": finished_reports,
                 "filepath": filepath,
                 "folder_path": folder_path,
-                "sha256": sha256(readFileContent(filepath))
+                "sha256": sha256(readFileContent(filepath)),
             }
             input_queue.append(input_element)
     results = []

@@ -1,19 +1,18 @@
-import functools
-import time
-import json
-import logging
 import datetime
+import functools
+import logging
+import time
+import urllib.parse
 from typing import Dict, List, Optional, Tuple
 
 import requests
-import urllib.parse
-from mcrit.storage.FamilyEntry import FamilyEntry
-from mcrit.storage.FunctionEntry import FunctionEntry
-from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.queue.LocalQueue import Job
 from smda.common.SmdaReport import SmdaReport
 from smda.Disassembler import Disassembler
 
+from mcrit.queue.LocalQueue import Job
+from mcrit.storage.FamilyEntry import FamilyEntry
+from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.SampleEntry import SampleEntry
 
 # Only do basicConfig if no handlers have been configured
 if len(logging._handlerList) == 0:
@@ -31,8 +30,10 @@ def isJobTerminated(job):
 
     return job.is_terminated
 
+
 def isJobFailed(job):
     return (job is not None) and (job.is_failed)
+
 
 def isJobFinishedTerminatedOrFailed(job):
     return isJobTerminated(job) or (job.result is not None) or isJobFailed(job)
@@ -91,7 +92,7 @@ class McritClient:
     def respawn(self):
         response = requests.post(f"{self.mcrit_server}/respawn", headers=self.headers)
         return handle_response(response)
-    
+
     def completeMinhashes(self):
         response = requests.get(f"{self.mcrit_server}/complete_minhashes", headers=self.headers)
         if self.raw:
@@ -103,7 +104,7 @@ class McritClient:
         if self.raw:
             return response
         return handle_response(response)
-    
+
     def recalculatePicHashes(self):
         response = requests.get(f"{self.mcrit_server}/recalculate_pichashes", headers=self.headers)
         if self.raw:
@@ -138,7 +139,7 @@ class McritClient:
         if version is not None:
             query_fields.append(f"version={version}")
         if is_dump:
-            query_fields.append(f"is_dump=1")
+            query_fields.append("is_dump=1")
         if base_addr is not None:
             query_fields.append(f"base_addr=0x{base_addr:x}")
         if bitness is not None and bitness in [32, 64]:
@@ -150,7 +151,7 @@ class McritClient:
         return handle_response(response)
 
     ###########################################
-    ### Families 
+    ### Families
     ###########################################
 
     def modifyFamily(self, family_id, family_name=None, is_library=None):
@@ -208,7 +209,7 @@ class McritClient:
         return handle_response(response)
 
     ###########################################
-    ### Samples 
+    ### Samples
     ###########################################
 
     def isSampleId(self, sample_id):
@@ -287,10 +288,7 @@ class McritClient:
             return response
         data = handle_response(response)
         if data is not None:
-            return [
-                FunctionEntry.fromDict(function_entry_dict)
-                for function_entry_dict in data.values()
-            ]
+            return [FunctionEntry.fromDict(function_entry_dict) for function_entry_dict in data.values()]
 
     def getFunctions(self, start=0, limit=0):
         """
@@ -306,8 +304,8 @@ class McritClient:
         data = handle_response(response)
         if data is not None:
             return {int(k): FunctionEntry.fromDict(v) for k, v in data.items()}
-        
-    def getFunctionsByIds(self, function_ids:list, with_label_only=False):
+
+    def getFunctionsByIds(self, function_ids: list, with_label_only=False):
         """
         Get all FunctionEntries identified by the provided list of function_ids
         Supported by mcritweb API pass-through
@@ -350,12 +348,8 @@ class McritClient:
         if data is not None:
             return FunctionEntry.fromDict(data)
 
-    def completeMinhashes(self):
-        response = requests.get(f"{self.mcrit_server}/complete_minhashes", headers=self.headers)
-        return handle_response(response)
-
     ###########################################
-    ### Matching 
+    ### Matching
     ###########################################
 
     def requestMatchesForSmdaReport(
@@ -367,9 +361,7 @@ class McritClient:
         force_recalculation=False,
     ) -> str:
         smda_json = smda_report.toDict()
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required
-        )
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
         response = requests.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params)
         if self.raw:
             return response
@@ -398,9 +390,7 @@ class McritClient:
                 force_recalculation=force_recalculation,
             )
 
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required
-        )
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
         response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, headers=self.headers, params=params)
         if self.raw:
             return response
@@ -428,9 +418,7 @@ class McritClient:
                 force_recalculation=force_recalculation,
             )
 
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required
-        )
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
 
         response = requests.post(f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params)
         if self.raw:
@@ -445,9 +433,7 @@ class McritClient:
         band_matches_required=None,
         force_recalculation=False,
     ) -> None:
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required
-        )
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params)
         if self.raw:
             return response
@@ -462,9 +448,7 @@ class McritClient:
         band_matches_required=None,
         force_recalculation=False,
     ) -> str:
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required
-        )
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}", headers=self.headers, params=params)
         if self.raw:
             return response
@@ -479,28 +463,17 @@ class McritClient:
         band_matches_required=None,
         force_recalculation=False,
     ) -> None:
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required, sample_group_only=sample_group_only
-        )
-        response = requests.get(
-            f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", 
-            headers=self.headers,
-            params=params
-        )
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, sample_group_only=sample_group_only)
+        response = requests.get(f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params)
         if self.raw:
             return response
         return handle_response(response)
 
-    def getMatchFunctionVs(
-        self,
-        function_id_a:int,
-        function_id_b:int
-    ) -> None:
+    def getMatchFunctionVs(self, function_id_a: int, function_id_b: int) -> None:
         response = requests.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}", headers=self.headers)
         if self.raw:
             return response
         return handle_response(response)
-
 
     def getMatchesForSmdaFunction(self, smda_report, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False):
         """
@@ -508,9 +481,7 @@ class McritClient:
         Supported by mcritweb API pass-through
         """
         # TODO add the same parameter possibilities that are used for regular full matching jobs
-        params = self._getMatchingRequestParams(
-            minhash_threshold, pichash_size, force_recalculation, band_matches_required, exclude_self_matches
-        )
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, exclude_self_matches)
         response = requests.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers, params=params)
         if self.raw:
             return response
@@ -552,7 +523,7 @@ class McritClient:
         return SampleEntry.fromDict(data)
 
     ###########################################
-    ### Status, Results 
+    ### Status, Results
     ###########################################
 
     def getStatus(self, with_pichash=True):
@@ -562,7 +533,7 @@ class McritClient:
         """
         query_string = ""
         if with_pichash:
-            query_string = f"?with_pichash=True"
+            query_string = "?with_pichash=True"
         response = requests.get(f"{self.mcrit_server}/status{query_string}", headers=self.headers)
         if self.raw:
             return response
@@ -603,12 +574,12 @@ class McritClient:
         query_string = ""
         if with_refresh:
             if len(query_string) == 0:
-                query_string = f"?with_refresh=True"
+                query_string = "?with_refresh=True"
         response = requests.get(f"{self.mcrit_server}/jobs/stats/{query_string}", headers=self.headers)
         if self.raw:
             return response
         return handle_response(response)
-        
+
     def getQueueData(self, start=0, limit=0, method=None, filter=None, state=None, ascending=False):
         """
         Get queue data, optionally from <start> and <limit> many
@@ -811,7 +782,7 @@ class McritClient:
     # IMPORTANT: A cursor shall only be used in combination with the same
     # search_term, is_ascending and sort_by value that were used when the cursor was returned from mcrit.
     # If those parameters are altered, mcrit's behavior is undefined.
-    
+
     def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
         params = {
             "query": search_term,
@@ -820,9 +791,9 @@ class McritClient:
         if cursor is not None:
             params["cursor"] = cursor
         if sort_by is not None:
-            params["sort_by"] = sort_by 
+            params["sort_by"] = sort_by
         if limit is not None:
-            params["limit"] = limit 
+            params["limit"] = limit
         encoded_params = urllib.parse.urlencode(params)
         response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers)
         return handle_response(response)

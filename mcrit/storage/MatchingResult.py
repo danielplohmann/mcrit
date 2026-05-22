@@ -1,15 +1,15 @@
 import math
 from copy import deepcopy
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List
 
-from smda.common.SmdaFunction import SmdaFunction
 from smda.common.BinaryInfo import BinaryInfo
+from smda.common.SmdaFunction import SmdaFunction
 
-from mcrit.libs.graph import Graph
-from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.MatchedSampleEntry import MatchedSampleEntry
-from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
 import mcrit.matchers.MatcherFlags as MatcherFlags
+from mcrit.libs.graph import Graph
+from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
+from mcrit.storage.MatchedSampleEntry import MatchedSampleEntry
+from mcrit.storage.SampleEntry import SampleEntry
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.SampleEntry import SampleEntry
@@ -18,13 +18,14 @@ if TYPE_CHECKING:  # pragma: no cover
 # constructor -> .fromSmdaFunction
 # assume sample_entry, smda_function always available
 
-class MatchingResult(object):
+
+class MatchingResult:
     reference_sample_entry: "SampleEntry"
     other_sample_entry: "SampleEntry"
     match_aggregation: Dict
     sample_matches: List["MatchedSampleEntry"]
     function_matches: List["MatchedFunctionEntry"]
-    # filtered versions 
+    # filtered versions
     filtered_sample_matches: List["MatchedSampleEntry"]
     filtered_function_matches: List["MatchedFunctionEntry"]
     # function_id -> [(family_id, sample_id), ...]
@@ -55,24 +56,31 @@ class MatchingResult(object):
     @property
     def num_original_function_matches(self):
         return len(self.function_matches)
+
     @property
     def num_original_sample_matches(self):
         return len(self.sample_matches)
+
     @property
     def num_original_family_matches(self):
         return len(set([sample.family_id for sample in self.sample_matches if not sample.is_library]))
+
     @property
     def num_original_library_matches(self):
         return len(set([sample.family_id for sample in self.sample_matches if sample.is_library]))
+
     @property
     def num_function_matches(self):
         return len(self.filtered_function_matches)
+
     @property
     def num_sample_matches(self):
         return len(self.filtered_sample_matches)
+
     @property
     def num_family_matches(self):
         return len(set([sample.family_id for sample in self.filtered_sample_matches if not sample.is_library]))
+
     @property
     def num_library_matches(self):
         return len(set([sample.family_id for sample in self.filtered_sample_matches if sample.is_library]))
@@ -82,9 +90,9 @@ class MatchingResult(object):
 
     def getFilterValue(self, filter_name):
         return self.filter_values[filter_name] if filter_name in self.filter_values else 0
-    
+
     def applyFilterValues(self):
-        """ use the filter_values that have been set before to reduce the data """
+        """use the filter_values that have been set before to reduce the data"""
         # filter family/sample
         if self.filter_values.get("filter_unique_only", None):
             self.filterToUniqueMatchesOnly()
@@ -128,14 +136,14 @@ class MatchingResult(object):
             for sample_match in self.sample_matches:
                 self.family_id_to_name_map[sample_match.family_id] = sample_match.family
         return self.family_id_to_name_map[family_id] if family_id in self.family_id_to_name_map else ""
-    
+
     def getFamilyIdsMatchedByFunctionId(self, function_id):
         if function_id not in self.function_id_to_family_ids_matched:
             return 0
         return self.function_id_to_family_ids_matched[function_id]
 
     def filterByFamilyName(self, filter_term):
-        """ reduce families and samples to those where family_name is part of the family_name """
+        """reduce families and samples to those where family_name is part of the family_name"""
         filtered_sample_matches = []
         for sample_match in self.filtered_sample_matches:
             if filter_term in sample_match.family:
@@ -143,7 +151,7 @@ class MatchingResult(object):
         self.filtered_sample_matches = filtered_sample_matches
 
     def filterToDirectMinScore(self, min_score, nonlib=False):
-        """ reduce aggregated sample matches to those with direct score of min_score or higher, but nonlib flag is not applied to library samples """
+        """reduce aggregated sample matches to those with direct score of min_score or higher, but nonlib flag is not applied to library samples"""
         filtered_sample_matches = []
         for sample_match in self.filtered_sample_matches:
             if nonlib:
@@ -157,7 +165,7 @@ class MatchingResult(object):
         self.filtered_sample_matches = filtered_sample_matches
 
     def filterToFrequencyMinScore(self, min_score, nonlib=False):
-        """ reduce aggregated sample matches to those with frequency score of min_score or higher, but nonlib flag is not applied to library samples """
+        """reduce aggregated sample matches to those with frequency score of min_score or higher, but nonlib flag is not applied to library samples"""
         filtered_sample_matches = []
         for sample_match in self.filtered_sample_matches:
             if nonlib:
@@ -171,7 +179,7 @@ class MatchingResult(object):
         self.filtered_sample_matches = filtered_sample_matches
 
     def filterToUniqueMatchesOnly(self):
-        """ reduce aggregated sample matches to those with unique matches only """
+        """reduce aggregated sample matches to those with unique matches only"""
         filtered_sample_matches = []
         for sample_match in self.filtered_sample_matches:
             unique_info = self.getUniqueFamilyMatchInfoForSample(sample_match.sample_id)
@@ -180,7 +188,7 @@ class MatchingResult(object):
         self.filtered_sample_matches = filtered_sample_matches
 
     def filterToUniqueFunctionMatchesOnly(self):
-        """ reduce function matches to those with unique matches (with respect to the family) only """
+        """reduce function matches to those with unique matches (with respect to the family) only"""
         aggregated = self.getAggregatedFunctionMatches()
         filtered_function_matches = []
         unique_info_by_function_id = {entry["function_id"]: entry["num_families_matched"] == 1 for entry in aggregated}
@@ -190,7 +198,7 @@ class MatchingResult(object):
         self.filtered_function_matches = filtered_function_matches
 
     def filterToFunctionOffset(self, offset):
-        """ reduce function matches to those that match a specific offset """
+        """reduce function matches to those that match a specific offset"""
         filtered_function_matches = []
         for function_match in self.filtered_function_matches:
             if function_match.offset == offset:
@@ -198,7 +206,7 @@ class MatchingResult(object):
         self.filtered_function_matches = filtered_function_matches
 
     def excludeOwnFamily(self):
-        """ remove all sample matches with the same family_id as the reference samples"""
+        """remove all sample matches with the same family_id as the reference samples"""
         filtered_sample_matches = []
         for sample_match in self.filtered_sample_matches:
             if sample_match.family_id != self.reference_sample_entry.family_id:
@@ -206,7 +214,7 @@ class MatchingResult(object):
         self.filtered_sample_matches = filtered_sample_matches
 
     def excludeLibraryMatches(self):
-        """ reduce contained matches to those where none of the matches is with a library (transitive library identification) """
+        """reduce contained matches to those where none of the matches is with a library (transitive library identification)"""
         library_matches = [matches for matches in self.library_matches.values() if matches]
         library_samples = set([match[1] for match_list in library_matches for match in match_list])
         library_matched_functions = [key for key in self.library_matches if self.library_matches[key]]
@@ -215,37 +223,43 @@ class MatchingResult(object):
         self.is_library_filtered = True
 
     def excludePicMatches(self):
-        """ reduce contained matches to those which are not identified as quasi-identical via PIC matching """
+        """reduce contained matches to those which are not identified as quasi-identical via PIC matching"""
         self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if not function_match.match_is_pichash]
         self.is_pic_filtered = True
 
     def filterToSampleCount(self, min_samples=None, max_samples=None):
-        """ reduce contained matches to those with a maximum of <max_sample_count> matched samples """
+        """reduce contained matches to those with a maximum of <max_sample_count> matched samples"""
         matched_samples_by_function_id = {}
         for function_match in self.filtered_function_matches:
-            if not function_match.function_id in matched_samples_by_function_id:
+            if function_match.function_id not in matched_samples_by_function_id:
                 matched_samples_by_function_id[function_match.function_id] = []
-            if not function_match.matched_sample_id in matched_samples_by_function_id[function_match.function_id]:
+            if function_match.matched_sample_id not in matched_samples_by_function_id[function_match.function_id]:
                 matched_samples_by_function_id[function_match.function_id].append(function_match.matched_sample_id)
         if min_samples is not None:
-            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) >= min_samples]
+            self.filtered_function_matches = [
+                function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) >= min_samples
+            ]
         if max_samples is not None:
-            self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) <= max_samples]
+            self.filtered_function_matches = [
+                function_match for function_match in self.filtered_function_matches if len(matched_samples_by_function_id[function_match.function_id]) <= max_samples
+            ]
         self.is_sample_count_filtered = True
 
     def filterToFamilyCount(self, max_family_count):
-        """ reduce contained matches to those with a maximum of <max_family_count> matched families """
+        """reduce contained matches to those with a maximum of <max_family_count> matched families"""
         matched_families_by_function_id = {}
         for function_match in self.filtered_function_matches:
-            if not function_match.function_id in matched_families_by_function_id:
+            if function_match.function_id not in matched_families_by_function_id:
                 matched_families_by_function_id[function_match.function_id] = []
-            if not function_match.matched_family_id in matched_families_by_function_id[function_match.function_id]:
+            if function_match.matched_family_id not in matched_families_by_function_id[function_match.function_id]:
                 matched_families_by_function_id[function_match.function_id].append(function_match.matched_family_id)
-        self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if len(matched_families_by_function_id[function_match.function_id]) <= max_family_count]
+        self.filtered_function_matches = [
+            function_match for function_match in self.filtered_function_matches if len(matched_families_by_function_id[function_match.function_id]) <= max_family_count
+        ]
         self.is_family_count_filtered = True
 
     def filterToFunctionScore(self, min_score=None, max_score=None, library_only=False):
-        """ reduce contained matches to those with a minimum score of <threshold> """
+        """reduce contained matches to those with a minimum score of <threshold>"""
         filtered_function_matches = []
         for function_match in self.filtered_function_matches:
             if library_only and not function_match.match_is_library:
@@ -264,19 +278,19 @@ class MatchingResult(object):
         self.is_score_filtered = True
 
     def filterToFamilyId(self, family_id):
-        """ reduce contained matches to chosen family_id by deleting the other sample and function matches """
+        """reduce contained matches to chosen family_id by deleting the other sample and function matches"""
         self.filtered_sample_matches = [sample_match for sample_match in self.filtered_sample_matches if sample_match.family_id == family_id]
         self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_family_id == family_id]
         self.is_family_filtered = True
 
     def filterToSampleId(self, sample_id):
-        """ reduce contained matches to chosen sample_id by deleting the other sample and function matches """
+        """reduce contained matches to chosen sample_id by deleting the other sample and function matches"""
         self.filtered_sample_matches = [sample_match for sample_match in self.filtered_sample_matches if sample_match.sample_id == sample_id]
         self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.matched_sample_id == sample_id]
         self.is_sample_filtered = True
 
     def filterToFunctionId(self, function_id):
-        """ reduce contained matches to chosen function_id by deleting the other sample and function matches """
+        """reduce contained matches to chosen function_id by deleting the other sample and function matches"""
         self.filtered_function_matches = [function_match for function_match in self.filtered_function_matches if function_match.function_id == function_id]
         self.is_function_filtered = True
 
@@ -292,10 +306,7 @@ class MatchingResult(object):
             if malware_only and sample_match.is_library:
                 continue
             if sample_match.family not in by_family:
-                by_family[sample_match.family] = {
-                    "score": sample_match.matched_percent_frequency_weighted,
-                    "report": sample_match
-                }
+                by_family[sample_match.family] = {"score": sample_match.matched_percent_frequency_weighted, "report": sample_match}
             elif sample_match.matched_percent_frequency_weighted > by_family[sample_match.family]["score"]:
                 by_family[sample_match.family]["score"] = sample_match.matched_percent_frequency_weighted
                 by_family[sample_match.family]["report"] = sample_match
@@ -329,7 +340,9 @@ class MatchingResult(object):
                         self.unique_family_scores_per_sample[sid]["functions_matched"] += 1
                         self.unique_family_scores_per_sample[sid]["bytes_matched"] += weighted_bytes_per_function_id[function_id]
             for sid in self.unique_family_scores_per_sample:
-                self.unique_family_scores_per_sample[sid]["unique_score"] = 100.0 * self.unique_family_scores_per_sample[sid]["bytes_matched"] / self.reference_sample_entry.binweight
+                self.unique_family_scores_per_sample[sid]["unique_score"] = (
+                    100.0 * self.unique_family_scores_per_sample[sid]["bytes_matched"] / self.reference_sample_entry.binweight
+                )
         if sample_id in self.unique_family_scores_per_sample:
             return self.unique_family_scores_per_sample[sample_id]
         else:
@@ -343,10 +356,7 @@ class MatchingResult(object):
                 continue
             if malware_only and sample_match.is_library:
                 continue
-            by_sample_id[sample_match.sample_id] = {
-                "score": sample_match.matched_percent_frequency_weighted,
-                "report": sample_match
-            }
+            by_sample_id[sample_match.sample_id] = {"score": sample_match.matched_percent_frequency_weighted, "report": sample_match}
         result_list = []
         for sample_id, score_entry in sorted(by_sample_id.items(), key=lambda e: e[1]["score"], reverse=True):
             result_list.append(score_entry["report"])
@@ -355,7 +365,7 @@ class MatchingResult(object):
         if limit is not None:
             result_list = result_list[:limit]
         return result_list
-    
+
     def getFunctionMatches(self, start=None, limit=None, unfiltered=False):
         source_matches = self.function_matches if unfiltered else self.filtered_function_matches
         result_list = source_matches
@@ -408,10 +418,21 @@ class MatchingResult(object):
         return aggregated_matched
 
     def getFunctionsSlice(self, start, limit, unfiltered=False):
-        return self.filtered_function_matches[start:start+limit]
-    
-    def getLinkHuntResults(self, min_score=None, min_lib_score=None, min_size=None, min_offset=None, max_offset=None, unpenalized_family_count=3, exclude_family_ids=None, exclude_sample_ids=None, strongest_per_family=True):
-        """ Returns the most promising matches for finding inter-family relationship as a list """
+        return self.filtered_function_matches[start : start + limit]
+
+    def getLinkHuntResults(
+        self,
+        min_score=None,
+        min_lib_score=None,
+        min_size=None,
+        min_offset=None,
+        max_offset=None,
+        unpenalized_family_count=3,
+        exclude_family_ids=None,
+        exclude_sample_ids=None,
+        strongest_per_family=True,
+    ):
+        """Returns the most promising matches for finding inter-family relationship as a list"""
         # run over all function_matches while applying filters, collect aggregate data needed to calculate scores
         by_function_id = {}
         link_matches = []
@@ -467,8 +488,10 @@ class MatchingResult(object):
             num_families_matched = by_function_id[match.function_id]["num_families_matched"]
             family_adjustment_value = 1 if num_families_matched < unpenalized_family_count else 1 + int(math.log(1 + num_families_matched - unpenalized_family_count, 2))
             # for now, we use an interpolated polynome that is flatter than linear initially and crosses upwards once past ~10 families matched
-            family_adjustment_value = 1 if num_families_matched < unpenalized_family_count else max(1, math.floor(0.0545793*num_families_matched**2 + 0.370159*num_families_matched - 0.170796))
-            # magic formula: 
+            family_adjustment_value = (
+                1 if num_families_matched < unpenalized_family_count else max(1, math.floor(0.0545793 * num_families_matched**2 + 0.370159 * num_families_matched - 0.170796))
+            )
+            # magic formula:
             # do a compound score that is based on
             # 10% position, front of binary preferred
             # 20% size, functions larger 100bytes preferred
@@ -480,9 +503,9 @@ class MatchingResult(object):
             match.matched_unique = num_families_matched == 1
             link_matches.sort(key=lambda x: (x.matched_link_score, x.function_id), reverse=True)
         return link_matches
-    
+
     def clusterLinkHuntResult(self, function_entries, link_hunt_matches):
-        """ 
+        """
         Clustering is based on ICFG relationships, so we need to pass in that information in the form of function_entries
         """
         cluster_results = []
@@ -544,7 +567,7 @@ class MatchingResult(object):
                     "links": [offset_to_link[offset] for offset in reachable],
                     "unique_matches": [offset_to_link[offset] for offset in reachable if len(families_per_offset[offset]) == 1],
                     "score": subgraph_score,
-                    "max_score": max_score
+                    "max_score": max_score,
                 }
                 cluster_results.append(subgraph_result)
                 queue.difference_update(reachable)
@@ -559,20 +582,14 @@ class MatchingResult(object):
                     "num_bytes": function_match_entry.num_bytes,
                     "offset": function_match_entry.offset,
                     "fid": function_match_entry.function_id,
-                    "matches": [function_match_entry.getMatchTuple()]
+                    "matches": [function_match_entry.getMatchTuple()],
                 }
             else:
                 summarized_function_match_summaries[function_match_entry.function_id]["matches"].append(function_match_entry.getMatchTuple())
         # build the dictionary
         matching_entry = {
-            "info": {
-                "sample": self.reference_sample_entry.toDict()
-            },
-            "matches": {
-                "aggregation": self.match_aggregation,
-                "functions": summarized_function_match_summaries,
-                "samples": [match.toDict() for match in self.sample_matches]
-            }
+            "info": {"sample": self.reference_sample_entry.toDict()},
+            "matches": {"aggregation": self.match_aggregation, "functions": summarized_function_match_summaries, "samples": [match.toDict() for match in self.sample_matches]},
         }
         if self.other_sample_entry is not None:
             matching_entry["other_sample_info"] = self.other_sample_entry.toDict()

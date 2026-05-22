@@ -1,5 +1,5 @@
-import hashlib
 import datetime
+import hashlib
 
 
 def wrap_string(input_str, max_column_length=100, padding=0):
@@ -9,7 +9,7 @@ def wrap_string(input_str, max_column_length=100, padding=0):
 
     for word in words[1:]:
         if len(current_line) + 1 + len(word) <= max_column_length:
-            current_line += ' ' + word
+            current_line += " " + word
         else:
             lines.append(current_line)
             current_line = word
@@ -20,11 +20,12 @@ def wrap_string(input_str, max_column_length=100, padding=0):
 
     return formatted_output
 
+
 # Dataclass, post init
 # constructor -> .fromDict
 
-class UniqueBlocksResult(object):
 
+class UniqueBlocksResult:
     statistics: dict
     unique_blocks: dict
     yara_rule: list
@@ -42,12 +43,14 @@ class UniqueBlocksResult(object):
         rule_identifier = hashlib.sha256(block_hash_string.encode()).hexdigest()[:16]
         yara_rule = f"rule mcrit_{rule_identifier} {{\n"
         yara_rule += "    meta:\n"
-        yara_rule += "        author = \"MCRIT YARA Generator\"\n"
-        yara_rule += f"        description = \"Code-based YARA rule composed from potentially unique basic blocks for the selected set of samples/family.\"\n"
-        rule_date = datetime.datetime.utcnow().strftime("%Y-%m-%d")
-        yara_rule += f"        date = \"{rule_date}\"\n"
+        yara_rule += '        author = "MCRIT YARA Generator"\n'
+        yara_rule += '        description = "Code-based YARA rule composed from potentially unique basic blocks for the selected set of samples/family."\n'
+        rule_date = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d")
+        yara_rule += f'        date = "{rule_date}"\n'
         yara_rule += "    strings:\n"
-        yara_rule += f"        // Rule generation selected {len(yara_blocks)} picblocks, covering {block_cover['num_samples_covered']}/{self.statistics['num_samples']} input sample(s).\n"
+        yara_rule += (
+            f"        // Rule generation selected {len(yara_blocks)} picblocks, covering {block_cover['num_samples_covered']}/{self.statistics['num_samples']} input sample(s).\n"
+        )
         for pichash, result in self.unique_blocks.items():
             if pichash not in yara_blocks:
                 continue
@@ -58,7 +61,7 @@ class UniqueBlocksResult(object):
             yarafied += "         */\n"
             if wrap_string:
                 yarafied += f"        $blockhash_{pichash} = {{\n"
-                yarafied +=  "            " + wrap_string(result["escaped_sequence"], max_column_length=80, padding=12) + "\n"
+                yarafied += "            " + wrap_string(result["escaped_sequence"], max_column_length=80, padding=12) + "\n"
                 yarafied += "        }\n"
             else:
                 yarafied += f"        $blockhash_{pichash} = {{ " + result["escaped_sequence"] + " }\n"
@@ -69,12 +72,7 @@ class UniqueBlocksResult(object):
         return yara_rule
 
     def generateBlockCover(self, min_ins=None, max_ins=None, min_bytes=None, max_bytes=None, required_per_sample=10):
-        block_cover = {
-            "block_hashes": [],
-            "num_samples_covered": 0,
-            "has_rule": False,
-            "is_complete_cover": False
-        }
+        block_cover = {"block_hashes": [], "num_samples_covered": 0, "has_rule": False, "is_complete_cover": False}
         # we need to filter first, according to the desired parameters
         filtered_blocks = {}
         for block_hash, entry in self.unique_blocks.items():
@@ -98,12 +96,7 @@ class UniqueBlocksResult(object):
             for block_hash, entry in filtered_blocks.items():
                 sample_ids_coverable = set(entry["samples"]).difference(samples_covered)
                 if sample_ids_coverable and block_hash not in yara_rule_blocks:
-                    candidate = {
-                        "block_hash": block_hash,
-                        "coverable": sample_ids_coverable,
-                        "value": len(sample_ids_coverable),
-                        "score": entry["score"]
-                    }
+                    candidate = {"block_hash": block_hash, "coverable": sample_ids_coverable, "value": len(sample_ids_coverable), "score": entry["score"]}
                     block_candidates.append(candidate)
             # check if we are done yet, successful or not
             if len(samples_covered) == len(sample_ids):
@@ -145,9 +138,6 @@ class UniqueBlocksResult(object):
 
     def __str__(self):
         if self.statistics is not None:
-            return "UniqueBlocksResult: {} Samples with {} unique blocks.".format(
-                len(self.statistics["by_sample_id"]),
-                len(self.unique_blocks)
-            )
+            return "UniqueBlocksResult: {} Samples with {} unique blocks.".format(len(self.statistics["by_sample_id"]), len(self.unique_blocks))
         else:
             return "UniqueBlocksResult: nothing parsed."

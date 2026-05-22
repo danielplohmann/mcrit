@@ -1,10 +1,10 @@
 # .coveragerc to control coverage.py
 [run]
 branch = True
-source = 
+source =
     *mcrit*
     *libs*
-include = 
+include =
     mcrit*
     *libs*
     tests*
@@ -20,7 +20,7 @@ omit =
     *config*
     *numpy*
     *pathlib*
-    
+
 [report]
 omit =
     *pymmh3*

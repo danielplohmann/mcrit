@@ -2,12 +2,9 @@
 
 import json
 import logging
-import os
 import unittest
 
-from mcrit.libs.utility import generate_unique_pairs, compress_encode, decompress_decode
-
-from .context import config
+from mcrit.libs.utility import compress_encode, decompress_decode, generate_unique_pairs
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")

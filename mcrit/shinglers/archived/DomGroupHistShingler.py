@@ -4,6 +4,7 @@ from collections import Counter
 
 from AbstractShingler import AbstractShingler
 
+
 class DomGroupHistShingler(AbstractShingler):
     """Build a histogram of all mnemonic groups in the function and hash that."""
 

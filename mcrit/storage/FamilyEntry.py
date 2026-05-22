@@ -1,10 +1,9 @@
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from mcrit.storage.SampleEntry import SampleEntry
 
 
-class FamilyEntry(object):
-
+class FamilyEntry:
     family_id: int
     family_name: str
     num_samples: int
@@ -18,7 +17,7 @@ class FamilyEntry(object):
         self.family_name = family_name
         self.num_samples = num_samples
         self.num_functions = num_functions
-        self.num_library_samples = num_library_samples 
+        self.num_library_samples = num_library_samples
         self.samples = samples
 
     @property
@@ -43,7 +42,7 @@ class FamilyEntry(object):
 
     @classmethod
     def fromDict(cls, entry_dict: Dict):
-        family_entry = cls(None) #type: ignore
+        family_entry = cls(None)  # type: ignore
         family_entry.family_id = entry_dict["family_id"]
         family_entry.family_name = entry_dict["family_name"]
         family_entry.num_samples = entry_dict["num_samples"]
@@ -55,7 +54,4 @@ class FamilyEntry(object):
         return family_entry
 
     def __str__(self):
-        return "Famliy {} ({}): ".format(
-            self.family_id, self.family_name
-        )
-
+        return "Famliy {} ({}): ".format(self.family_id, self.family_name)

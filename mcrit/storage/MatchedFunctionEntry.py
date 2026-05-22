@@ -1,15 +1,16 @@
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, List
 
 import mcrit.matchers.MatcherFlags as MatcherFlags
 
 if TYPE_CHECKING:  # pragma: no cover
-    from mcrit.storage.SampleEntry import SampleEntry
+    pass
 
 # Dataclass, post init
 # constructor -> .fromSmdaFunction
 # assume sample_entry, smda_function always available
 
-class MatchedFunctionEntry(object):
+
+class MatchedFunctionEntry:
     # basic information
     function_id: int
     num_bytes: int
@@ -26,8 +27,7 @@ class MatchedFunctionEntry(object):
     match_is_pichash: bool
     match_is_library: bool
 
-
-    def __init__(self, function_id: int, num_bytes:int, offset:int, match_tuple: List) -> None:
+    def __init__(self, function_id: int, num_bytes: int, offset: int, match_tuple: List) -> None:
         self.function_id = function_id
         self.num_bytes = num_bytes
         self.offset = offset
@@ -45,22 +45,15 @@ class MatchedFunctionEntry(object):
 
     def getMatchTuple(self):
         return [
-                self.matched_family_id,
-                self.matched_sample_id,
-                self.matched_function_id,
-                self.matched_score,
-                self.match_is_minhash * MatcherFlags.IS_MINHASH_FLAG
-                + self.match_is_pichash * MatcherFlags.IS_PICHASH_FLAG
-                + self.match_is_library * MatcherFlags.IS_LIBRARY_FLAG
-            ]
+            self.matched_family_id,
+            self.matched_sample_id,
+            self.matched_function_id,
+            self.matched_score,
+            self.match_is_minhash * MatcherFlags.IS_MINHASH_FLAG + self.match_is_pichash * MatcherFlags.IS_PICHASH_FLAG + self.match_is_library * MatcherFlags.IS_LIBRARY_FLAG,
+        ]
 
     def toDict(self):
-        matching_entry = {
-            "fid": self.function_id,
-            "num_bytes": self.num_bytes,
-            "offset": self.offset,
-            "matches": self.getMatchTuple()
-        }
+        matching_entry = {"fid": self.function_id, "num_bytes": self.num_bytes, "offset": self.offset, "matches": self.getMatchTuple()}
         return matching_entry
 
     @classmethod
@@ -73,11 +66,5 @@ class MatchedFunctionEntry(object):
         flag_str += "p" if self.match_is_pichash else "."
         flag_str += "l" if self.match_is_library else "."
         return "Function: fid({}) num_bytes({}) - Matched: family_id({}) sample_id({}) function_id({}) score({}) flags({})".format(
-            self.function_id,
-            self.num_bytes,
-            self.matched_family_id,
-            self.matched_sample_id,
-            self.matched_function_id,
-            self.matched_score,
-            flag_str
+            self.function_id, self.num_bytes, self.matched_family_id, self.matched_sample_id, self.matched_function_id, self.matched_score, flag_str
         )

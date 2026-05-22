@@ -1,19 +1,16 @@
 #!/usr/bin/python
 
-import json
 import logging
 import os
 import unittest
 
-from smda.common.SmdaFunction import SmdaFunction
 from smda.common.SmdaReport import SmdaReport
 
 from mcrit.config.McritConfig import McritConfig
-from mcrit.config.StorageConfig import StorageConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
+from mcrit.config.StorageConfig import StorageConfig
 from mcrit.minhash.MinHash import MinHash
 from mcrit.minhash.MinHasher import MinHasher
-from mcrit.minhash.ShingleLoader import ShingleLoader
 from mcrit.storage.StorageInterface import StorageInterface
 
 from .context import config
@@ -35,13 +32,6 @@ class MinHashingTestSuite(unittest.TestCase):
         #    smda_json = json.load(fjson)
         #    example_functions = [f for key, entry in smda_json["xcfg"].items()]
         shingler_test_config = ShinglerConfig()
-        SHINGLER_WEIGHT_STRATEGY = ShingleLoader.WEIGHT_STRATEGY_SHINGLER_WEIGHTS
-        SHINGLER_LOGBUCKETS = 100000
-        SHINGLER_LOGBUCKET_RANGE = 1
-        SHINGLER_LOGBUCKET_CENTERED = True
-        SHINGLERS_WEIGHTS = {"FuzzyStatPairShingler": 1, "EscapedBlockShingler": 3}
-        SHINGLERS_SEED = 0xDEADBEEF
-        SHINGLERS_XOR_VALUES = []
         minhasher = MinHasher(config.MINHASH_CONFIG, shingler_test_config)
         # expected: sequence of (little endian) packed int8/32 values
         expected = {0: bytes.fromhex("7e71b7cd63682ed9"), 4424: bytes.fromhex("d018c68a829734ed")}
@@ -59,12 +49,8 @@ class MinHashingTestSuite(unittest.TestCase):
         self.assertTrue(356 in tested)
 
     def testMatching(self):
-        minhash_a = MinHash(
-            function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39]
-        )
-        minhash_b = MinHash(
-            function_id=2, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39]
-        )
+        minhash_a = MinHash(function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39])
+        minhash_b = MinHash(function_id=2, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39])
         minhash_score = MinHash.calculateMinHashScore(minhash_a.minhash, minhash_b.minhash)
         minhash_score_int = MinHash.calculateMinHashIntScore(minhash_a.minhash_int, minhash_b.minhash_int)
         self.assertEqual(60.0, minhash_score)
@@ -75,12 +61,8 @@ class MinHashingTestSuite(unittest.TestCase):
         config.STORAGE_CONFIG = StorageConfig()
         config.STORAGE_CONFIG.STORAGE_BANDS = {2: 2, 3: 1}
         config.STORAGE_CONFIG.STORAGE_BAND_SEED = 0
-        minhash_a = MinHash(
-            function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39]
-        )
-        minhash_b = MinHash(
-            function_id=2, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39]
-        )
+        minhash_a = MinHash(function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39])
+        minhash_b = MinHash(function_id=2, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39])
 
         storage = StorageInterface(config)
         band_hashes_a = storage.getBandHashesForMinHash(minhash_a)

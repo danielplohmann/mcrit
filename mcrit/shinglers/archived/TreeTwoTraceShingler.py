@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
 from AbstractShingler import AbstractShingler
+from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
 
 
 class TreeTwoTraceShingler(AbstractShingler):
@@ -13,7 +13,7 @@ class TreeTwoTraceShingler(AbstractShingler):
         self._weight = weight
 
     def _generateByteSequences(self, function_object):
-        """:returns: 2 traces for tree """
+        """:returns: 2 traces for tree"""
         adjtree = AdjacentTreeBuilder.generateAdjacentTreeFromGraph(function_object, self._config.SHINGLER_TREE_LABEL_STRATEGY)
         trace_shingles = []
         for _, lvl in adjtree.tree_lvls.items():

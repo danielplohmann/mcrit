@@ -9,6 +9,7 @@ class MinimalSearchCursor:
     """
     Contains the minimum amount of data (when combined with search order info) required to reconstruct a FullSearchCursor.
     """
+
     record_values: List[Any]
     is_forward_search: bool
 
@@ -20,7 +21,7 @@ class MinimalSearchCursor:
         result = self.record_values, 1 if self.is_forward_search else 0
         return result
 
-    @classmethod 
+    @classmethod
     def fromDict(cls, data):
         result = cls()
         result.record_values, result.is_forward_search = data[0], bool(data[1])
@@ -30,7 +31,7 @@ class MinimalSearchCursor:
         return base64.urlsafe_b64encode(json.dumps(self.toDict()).encode()).decode()
         # return json.dumps(self.toDict())
 
-    @classmethod 
+    @classmethod
     def fromStr(cls, data):
         # return cls.fromDict(json.loads(data))
         if data is not None:
@@ -47,7 +48,7 @@ class FullSearchCursor:
     sort_directions:
         a list of n booleans corresponding to the n fields.
         True means ascending order, False descending
-    record_values: 
+    record_values:
         the n concrete field values of a record.
         The SearchCursor references those records within the db
         which come either after or before this record.
@@ -56,8 +57,9 @@ class FullSearchCursor:
         if True, the SearchCursor references records after the specified record.
         if False, the SearchCursor references records befor the specified record.
     is_initial_cursor:
-        True if record_values contains no meaningful data and the cursor should not exclude any records 
+        True if record_values contains no meaningful data and the cursor should not exclude any records
     """
+
     sort_fields: List[str]
     sort_directions: List[bool]
     record_values: List[Any]
@@ -67,7 +69,7 @@ class FullSearchCursor:
     def __init__(self, input_cursor: Optional[MinimalSearchCursor], sort_by_list):
         """
         sort_by_list:
-            a list of (sort_field, sort_direction) entries    
+            a list of (sort_field, sort_direction) entries
         """
         self.sort_fields = [sort_info[0] for sort_info in sort_by_list]
         self.sort_directions = [sort_info[1] for sort_info in sort_by_list]
@@ -83,7 +85,7 @@ class FullSearchCursor:
     @property
     def sort_by_list(self):
         return zip(self.sort_fields, self.sort_directions)
-    
+
     def toTree(self):
         def get_operator(i):
             direction = self.sort_directions[i] ^ (not self.is_forward_search)
@@ -94,10 +96,10 @@ class FullSearchCursor:
 
         # condition has form (a > a0) or (a = a0 and b>b0) or (a=a0 and b=b0 and c>c0)...
         conditions = []
-        for inner_condition_length in range(1, len(self.sort_fields)+1):
+        for inner_condition_length in range(1, len(self.sort_fields) + 1):
             inner_condition = []
             for i in range(inner_condition_length):
-                if i != inner_condition_length-1:
+                if i != inner_condition_length - 1:
                     operator = "="
                 else:
                     operator = get_operator(i)
@@ -105,5 +107,3 @@ class FullSearchCursor:
             conditions.append(AndNode(inner_condition))
 
         return OrNode(conditions)
-
-

@@ -1,9 +1,7 @@
 import re
-import logging
 
-from mcrit.server.utils import timing, jsonify
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg
+from mcrit.server.utils import db_log_msg, jsonify, timing
 
 
 class BlocksResource:
@@ -11,7 +9,7 @@ class BlocksResource:
         self.index = index
 
     @timing
-    def on_get_unique_blocks_for_family(self, req, resp, family_id:int):
+    def on_get_unique_blocks_for_family(self, req, resp, family_id: int):
         db_log_msg(self.index, req, "BlocksResource.on_get_unique_blocks_for_family")
         blocks_result = {}
         samples = self.index.getSamplesByFamilyId(family_id)
