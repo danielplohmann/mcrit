@@ -7,7 +7,7 @@ from mcrit.storage.StorageFactory import StorageFactory
 
 @dataclass
 class StorageConfig(ConfigInterface):
-    # storage configuration, use "memory" for local testing or "alchemy" when working with larger data
+    # storage configuration, use "memory" for local testing or "mongodb" when working with larger data
     # STORAGE_METHOD = StorageFactory.STORAGE_METHOD_MEMORY
     STORAGE_METHOD: ... = StorageFactory.STORAGE_METHOD_MONGODB
     # Use this as endpoint for our server

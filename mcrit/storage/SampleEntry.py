@@ -102,27 +102,6 @@ class SampleEntry(object):
         sample_entry.timestamp = datetime.datetime.strptime(entry_dict["timestamp"], "%Y-%m-%dT%H-%M-%S")
         return sample_entry
 
-    @classmethod
-    def fromAlchemySample(cls, sample):
-        sample_entry = cls(None) #type:ignore
-        sample_entry.sample_id = sample.id
-        sample_entry.family_id = sample.family.id
-        sample_entry.family = sample.family.name
-        sample_entry.architecture = sample.architecture.name
-        sample_entry.base_addr = sample.base_addr
-        sample_entry.binary_size = sample.binary_size
-        sample_entry.component = sample.component
-        sample_entry.binweight = sample.binweight
-        sample_entry.bitness = sample.bitness.name
-        sample_entry.version = sample.version
-        sample_entry.is_library = sample.is_library
-        sample_entry.filename = sample.filename
-        sample_entry.sha256 = sample.sha256
-        sample_entry.smda_version = sample.smda_version
-        sample_entry.statistics = sample.statistics
-        sample_entry.timestamp = sample.timestamp
-        return sample_entry
-
     def __str__(self):
         return "Sample {} ({}, {} bit) - {} ({}): ".format(
             self.sample_id, self.architecture, self.bitness, self.filename, self.family

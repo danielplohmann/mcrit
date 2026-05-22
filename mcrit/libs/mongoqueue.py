@@ -20,7 +20,7 @@ from typing import List, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import gridfs
 import pymongo
-from pymongo import MongoClient, ReturnDocument
+from pymongo import MongoClient, ReturnDocument, UpdateOne
 from bson.objectid import ObjectId
 
 DEFAULT_INSERT = {
@@ -151,18 +151,42 @@ class MongoQueue(object):
                 }
             state = self._identifyJobState(doc)
             aggregated[method][state] += 1
-        for key, counters in aggregated.items():
-            self.queue_counters.update_one({"name": key}, {"$set": counters}, upsert=True)
-        self.queue_counters.update_one({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True)
+
+        operations = [
+            UpdateOne({"name": key}, {"$set": counters}, upsert=True)
+            for key, counters in aggregated.items()
+        ]
+        operations.append(
+            UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True)
+        )
+        if operations:
+            self.queue_counters.bulk_write(operations)
 
     def updateQueueCounter(self, method, state, value):
-        self._getCollection()
-        self.queue_counters.update_one({"name": method}, {"$inc": {state: value}}, upsert=True)
-        # could probably also be done in one line with an aggregator update
-        if value < 0:
-            self.queue_counters.update_one({"name": method, state: {"$lt": 0}}, {"$set": {state: 0}})
-        self.queue_counters.update_one({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True)
+        self.updateQueueCounters([(method, state, value)])
         return
+
+    def updateQueueCounters(self, updates):
+        self._getCollection()
+        operations = []
+        # Aggregate increments by method to minimize operations per document
+        aggregated_incs = {}
+        for method, state, value in updates:
+            if method not in aggregated_incs:
+                aggregated_incs[method] = {}
+            aggregated_incs[method][state] = aggregated_incs[method].get(state, 0) + value
+
+        for method, states in aggregated_incs.items():
+            operations.append(UpdateOne({"name": method}, {"$inc": states}, upsert=True))
+            for state, total_value in states.items():
+                if total_value < 0:
+                    operations.append(UpdateOne({"name": method, state: {"$lt": 0}}, {"$set": {state: 0}}))
+
+        if not operations:
+            return
+
+        operations.append(UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True))
+        self.queue_counters.bulk_write(operations)
 
     def registerWorker(self):
         if self.consumer_id != "index":
@@ -274,8 +298,10 @@ class MongoQueue(object):
                 # limit=1
             )
         if job:
-            self.updateQueueCounter(job["payload"]["method"], "in_progress", 1)
-            self.updateQueueCounter(job["payload"]["method"], "queued", -1)
+            self.updateQueueCounters([
+                (job["payload"]["method"], "in_progress", 1),
+                (job["payload"]["method"], "queued", -1)
+            ])
         return self._wrap_one(job)
 
     def _jobs_to_do(self):
@@ -411,11 +437,14 @@ class MongoQueue(object):
         # run find() first to determine how many jobs of which method will be deleted and what their results are
         jobs_to_be_deleted = [j for j in self._getCollection().find(combined_filter)]
         # delete results
+        counter_updates = []
         for deletable_job in jobs_to_be_deleted:
-            self.updateQueueCounter(deletable_job["payload"]["method"], self._identifyJobState(deletable_job), -1)
+            counter_updates.append((deletable_job["payload"]["method"], self._identifyJobState(deletable_job), -1))
             if with_results and deletable_job["result"]:
                     # delete result from GridFS  
                     self._getFs().delete(ObjectId(deletable_job["result"]))
+        if counter_updates:
+            self.updateQueueCounters(counter_updates)
         job_deletion_result = self._getCollection().delete_many(combined_filter)
         if len(jobs_to_be_deleted) != job_deletion_result.deleted_count:
             raise Exception("Number of deleted jobs was unequal to number of jobs to delete!")
@@ -671,8 +700,12 @@ class Job(object):
                 update={"$set": {"result": self._data["result"]}},
                 return_document=ReturnDocument.AFTER
             )
-        self._queue.updateQueueCounter(self.method, "in_progress", -1)
-        self._queue.updateQueueCounter(self.method, "finished", 1)
+        if not job:
+            return
+        self._queue.updateQueueCounters([
+            (self.method, "in_progress", -1),
+            (self.method, "finished", 1)
+        ])
         self._queue._notify_dependent_jobs(str(self.job_id))
         return job 
 
@@ -683,12 +716,17 @@ class Job(object):
             update={"$set": {"locked_by": None, "locked_at": None, "last_error": message}, "$inc": {"attempts_left": -1}},
             return_document=ReturnDocument.AFTER
         )
-        self._queue.updateQueueCounter(self.method, "in_progress", -1)
-        self._queue.updateQueueCounter(self.method, "queued", 1)
+        if not job:
+            return
+        updates = [
+            (self.method, "in_progress", -1),
+            (self.method, "queued", 1)
+        ]
         if job["attempts_left"] <= 0:
-            self._queue._notify_dependent_jobs(self, str(job["_id"]))
-            self._queue.updateQueueCounter(self.method, "queued", -1)
-            self._queue.updateQueueCounter(self.method, "failed", 1)
+            self._queue._notify_dependent_jobs(str(job["_id"]))
+            updates.append((self.method, "queued", -1))
+            updates.append((self.method, "failed", 1))
+        self._queue.updateQueueCounters(updates)
 
 
     def progressor(self, count=0):
@@ -706,12 +744,17 @@ class Job(object):
             update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
             return_document=ReturnDocument.AFTER
         )
-        self._queue.updateQueueCounter(self.method, "in_progress", -1)
-        self._queue.updateQueueCounter(self.method, "queued", 1)
+        if not job:
+            return
+        updates = [
+            (self.method, "in_progress", -1),
+            (self.method, "queued", 1)
+        ]
         if job["attempts_left"] <= 0:
-            self._queue._notify_dependent_jobs(self, str(job["_id"]))
-            self._queue.updateQueueCounter(self.method, "queued", -1)
-            self._queue.updateQueueCounter(self.method, "failed", 1)
+            self._queue._notify_dependent_jobs(str(job["_id"]))
+            updates.append((self.method, "queued", -1))
+            updates.append((self.method, "failed", 1))
+        self._queue.updateQueueCounters(updates)
         return job
 
     ## context manager support
@@ -745,6 +788,10 @@ class Job(object):
             update={"$set": {"terminated": True, "locked_at": datetime.now()}},
             return_document=ReturnDocument.AFTER
         )
-        self._queue.updateQueueCounter(job["payload"]["method"], "in_progress", -1)
-        self._queue.updateQueueCounter(job["payload"]["method"], "terminated", 1)
+        if not job:
+            return
+        self._queue.updateQueueCounters([
+            (job["payload"]["method"], "in_progress", -1),
+            (job["payload"]["method"], "terminated", 1)
+        ])
         return job

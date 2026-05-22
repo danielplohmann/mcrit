@@ -15,9 +15,6 @@ if TYPE_CHECKING:  # pragma: no cover
 # constructor -> .fromSmdaFunction
 # assume sample_entry, smda_function always available
 
-# TODO remove (everywhere) from alchemy function
-
-
 class FunctionEntry(object):
     # MCRIT specific
     function_id: int
@@ -121,25 +118,6 @@ class FunctionEntry(object):
         function_entry.binweight = entry_dict["binweight"]
         function_entry.offset = decode_two_complement(entry_dict["offset"])
         function_entry.xcfg = entry_dict["xcfg"] if "xcfg" in entry_dict else None
-        return function_entry
-
-    @classmethod
-    def fromAlchemyFunction(cls, function):
-        function_entry = cls(None, None)  # type:ignore
-        function_entry.binweight = function.binweight
-        function_entry.function_id = function.id
-        function_entry.family_id = function.family.id
-        function_entry.sample_id = function.sample.id
-        function_entry.architecture = function.architecture.name
-        function_entry.function_name = function.function_name
-        if function.pichash:
-            function_entry.pichash = function.pichash.pichash
-        if function.minhash:
-            function_entry.minhash = function.minhash.minhash
-        function_entry.num_blocks = function.num_blocks
-        function_entry.num_instructions = function.num_instructions
-        function_entry.offset = function.offset
-        function_entry.xcfg = function.xcfg
         return function_entry
 
     def __str__(self):
