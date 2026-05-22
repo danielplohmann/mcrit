@@ -10,7 +10,6 @@ if TYPE_CHECKING: # pragma: no cover
     from mcrit.config.MinHashConfig import MinHashConfig
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
-    from mcrit.storage.MemoryStorage import MemoryStorage
     from mcrit.storage.SampleEntry import SampleEntry
     from smda.common.SmdaFunction import SmdaFunction
     from smda.common.SmdaReport import SmdaReport
@@ -257,6 +256,17 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def getSampleIdsByFunctionIds(self, function_ids: List[int]) -> Dict[int, int]:
+        """For a given list of function_ids, return the corresponding sample_ids.
+
+        Args:
+            function_ids: a list of function ids
+
+        Returns:
+            a dict mapping function_id to sample_id for all function_ids found
+        """
+        raise NotImplementedError
+
     def getSampleById(self, sample_id: int) -> Optional["SampleEntry"]:
         """Given a sample_id, return the respective SampleEntry or None, if sample_id was not found.
 
@@ -365,13 +375,14 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    # TODO: make a MatchingCacheInterface, or MemoryStorage a subclass of MatchingCache?
+    # TODO: make a MatchingCacheInterface for all backends.
     # TODO rename -> get?
-    def createMatchingCache(self, function_ids: List[int]) -> Union["MemoryStorage", "MatchingCache"]:
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> "MatchingCache":
         """Creates a temporary matching cache, for a list of function_ids
 
         Args:
             function_ids: list of function ids
+            allow_self_return: (optional) if True, allows a backend-specific optimized cache implementation
 
         Returns:
             a matching cache for the specified list of function ids

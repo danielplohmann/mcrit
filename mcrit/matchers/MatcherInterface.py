@@ -15,7 +15,6 @@ if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.SampleEntry import SampleEntry
     from mcrit.storage.MatchingCache import MatchingCache
-    from mcrit.storage.MemoryStorage import MemoryStorage
     from mcrit.Worker import Worker
 
 
@@ -245,7 +244,7 @@ class MatcherInterface(object):
         return quotient + int(bool(remainder)) # always round up
 
     def _unrollGroupsAsPackedTuples(
-        self, cache: Union["MatchingCache", "MemoryStorage"], candidate_pairs
+        self, cache: "MatchingCache", candidate_pairs
     ) -> Iterable[List[Tuple[int, int, bytes, int, int, bytes]]]:
         # Query, VS, Sample
         # All were identical

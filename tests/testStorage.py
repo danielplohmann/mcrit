@@ -302,6 +302,40 @@ class MemoryStorageTest(TestCase):
         self.assertTrue(hasattr(cache, "getMinHashByFunctionId"))
         self.assertTrue(hasattr(cache, "getSampleIdByFunctionId"))
 
+    def testMatchingCacheAllowSelfReturnDoesNotMutateStorage(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        self.storage.addSmdaReport(smda_report)
+
+        cache = self.storage.createMatchingCache([0], allow_self_return=True)
+        cache_only_entry = self.storage.getFunctionById(0, with_xcfg=True)
+        cache_only_entry.sample_id = 999
+        cache_only_entry.minhash = b"cache-only-minhash"
+        cache.addFunctionEntriesToCache([cache_only_entry])
+
+        self.assertEqual(0, self.storage.getSampleIdByFunctionId(0))
+        self.assertNotEqual(b"cache-only-minhash", self.storage.getMinHashByFunctionId(0))
+        self.assertEqual(999, cache.getSampleIdByFunctionId(0))
+        self.assertEqual(b"cache-only-minhash", cache.getMinHashByFunctionId(0))
+        self.assertEqual(set([0]), cache.getFunctionIdsBySampleId(999))
+
+    def testMatchingCacheSupportsQueryFunctions(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        query_sample = self.storage.addSmdaReport(smda_report, isQuery=True)
+        assert query_sample is not None
+        query_function_ids = self.storage.getFunctionIdsBySampleId(query_sample.sample_id)
+        assert query_function_ids is not None
+        query_function_id = query_function_ids[0]
+        query_function = self.storage.getFunctionById(query_function_id)
+        assert query_function is not None
+
+        for allow_self_return in (False, True):
+            cache = self.storage.createMatchingCache([query_function_id], allow_self_return=allow_self_return)
+            self.assertEqual(query_sample.sample_id, cache.getSampleIdByFunctionId(query_function_id))
+            self.assertEqual(query_function.minhash, cache.getMinHashByFunctionId(query_function_id))
+            self.assertEqual(set([query_function_id]), set(cache.getFunctionIdsBySampleId(query_sample.sample_id)))
+
 
 ### Added mongo attribute
 import pytest
