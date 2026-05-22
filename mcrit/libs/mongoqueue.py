@@ -21,7 +21,7 @@ from typing import List, Optional
 import gridfs
 import pymongo
 from bson.objectid import ObjectId
-from pymongo import MongoClient, ReturnDocument
+from pymongo import MongoClient, ReturnDocument, UpdateOne
 
 DEFAULT_INSERT = {
     "locked_by": None,
