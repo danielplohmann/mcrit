@@ -411,16 +411,13 @@ class MongoDbStorage(StorageInterface):
             # remove sample
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
             return 
-        function_entries = self.getFunctionsBySampleId(sample_id)
-        if function_entries is None:
-            # in this case sample_id is does not exist
-            return False
+        function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
 
         # collect all band entries that need updating and pull all function_ids at once.
         # might need to batch this into slices of function_ids again
         minhashes_to_remove = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
-        for function_entry in function_entries:
-            minhash = function_entry.getMinHash(minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS)
+        for function_minhash in function_minhashes:
+            minhash = self._getMinHashFromStorage(function_minhash)
             # remove minhash entries, if necessary
             if not minhash or not minhash.hasMinHash():
                 continue
@@ -428,8 +425,7 @@ class MongoDbStorage(StorageInterface):
             for band_number, band_hash in sorted(band_hashes.items()):
                 if band_hash not in minhashes_to_remove[band_number]:
                     minhashes_to_remove[band_number][band_hash] = []
-                if function_entry.function_id not in minhashes_to_remove[band_number][band_hash]:
-                    minhashes_to_remove[band_number][band_hash].append(function_entry.function_id)
+                minhashes_to_remove[band_number][band_hash].append(function_minhash["function_id"])
         self._updateBands(minhashes_to_remove, method="pull")
 
         # update family stats
@@ -704,6 +700,22 @@ class MongoDbStorage(StorageInterface):
             self._decodeFunction(f)
             functions.append(FunctionEntry.fromDict(f))
         return functions
+
+    def _getFunctionMinHashesBySampleId(self, sample_id: int) -> List[Dict[str, Any]]:
+        field_selection = {"_id": 0, "function_id": 1, "minhash": 1}
+        if sample_id < 0:
+            return list(self._getDb().query_functions.find({"sample_id": sample_id}, field_selection))
+        return list(self._getDb().functions.find({"sample_id": sample_id}, field_selection))
+
+    def _getMinHashFromStorage(self, function_document: Dict[str, Any]) -> Optional["MinHash"]:
+        minhash_hex = function_document.get("minhash")
+        if not minhash_hex:
+            return None
+        return MinHash(
+            function_id=function_document["function_id"],
+            minhash_bytes=bytes.fromhex(minhash_hex),
+            minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS,
+        )
 
     def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
         function_ids = None
