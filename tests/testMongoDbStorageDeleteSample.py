@@ -49,9 +49,7 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         )
         samples = FakeCollection()
         families = FakeCollection()
-        self.storage._database = FakeDb(
-            functions=functions, samples=samples, families=families
-        )
+        self.storage._database = FakeDb(functions=functions, samples=samples, families=families)
         self.storage.getSampleById = MethodType(
             lambda _self, sample_id: SimpleNamespace(
                 family_id=1,
@@ -61,31 +59,21 @@ class MongoDbStorageDeleteSampleTest(TestCase):
             self.storage,
         )
         self.storage.isSampleId = MethodType(
-            lambda _self, sample_id: (_ for _ in ()).throw(
-                AssertionError("deleteSample should not re-check sample existence")
-            ),
+            lambda _self, sample_id: (_ for _ in ()).throw(AssertionError("deleteSample should not re-check sample existence")),
             self.storage,
         )
         band_updates = []
         family_updates = []
         self.storage._updateBands = MethodType(
-            lambda _self, band_hashes, method="push": band_updates.append(
-                (band_hashes, method)
-            ),
+            lambda _self, band_hashes, method="push": band_updates.append((band_hashes, method)),
             self.storage,
         )
         self.storage._updateFamilyStats = MethodType(
-            lambda _self, family_id, num_samples, num_functions, num_library_samples: (
-                family_updates.append(
-                    (family_id, num_samples, num_functions, num_library_samples)
-                )
-            ),
+            lambda _self, family_id, num_samples, num_functions, num_library_samples: family_updates.append((family_id, num_samples, num_functions, num_library_samples)),
             self.storage,
         )
         self.storage.getFamily = MethodType(
-            lambda _self, family_id: SimpleNamespace(
-                num_samples=1, family_id=family_id
-            ),
+            lambda _self, family_id: SimpleNamespace(num_samples=1, family_id=family_id),
             self.storage,
         )
         self.storage._updateDbState = MethodType(lambda _self: None, self.storage)

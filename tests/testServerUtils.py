@@ -2,23 +2,11 @@ import unittest
 from unittest.mock import patch
 from mcrit.server.utils import getMatchingParams
 
-class TestServerUtils(unittest.TestCase):
 
+class TestServerUtils(unittest.TestCase):
     def test_getMatchingParams_valid(self):
-        req_params = {
-            "pichash_size": "8",
-            "minhash_score": "50",
-            "force_recalculation": "true",
-            "sample_group_only": "true",
-            "band_matches_required": "3"
-        }
-        expected = {
-            "pichash_size": 8,
-            "minhash_threshold": 50,
-            "force_recalculation": True,
-            "sample_group_only": True,
-            "band_matches_required": 3
-        }
+        req_params = {"pichash_size": "8", "minhash_score": "50", "force_recalculation": "true", "sample_group_only": "true", "band_matches_required": "3"}
+        expected = {"pichash_size": 8, "minhash_threshold": 50, "force_recalculation": True, "sample_group_only": True, "band_matches_required": 3}
         self.assertEqual(getMatchingParams(req_params), expected)
 
     def test_getMatchingParams_edge_cases(self):
@@ -60,9 +48,8 @@ class TestServerUtils(unittest.TestCase):
                 req_params = {param: "not-an-int"}
                 result = getMatchingParams(req_params)
                 self.assertEqual(result, {})
-                mock_logger.warning.assert_called_with(
-                    f"Failed to handle request parameter: {param}: not-an-int"
-                )
+                mock_logger.warning.assert_called_with(f"Failed to handle request parameter: {param}: not-an-int")
+
 
 if __name__ == "__main__":
     unittest.main()
