@@ -1,6 +1,7 @@
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 
 from mcrit.config.ConfigInterface import ConfigInterface
+
 
 @dataclass
 class GunicornConfig(ConfigInterface):

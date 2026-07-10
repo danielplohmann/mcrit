@@ -10,10 +10,8 @@ from smda.common.SmdaReport import SmdaReport
 
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionEntry import FunctionEntry
-from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.MatchingResult import MatchingResult
-
-from .context import config
+from mcrit.storage.SampleEntry import SampleEntry
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
@@ -27,7 +25,7 @@ class MinHashingTestSuite(unittest.TestCase):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
-        with open(example_file_path, "r") as fjson:
+        with open(example_file_path) as fjson:
             smda_json = json.load(fjson)
 
         smda_report = SmdaReport.fromDict(smda_json)
@@ -46,7 +44,7 @@ class MinHashingTestSuite(unittest.TestCase):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
-        with open(example_file_path, "r") as fjson:
+        with open(example_file_path) as fjson:
             smda_json = json.load(fjson)
 
         smda_report = SmdaReport.fromDict(smda_json)
@@ -60,7 +58,7 @@ class MinHashingTestSuite(unittest.TestCase):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_matching_report.json"])
-        with open(example_file_path, "r") as fjson:
+        with open(example_file_path) as fjson:
             match_json = json.load(fjson)
         matching_result = MatchingResult.fromDict(match_json)
         assert len(matching_result.sample_matches) == 2

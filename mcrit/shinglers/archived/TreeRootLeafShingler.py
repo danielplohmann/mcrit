@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
 from AbstractShingler import AbstractShingler
+from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
 
 
 class TreeRootLeafShingler(AbstractShingler):
@@ -25,4 +25,3 @@ class TreeRootLeafShingler(AbstractShingler):
                 rl_shingles.append("treeRL-empty" + path + str(child_node.node_label))
             else:
                 self._rlShingles(child_node, rl_shingles, path)
-

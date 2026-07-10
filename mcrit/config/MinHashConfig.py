@@ -1,8 +1,7 @@
 import hashlib
-import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 
-from mcrit.config.ConfigInterface import ConfigInterface, default_field
+from mcrit.config.ConfigInterface import ConfigInterface
 from mcrit.minhash.MinHasher import MinHasher
 
 
@@ -47,4 +46,4 @@ class MinHashConfig(ConfigInterface):
         config_str += f"_{self.MINHASH_STRATEGY}_{self.MINHASH_FN_MIN_INS}_{self.MINHASH_FN_MIN_BLOCKS}"
         config_str += f"_{self.MINHASH_SIGNATURE_LENGTH}_{self.MINHASH_SIGNATURE_BITS}_{self.MINHASH_SEED}"
         config_str += f"_{self.PICHASH_SIZE}"
-        return hashlib.sha256(config_str.encode('utf-8')).hexdigest()
+        return hashlib.sha256(config_str.encode("utf-8")).hexdigest()

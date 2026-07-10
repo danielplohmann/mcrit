@@ -1,14 +1,13 @@
 import copy
 import logging
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, field
 
 
 def default_field(obj):
     return field(default_factory=lambda: copy.copy(obj))
 
 
-class ConfigInterface(object):
-
+class ConfigInterface:
     ### global logging-config setup
     # Only do basicConfig if no handlers have been configured
     LOG_PATH: str = "./"

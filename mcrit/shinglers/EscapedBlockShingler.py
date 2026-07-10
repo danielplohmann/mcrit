@@ -15,11 +15,7 @@ class EscapedBlockShingler(AbstractShingler):
         self._weight = weight
 
     def _escapeInstruction(self, instruction):
-        return (
-            instruction.getMnemonicGroup(IntelInstructionEscaper)
-            + " "
-            + instruction.getEscapedOperands(IntelInstructionEscaper)
-        )
+        return instruction.getMnemonicGroup(IntelInstructionEscaper) + " " + instruction.getEscapedOperands(IntelInstructionEscaper)
         # return instruction.mnemonic + " " + instruction.getEscapedOperands(IntelInstructionEscaper)
 
     def _maskInstructions(self, instructions, ngram_size=3):

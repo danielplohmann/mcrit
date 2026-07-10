@@ -1,5 +1,3 @@
-import struct
-
 import numpy as np
 
 try:
@@ -10,7 +8,7 @@ except ImportError:
     import mcrit.libs.pymmh3 as mmh3
 
 
-class MinHash(object):
+class MinHash:
     """DTO for an actual MinHash
     <minhash>: a binary sequence of packed int8/32 values
     <minhash_int>: the equivalent representation of <minhash> but as list of int8/32

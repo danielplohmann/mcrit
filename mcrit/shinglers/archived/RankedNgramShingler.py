@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 
-from collections import Counter
-
-from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 from AbstractShingler import AbstractShingler
+from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
+
 
 class RankedNgramShingler(AbstractShingler):
     """Build a histogram of all mnemonic groups in the function and hash that."""
@@ -15,10 +14,7 @@ class RankedNgramShingler(AbstractShingler):
         self._weight = weight
 
     def _createScoredCandidates(self, ngram):
-        mnemonic_group_scores = {
-            "U": 1, "N": 2, "M": 2, "S": 2, "C": 2,
-            "A": 4, "P": 6, "Y": 6, "F": 6, "X": 6
-        }
+        mnemonic_group_scores = {"U": 1, "N": 2, "M": 2, "S": 2, "C": 2, "A": 4, "P": 6, "Y": 6, "F": 6, "X": 6}
         escaped_sequence = [ins.mnemonic + " " + ins.getEscapedOperands(IntelInstructionEscaper) for ins in ngram]
         masked_sequence = [ins.mnemonic + " " + ins.getMaskedOperands(IntelInstructionEscaper) for ins in ngram]
         ngram_score = 0
@@ -63,5 +59,5 @@ class RankedNgramShingler(AbstractShingler):
             if len(block) >= ngram_size:
                 instructions = [ins for ins in block]
                 for index in range(len(block) - ngram_size + 1):
-                    candidate_ngrams.append(self._createScoredCandidates(instructions[index:index + ngram_size]))
+                    candidate_ngrams.append(self._createScoredCandidates(instructions[index : index + ngram_size]))
         return self._getScaledByteSequences(candidate_ngrams)

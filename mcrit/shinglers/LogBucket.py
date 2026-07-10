@@ -1,8 +1,7 @@
 import json
+import logging
 import math
 import os
-import logging
-
 
 # Only do basicConfig if no handlers have been configured
 if len(logging._handlerList) == 0:
@@ -10,7 +9,7 @@ if len(logging._handlerList) == 0:
 LOGGER = logging.getLogger(__name__)
 
 
-class LogBucket(object):
+class LogBucket:
     """
     LogBuckets are the vehicle we use to allow fuzzy matching among discrete values.
     Using ranges of values yields at least partial matches for values near each other.
@@ -58,7 +57,7 @@ class LogBucket(object):
         bucket_path = os.sep.join([root_path, "mcrit", "cache", "logbuckets.json"])
         value_to_bucket_range = {}
         if os.path.isfile(bucket_path):
-            with open(bucket_path, "r") as fjson:
+            with open(bucket_path) as fjson:
                 value_to_bucket_range = json.load(fjson)
             self._value_to_bucket_range = {int(bucket): value for bucket, value in value_to_bucket_range.items()}
             return

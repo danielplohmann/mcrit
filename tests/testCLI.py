@@ -1,14 +1,10 @@
 #!/usr/bin/python
 
-import json
 import logging
 import os
 import unittest
 
-from mcrit.client.McritConsole import is_smda_report, get_primary_smda_meta_data
-
-
-from .context import config
+from mcrit.client.McritConsole import get_primary_smda_meta_data, is_smda_report
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")

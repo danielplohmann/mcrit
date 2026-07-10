@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
 from AbstractShingler import AbstractShingler
+from mcrit.libs.AdjacentTreeBuilder import AdjacentTreeBuilder
 
 
 class TreeBfsShingler(AbstractShingler):
@@ -20,5 +20,5 @@ class TreeBfsShingler(AbstractShingler):
             for node in lvl:
                 shingle.append(node.node_label)
             shingle.sort()
-            bfs_shingles.append(self._name + ''.join(map(str, shingle)))
+            bfs_shingles.append(self._name + "".join(map(str, shingle)))
         return bfs_shingles

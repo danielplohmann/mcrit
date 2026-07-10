@@ -1,6 +1,7 @@
-from timeit import default_timer as timer
-from bson import json_util
 import logging
+from timeit import default_timer as timer
+
+from bson import json_util
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def getMatchingParams(req_params):
                 band_matches_required = int(value)
                 band_matches_required = max(0, band_matches_required)
                 parameters["band_matches_required"] = band_matches_required
-        except:
+        except (AttributeError, TypeError, ValueError):
             LOGGER.warning(f"Failed to handle request parameter: {key}: {value}")
     return parameters
 

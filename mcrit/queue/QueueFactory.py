@@ -1,7 +1,4 @@
-
-
 class QueueFactory:
-
     QUEUE_METHOD_FAKE = "fake"
     QUEUE_METHOD_MONGODB = "mongodb"
 

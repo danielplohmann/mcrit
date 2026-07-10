@@ -10,7 +10,6 @@ LOGGER = logging.getLogger(__name__)
 
 
 class ShingleLoader:
-
     WEIGHT_STRATEGY_ALL_SHINGLERS_EQUAL = 1
     WEIGHT_STRATEGY_SHINGLER_WEIGHTS = 2
 
@@ -23,9 +22,7 @@ class ShingleLoader:
     def _updateXorValues(self):
         if not self._config.SHINGLERS_XOR_VALUES:
             random.seed(self._config.SHINGLERS_SEED)
-            self._config.SHINGLERS_XOR_VALUES = [0] + [
-                random.randint(0, 0xFFFFFFFF) for _ in range(max(self._config.SHINGLERS_WEIGHTS.values()))
-            ]
+            self._config.SHINGLERS_XOR_VALUES = [0] + [random.randint(0, 0xFFFFFFFF) for _ in range(max(self._config.SHINGLERS_WEIGHTS.values()))]
 
     def getShinglers(self):
         """Get a (name-)sorted list of shinglers as specified in the config"""
@@ -45,9 +42,7 @@ class ShingleLoader:
                 shingler_instances.append(shingler)
         LOGGER.info(
             "Using Shingler Setup: %s",
-            ", ".join(
-                sorted(["%s (%d)" % (shingler.getName(), shingler.getWeight()) for shingler in shingler_instances])
-            ),
+            ", ".join(sorted(["%s (%d)" % (shingler.getName(), shingler.getWeight()) for shingler in shingler_instances])),
         )
         return sorted(shingler_instances)
 
@@ -58,11 +53,7 @@ class ShingleLoader:
         python_files = [
             os.path.join(self._config.SHINGLER_DIR, candidate_file)
             for candidate_file in os.listdir(self._config.SHINGLER_DIR)
-            if (
-                os.path.isfile(os.path.join(self._config.SHINGLER_DIR, candidate_file))
-                and candidate_file.endswith("Shingler.py")
-                and candidate_file != "AbstractShingler.py"
-            )
+            if (os.path.isfile(os.path.join(self._config.SHINGLER_DIR, candidate_file)) and candidate_file.endswith("Shingler.py") and candidate_file != "AbstractShingler.py")
         ]
         return python_files
 

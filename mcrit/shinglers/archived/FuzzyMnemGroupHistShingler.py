@@ -4,6 +4,7 @@ from collections import Counter
 
 from AbstractShingler import AbstractShingler
 
+
 class FuzzyMnemGroupHistShingler(AbstractShingler):
     """Build a histogram of all mnemonic groups in the function and hash that."""
 

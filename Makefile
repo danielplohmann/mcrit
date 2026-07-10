@@ -8,7 +8,7 @@ publish:
 pylint:
 	python -m pylint --rcfile=.pylintrc mcrit
 test:
-	python -m pytest 
+	python -m pytest
 test-nomongo:
 	python -m pytest -m 'not mongo'
 test-nosleep:

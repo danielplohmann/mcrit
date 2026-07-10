@@ -1,4 +1,5 @@
 from typing import Dict, Set, Tuple
+
 from mcrit.matchers.MatcherInterface import MatcherInterface, add_duration
 
 
@@ -11,7 +12,7 @@ class MatcherVs(MatcherInterface):
         self._sample_id = None
 
     @add_duration
-    def getMatchesForSample(self, sample_id:int, other_sample_id:int):
+    def getMatchesForSample(self, sample_id: int, other_sample_id: int):
         self._function_entries = self._storage.getFunctionsBySampleId(sample_id)
         self._function_entries_b = self._storage.getFunctionsBySampleId(other_sample_id)
         self._sample_id = sample_id

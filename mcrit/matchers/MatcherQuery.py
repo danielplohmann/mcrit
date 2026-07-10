@@ -1,11 +1,10 @@
-from typing import Dict, Set, TYPE_CHECKING, Tuple
+from typing import TYPE_CHECKING, Dict, Set, Tuple
+
 from mcrit.matchers.MatcherInterface import MatcherInterface, add_duration
-from mcrit.storage.FunctionEntry import FunctionEntry
-from mcrit.storage.MatchingCache import MatchingCache
-from mcrit.storage.SampleEntry import SampleEntry
 
 if TYPE_CHECKING:
     from smda.common.SmdaReport import SmdaReport
+
 
 class MatcherQuery(MatcherInterface):
     def _additional_setup(self):

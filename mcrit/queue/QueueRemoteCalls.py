@@ -1,19 +1,16 @@
+import hashlib
+import json
+import logging
 import os
 import time
-import json
-import hashlib
-import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
-
-from typing import Any, TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
-
+from typing import List
 
 # Only do basicConfig if no handlers have been configured
 if len(logging._handlerList) == 0:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 LOGGER = logging.getLogger(__name__)
-
 
 
 ################# Caller ##################
@@ -32,16 +29,16 @@ class BaseRemoteCallerClass:
         pass
 
     def getQueueStats(self, refresh=False):
-        LOGGER.debug(f"called getQueueStats()")
+        LOGGER.debug("called getQueueStats()")
         return self.queue.getQueueStatistics(refresh=refresh)
 
-    def getQueueData(self, start_index: int, limit: int, method=None, state=None, filter=None, ascending=False) -> List["Job"]:
+    def getQueueData(self, start_index: int, limit: int, method=None, state=None, filter=None, ascending=False) -> List[dict]:
         LOGGER.debug(f"called getQueueData(start_index={start_index}, limit={method}, method={method}, state={state}, filter={filter}, ascending={ascending}):")
         if filter is not None:
             # TODO apply filter to more fields
             return [job._data for job in self.queue.get_jobs(start_index, limit, method, state, ascending) if filter in job.parameters]
         return [job._data for job in self.queue.get_jobs(start_index, limit, method, state, ascending)]
-    
+
     def deleteQueueData(self, method=None, created_before=None, finished_before=None):
         LOGGER.debug(f"called getQueueData(filter={method}, filter={filter}, created_before={created_before}, finished_before={finished_before}):")
         return self.queue.delete_jobs(method=method, created_before=created_before, finished_before=finished_before)
@@ -104,7 +101,7 @@ class BaseRemoteCallerClass:
 def addRemoteCallFunctions(clsCallee, clsCaller):
     method_list = [func for func in dir(clsCallee) if callable(getattr(clsCallee, func)) and not func.startswith("__")]
     for name, method in zip(method_list, [getattr(clsCallee, func) for func in method_list]):
-        if hasattr(method, "remote") and method.remote == True:
+        if hasattr(method, "remote") and method.remote:
             new_method = RemotifyFunctionWrapper(method)
             new_method.__qualname__ = ".".join([clsCaller.__qualname__, new_method.__name__])
             setattr(clsCaller, name, new_method)
@@ -124,6 +121,7 @@ def QueueRemoteCaller(clsCallee):
 
 
 ########### END Class Metaprogramming
+
 
 # Wrapper that creates a remote call proxy for a given method
 def RemotifyFunctionWrapper(function):
@@ -256,8 +254,8 @@ def _createJobPayload(method_name, params, grid_params, descriptor):
     return payload
 
 
-
 ################# Callee ##################
+
 
 # Marks Functions within a QueueRemoteCallee
 def Remote(progress=False, file_locations=[], kwfile_locations=[], json_locations=[], kwjson_locations=[]):
@@ -283,20 +281,22 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
         self.t_last_cleanup = time.time()
         if profiling_path is not None:
             self._executeJob = self.profiling_wrapper(self._executeJob, profiling_path)
-    
+
     def profiling_wrapper(self, function, profiling_path):
         import cProfile
+
         @wraps(function)
         def wrapped_function(job, *args, **kwargs):
-            start = datetime.utcnow()
+            start = datetime.now(UTC).replace(tzinfo=None)
             with cProfile.Profile() as pr:
                 result = function(job, *args, **kwargs)
-            end = datetime.utcnow()
+            end = datetime.now(UTC).replace(tzinfo=None)
             method = job.payload["method"]
-            duration = int((end - start).total_seconds()*1000)
+            duration = int((end - start).total_seconds() * 1000)
             filename = f"WORKER-{method}-{int(start.timestamp())}-{duration}ms.prof"
             pr.dump_stats(os.path.join(profiling_path, filename))
             return result
+
         return wrapped_function
 
     def _receive_files(self, d):
@@ -305,10 +305,9 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
         return d
 
     def _decodeJobPayload(self, job_payload):
-        payload = job_payload
         method_name = job_payload["method"]
         method = getattr(self, method_name)
-        if not (hasattr(method, "remote") and method.remote == True):
+        if not (hasattr(method, "remote") and method.remote):
             raise NotImplementedError
 
         params = json.loads(job_payload["params"])
@@ -349,7 +348,7 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
                 # ensure we always have a job_id for finished job payloads
                 job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
                 LOGGER.info("Finished Remote Job: %s", job)
-        except Exception as exc:
+        except Exception:
             pass
 
     def run(self):
@@ -385,7 +384,7 @@ def split_list_dict(in_dict):
     while i in in_dict:
         L.append(in_dict[i])
         i += 1
-    out_dict = {key: val for key, val in in_dict.items() if type(key) != int}
+    out_dict = {key: val for key, val in in_dict.items() if not isinstance(key, int)}
     return L, out_dict
 
 
@@ -404,13 +403,14 @@ def restore_int_keys(params):
             key_int = int(key)
             int_dict[key_int] = val
             del_keys.append(key)
-        except:
+        except (TypeError, ValueError):
             pass
 
     for k in del_keys:
         del params[k]
     params.update(int_dict)
     return params
+
 
 ################################### progress iterator
 
@@ -424,7 +424,7 @@ class NoProgressReporter:
 
     def get_total(self):
         return 1
-    
+
     def has_total_set(self):
         return True
 

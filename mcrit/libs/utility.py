@@ -1,24 +1,22 @@
-import io
-import json
 import base64
-import string
+import io
 import zipfile
 
 
 def generate_unique_pairs(data):
-    """ For a given list of items, yield a list of unique, size-sorted pairs """
+    """For a given list of items, yield a list of unique, size-sorted pairs"""
     sorted_data = sorted(data)
     for index_a, data_a in enumerate(sorted_data):
-        for _, data_b in enumerate(sorted_data[index_a + 1:]):
+        for _, data_b in enumerate(sorted_data[index_a + 1 :]):
             yield data_a, data_b
 
 
 def generate_unique_groups(data):
-    """ For a given list of items, yield a list of unique, size-sorted groups """
+    """For a given list of items, yield a list of unique, size-sorted groups"""
     sorted_data = sorted(data)
     for index_a, data_a in enumerate(sorted_data):
         group_b = []
-        for _, data_b in enumerate(sorted_data[index_a + 1:]):
+        for _, data_b in enumerate(sorted_data[index_a + 1 :]):
             group_b.append(data_b)
         if group_b:
             yield data_a, group_b
@@ -66,7 +64,7 @@ def decompress_decode(compressed_b64):
 
 
 def encode_two_complement(unit64):
-    if unit64 > 0x7fffffffffffffff:
+    if unit64 > 0x7FFFFFFFFFFFFFFF:
         return unit64 - 0x10000000000000000
     return unit64
 

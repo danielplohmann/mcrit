@@ -1,8 +1,7 @@
 import logging
-from typing import Dict, Set, Tuple, List
+from typing import Dict, List, Set, Tuple
 
 from mcrit.matchers.MatcherInterface import MatcherInterface, add_duration
-
 
 # Only do basicConfig if no handlers have been configured
 if len(logging._handlerList) == 0:
@@ -11,7 +10,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 class MatcherVsGroup(MatcherInterface):
-    """ Matcher to compare functions from one sample against functions from a group of other samples."""
+    """Matcher to compare functions from one sample against functions from a group of other samples."""
 
     def _additional_setup(self):
         self.matcher_type = "MatcherVsGroup"
@@ -21,7 +20,7 @@ class MatcherVsGroup(MatcherInterface):
         self._sample_id = None
 
     @add_duration
-    def getMatchesForSample(self, sample_id:int, other_sample_ids:List[int]):
+    def getMatchesForSample(self, sample_id: int, other_sample_ids: List[int]):
         self._function_entries = self._storage.getFunctionsBySampleId(sample_id)
         for other_sample_id in other_sample_ids:
             self._other_function_entries.extend(self._storage.getFunctionsBySampleId(other_sample_id))
@@ -29,7 +28,12 @@ class MatcherVsGroup(MatcherInterface):
         sample_entry = self._storage.getSampleById(sample_id)
         self._sample_info = sample_entry.toDict()
 
-        LOGGER.info("Performing matching of sample %d against %d other samples, with %d functions total.", sample_id, len(other_sample_ids), len(self._function_entries) + len(self._other_function_entries))
+        LOGGER.info(
+            "Performing matching of sample %d against %d other samples, with %d functions total.",
+            sample_id,
+            len(other_sample_ids),
+            len(self._function_entries) + len(self._other_function_entries),
+        )
 
         matching_report = self._getMatchesRoutine()
 

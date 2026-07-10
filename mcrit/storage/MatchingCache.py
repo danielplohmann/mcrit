@@ -1,4 +1,4 @@
-class MatchingCache(object):
+class MatchingCache:
     """A reduced in-memory view for a selection of FunctionEntry and corresponding SampleEntry objects - implements a subset of StorageInterface"""
 
     def __init__(self, cache_data):

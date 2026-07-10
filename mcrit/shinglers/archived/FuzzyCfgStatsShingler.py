@@ -12,4 +12,8 @@ class FuzzyCfgStatsShingler(AbstractShingler):
         self._weight = weight
 
     def _generateByteSequences(self, function_object):
-        return [self._name + "ins_%d;blocks_%d;edges_%d" % (self._logbucket(function_object.num_instructions), self._logbucket(function_object.num_blocks), self._logbucket(function_object.num_edges))]
+        return [
+            self._name
+            + "ins_%d;blocks_%d;edges_%d"
+            % (self._logbucket(function_object.num_instructions), self._logbucket(function_object.num_blocks), self._logbucket(function_object.num_edges))
+        ]

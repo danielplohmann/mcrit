@@ -1,10 +1,7 @@
 #!/usr/bin/python
 
 import logging
-import os
 import unittest
-
-from .context import config
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")

@@ -1,11 +1,11 @@
 from typing import Dict, List
+
 import numpy as np
 from fastcluster import linkage
 from scipy.spatial.distance import squareform
 
 
-class MatcherCross(object):
-
+class MatcherCross:
     def _additional_setup(self):
         self.matcher_type = "MatcherCross"
 
@@ -74,10 +74,10 @@ class MatcherCross(object):
         mapped_sequence = []
         for sorted_id in sorted_sequence:
             mapped_sequence.append(sample_id_sequence[sorted_id])
-        return mapped_sequence  
+        return mapped_sequence
 
     def _produce_cross_crompare(self, matching_reports: List[Dict], method=None, custom_sequence=None, cluster_sequence=False):
-        """ Generate a n:n cross comparision of all reports provided
+        """Generate a n:n cross comparision of all reports provided
 
         Args:
             matching_reports: matching report (as dict) of type 1vsN for each sample to cross compare
@@ -116,35 +116,23 @@ class MatcherCross(object):
                     matching_percent[str(sample_id)][str(other_sample_id)] = matched_sample["matched"]["percent"][method]
                     matching_matches[str(sample_id)][str(other_sample_id)] = matched_sample["matched"]["functions"]["combined"]
             # TODO: 2022-06-30 Don't process samples which are not part of the cross-compare
-            if not str(sample_id) in matching_percent:
+            if str(sample_id) not in matching_percent:
                 matching_percent[str(sample_id)] = {}
             matching_percent[str(sample_id)][str(sample_id)] = 100
         if cluster_sequence:
-            clustered_sequence =  self._calculate_clustered_sequence(matching_percent)
+            clustered_sequence = self._calculate_clustered_sequence(matching_percent)
         return {
             "matching_matches": matching_matches,
             "matching_percent": matching_percent,
             "clustered_sequence": clustered_sequence,
         }
 
-
     def create_result(self, matching_reports: List[Dict]):
-        MATCHING_METHODS = [
-            "unweighted", 
-            "score_weighted", 
-            "frequency_weighted",
-            "nonlib_unweighted", 
-            "nonlib_score_weighted", 
-            "nonlib_frequency_weighted"
-        ]
+        MATCHING_METHODS = ["unweighted", "score_weighted", "frequency_weighted", "nonlib_unweighted", "nonlib_score_weighted", "nonlib_frequency_weighted"]
 
         # potentially define a custom sequence (list of int), sample_id
-         # aggregate and produce output
+        # aggregate and produce output
         result = {}
         for matching_method in MATCHING_METHODS:
-            result[matching_method] = self._produce_cross_crompare(
-                matching_reports,
-                method=matching_method,
-                cluster_sequence=True
-            )
-        return result 
+            result[matching_method] = self._produce_cross_crompare(matching_reports, method=matching_method, cluster_sequence=True)
+        return result

@@ -1,8 +1,7 @@
-from calendar import c
 import json
+import logging
 import traceback
 import uuid
-import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -13,10 +12,11 @@ LOGGER = logging.getLogger(__name__)
 
 
 # copied from mongoqueue
-class Job(object):
+class Job:
     """
     This class is also used to represent jobs to the outside
     """
+
     def __init__(self, data, queue):
         self._data = data
         self._queue = queue
@@ -74,12 +74,12 @@ class Job(object):
                 "modifyFamily",
                 "deleteFamily",
                 "rebuildIndex",
-            ]
+            ],
         }
 
     def __str__(self) -> str:
         return f"ID: {self.job_id} - {self.parameters} | created: {self.created_at}, finished: {self.finished_at}, result: {self.result}, progress: {self.progress}"
-    
+
     @property
     def family(self) -> str:
         if self.method in ["addBinarySample"]:
@@ -91,13 +91,13 @@ class Job(object):
         if self.method in ["getMatchesForUnmappedBinary", "getMatchesForMappedBinary", "getMatchesForSmdaReport", "addBinarySample"]:
             descriptor = json.loads(self._data["payload"]["descriptor"])
             return descriptor[2]["0"]
-        
+
     @property
     def filename(self) -> str:
         if self.method in ["addBinarySample"]:
             descriptor = json.loads(self._data["payload"]["descriptor"])
             return descriptor[1]["1"]
-    
+
     @property
     def family_id(self):
         if self.method in self.method_types["family_id"]:
@@ -111,7 +111,7 @@ class Job(object):
         if self.method in self.method_types["family_id"] or self.method == "getUniqueBlocks":
             return True
         return False
-    
+
     @property
     def sample_ids(self):
         sample_ids = []
@@ -146,7 +146,7 @@ class Job(object):
         if self.method == "getMatchesForSampleVs":
             return int(self.arguments[1])
 
-    def has_sample_id(self, sample_id:int):
+    def has_sample_id(self, sample_id: int):
         if self.method in self.method_types["sample_id"]:
             if self.method == "getMatchesForSampleVs":
                 return int(self.arguments[0]) == sample_id or int(self.arguments[1]) == sample_id
@@ -158,7 +158,7 @@ class Job(object):
         if self.method in self.method_types["matching"]:
             return True
         return False
-    
+
     @property
     def is_minhashing_job(self):
         if self.method in self.method_types["minhashing"]:
@@ -170,7 +170,7 @@ class Job(object):
         if self.method in self.method_types["query"]:
             return True
         return False
-    
+
     @property
     def is_block_job(self):
         if self.method in self.method_types["blocks"]:
@@ -203,7 +203,7 @@ class Job(object):
                 try:
                     int(k)
                     indexed_key_values.append(v)
-                except:
+                except (TypeError, ValueError):
                     named_key_values.append(v)
             combined_values = indexed_key_values + named_key_values
         return combined_values
@@ -279,10 +279,10 @@ class Job(object):
     @property
     def duration(self):
         if self.is_finished:
-            FMT = '%Y-%m-%d-%H:%M:%S'
+            FMT = "%Y-%m-%d-%H:%M:%S"
             finished_at = self.finished_at[:10] + "-" + self.finished_at[11:19]
             started_at = self.started_at[:10] + "-" + self.started_at[11:19]
-            duration = datetime.strptime(finished_at, FMT)-datetime.strptime(started_at, FMT)
+            duration = datetime.strptime(finished_at, FMT) - datetime.strptime(started_at, FMT)
             return duration
         return None
 
@@ -358,13 +358,13 @@ class Job(object):
         self._data["terminated"] = True
 
 
-class LocalQueue(object):
+class LocalQueue:
     def __init__(self):
         self._setup_empty_queue()
         self._worker = None
         self._job_counter = 0
-        self.clean_interval = 10 ** 9
-        self.cache_time = 10 ** 9
+        self.clean_interval = 10**9
+        self.cache_time = 10**9
         self.max_attempts = 1
 
     def _setup_empty_queue(self):
@@ -400,7 +400,7 @@ class LocalQueue(object):
             if method is not None and job_document["payload"]["method"] != method:
                 continue
             jobs.append(Job(job_document, self))
-        return jobs[start_index:start_index+limit]
+        return jobs[start_index : start_index + limit]
 
     def get_cached_job_id(self, payload):
         return self._descriptor_to_job[payload["descriptor"]]
@@ -424,7 +424,7 @@ class LocalQueue(object):
         self._files_meta[id] = metadata
         try:
             self._hash_to_file[metadata["sha256"]] = id
-        except:
+        except KeyError:
             pass
         return id
 
@@ -434,7 +434,7 @@ class LocalQueue(object):
             return None
         if results_only:
             metadata = self._files_meta[grid]
-            if not "result" in metadata or not metadata["result"]:
+            if "result" not in metadata or not metadata["result"]:
                 return b'"Access Not Allowed"'
         return file
 
@@ -451,7 +451,7 @@ class LocalQueue(object):
             return
         try:
             self._files_meta[id]["tmp_lock"] += 1
-        except:
+        except KeyError:
             pass
 
     def _dec_lock(self, id):
@@ -459,7 +459,7 @@ class LocalQueue(object):
             return
         try:
             self._files_meta[id]["tmp_lock"] -= 1
-        except:
+        except KeyError:
             pass
 
     def add_job_id_to_file(self, job_id, file_id):
@@ -480,7 +480,7 @@ class LocalQueue(object):
         try:
             if self._hash_to_file[meta["sha256"]] == grid:
                 del self._hash_to_file[meta["sha256"]]
-        except:
+        except KeyError:
             pass
         del self._files[grid]
         del self._files_meta[grid]
@@ -524,6 +524,7 @@ class LocalQueue(object):
             LOGGER.debug("Job meta: %s", meta)
             meta["jobs"].remove(id)
         return 1
+
     delete_history = []
 
     def delete_jobs(self, method=None, created_before=None, finished_before=None):

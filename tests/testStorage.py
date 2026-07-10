@@ -1,23 +1,20 @@
 import json
 import logging
 import os
-import time
-from datetime import datetime
 from unittest import TestCase, main
 
-import pymongo
+import pytest
+from smda.common.SmdaReport import SmdaReport
+
 from mcrit.config.McritConfig import McritConfig
-from mcrit.config.StorageConfig import StorageConfig
 from mcrit.config.MinHashConfig import MinHashConfig
-from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.QueueConfig import QueueConfig
+from mcrit.config.ShinglerConfig import ShinglerConfig
+from mcrit.config.StorageConfig import StorageConfig
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageFactory import StorageFactory
-from smda.common.SmdaReport import SmdaReport
-
-from .context import config
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
@@ -84,7 +81,7 @@ class MemoryStorageTest(TestCase):
     def testSampleHandling(self):
         self.storage.clearStorage()
         # TODO: different samples required, because addSmdaReport wont accept identical hashes
-        with open(self.example_file_path, "r") as fjson:
+        with open(self.example_file_path) as fjson:
             smda_json = json.load(fjson)
         smda_report_a = SmdaReport.fromDict(smda_json)
         smda_report_a.family = "family_1"
@@ -111,9 +108,11 @@ class MemoryStorageTest(TestCase):
         unhashed_function_ids = self.storage.getUnhashedFunctions(None, only_function_ids=True)
         unhashed_functions = self.storage.getUnhashedFunctions(unhashed_function_ids)
         # minhashes = self.calculateMinHashes(unhashed_functions)
-        from mcrit.minhash.MinHasher import MinHasher
         from smda.common.BinaryInfo import BinaryInfo
         from smda.common.SmdaFunction import SmdaFunction
+
+        from mcrit.minhash.MinHasher import MinHasher
+
         minhasher = MinHasher(MinHashConfig(), ShinglerConfig())
         minhashes = []
         smda_functions = []
@@ -121,11 +120,7 @@ class MemoryStorageTest(TestCase):
             binary_info = BinaryInfo(b"")
             binary_info.architecture = func.architecture
             smda_functions.append((func.function_id, SmdaFunction.fromDict(func.xcfg, binary_info=binary_info)))
-        smda_functions = [
-            (function_id, smda_function)
-            for function_id, smda_function in smda_functions
-            if minhasher.isMinHashableFunction(smda_function)
-        ]
+        smda_functions = [(function_id, smda_function) for function_id, smda_function in smda_functions if minhasher.isMinHashableFunction(smda_function)]
         for smda_function in smda_functions:
             minhashes.append(minhasher.calculateMinHashFromStorage(smda_function))
         if minhashes:
@@ -149,8 +144,8 @@ class MemoryStorageTest(TestCase):
 
         self.assertEqual(None, self.storage.getLibraryInfoForSampleId(1000))
 
-        self.assertEqual(0, self.storage.getSampleBySha256(64* "a").sample_id)
-        self.assertEqual(None, self.storage.getSampleBySha256(64* "z"))
+        self.assertEqual(0, self.storage.getSampleBySha256(64 * "a").sample_id)
+        self.assertEqual(None, self.storage.getSampleBySha256(64 * "z"))
 
         # test modifications
         self.storage.modifySample(3, {"family_name": "changed_family", "version": "new_version", "component": "new_component", "is_library": True})
@@ -181,7 +176,7 @@ class MemoryStorageTest(TestCase):
     def testFunctionHandling(self):
         self.storage.clearStorage()
         # TODO use SmdaReport.fromFile
-        with open(self.example_file_path, "r") as fjson:
+        with open(self.example_file_path) as fjson:
             smda_json = json.load(fjson)
         smda_report_a = SmdaReport.fromDict(smda_json)
         smda_report_a.sha256 = 64 * "a"
@@ -197,7 +192,7 @@ class MemoryStorageTest(TestCase):
         self.assertFalse(self.storage.isFunctionId(30))
         functions = self.storage.getFunctionsBySampleId(1)
         self.assertIsNotNone(functions)
-        self.assertEqual(list(range(10,20)), [entry.function_id for entry in functions])
+        self.assertEqual(list(range(10, 20)), [entry.function_id for entry in functions])
 
         function = self.storage.getFunctionById(1, with_xcfg=False)
         self.assertIsNone(function.xcfg)
@@ -225,7 +220,7 @@ class MemoryStorageTest(TestCase):
         storage_config.STORAGE_BAND_SEED = 0
 
         self.storage.clearStorage()
-        with open(self.example_file_path, "r") as fjson:
+        with open(self.example_file_path) as fjson:
             smda_json = json.load(fjson)
         smda_report_a = SmdaReport.fromDict(smda_json)
         smda_report_a.sha256 = 64 * "a"
@@ -250,7 +245,7 @@ class MemoryStorageTest(TestCase):
         not_a_pichash = 0
         self.assertEqual(set(), self.storage.getMatchesForPicHash(not_a_pichash))
 
-        pichashes_by_function_ids = self.storage.getPicHashMatchesByFunctionIds(list(range(10,20)))
+        pichashes_by_function_ids = self.storage.getPicHashMatchesByFunctionIds(list(range(10, 20)))
         pichashes_by_sample_id = self.storage.getPicHashMatchesBySampleId(1)
         self.assertEqual(pichashes_by_function_ids, pichashes_by_sample_id)
 
@@ -260,12 +255,8 @@ class MemoryStorageTest(TestCase):
 
         # minhash tests
         # TODO check if MinHash initialization works
-        minhash_a = MinHash(
-            function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39], minhash_bits=8
-        )
-        minhash_b = MinHash(
-            function_id=3, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39], minhash_bits=8
-        )
+        minhash_a = MinHash(function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39], minhash_bits=8)
+        minhash_b = MinHash(function_id=3, minhash_signature=[0x30, 0x31, 0x30, 0x33, 0x30, 0x30, 0x30, 0x37, 0x38, 0x39], minhash_bits=8)
         function_entry = self.storage.getFunctionById(1)
         self.assertEqual(b"", function_entry.minhash)
         status = self.storage.addMinHash(minhash_a)
@@ -290,10 +281,8 @@ class MemoryStorageTest(TestCase):
         self.assertEqual({1000: set([1, 3])}, candidates)
 
         # band rebuild test
-        num_reindexed_minhashes = self.storage.rebuildMinhashBandIndex()
-        minhash_c = MinHash(
-            function_id=1000, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39], minhash_bits=8
-        )
+        self.storage.rebuildMinhashBandIndex()
+        minhash_c = MinHash(function_id=1000, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39], minhash_bits=8)
         candidates_after = self.storage.getCandidatesForMinHashes({1000: minhash_c})
         self.assertEqual(candidates, candidates_after)
 
@@ -337,20 +326,19 @@ class MemoryStorageTest(TestCase):
             self.assertEqual(set([query_function_id]), set(cache.getFunctionIdsBySampleId(query_sample.sample_id)))
 
 
-### Added mongo attribute
-import pytest
-
-
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
     def setUp(self):
-        mongodb_server = os.environ.get("TEST_MONGODB")
-        # assume localhost if no explicit test server is set
-        if not mongodb_server:
-            mongodb_server = "127.0.0.1"
+        mongodb_server = os.environ.get("TEST_MONGODB", "127.0.0.1")
+        # split host:port when the env var contains both
+        if ":" in mongodb_server:
+            server, port = mongodb_server.rsplit(":", 1)
+        else:
+            server, port = mongodb_server, "27017"
         self._storage_config = StorageConfig(
             STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB,
-            STORAGE_SERVER=mongodb_server,
+            STORAGE_SERVER=server,
+            STORAGE_PORT=port,
             STORAGE_MONGODB_DBNAME="test_mongodbstorage_mcrit",
             STORAGE_DROP_DISASSEMBLY=False,
         )
