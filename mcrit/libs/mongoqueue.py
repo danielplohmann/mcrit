@@ -150,13 +150,8 @@ class MongoQueue:
             state = self._identifyJobState(doc)
             aggregated[method][state] += 1
 
-        operations = [
-            UpdateOne({"name": key}, {"$set": counters}, upsert=True)
-            for key, counters in aggregated.items()
-        ]
-        operations.append(
-            UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True)
-        )
+        operations = [UpdateOne({"name": key}, {"$set": counters}, upsert=True) for key, counters in aggregated.items()]
+        operations.append(UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True))
         if operations:
             self.queue_counters.bulk_write(operations)
 
@@ -285,10 +280,7 @@ class MongoQueue:
             # limit=1
         )
         if job:
-            self.updateQueueCounters([
-                (job["payload"]["method"], "in_progress", 1),
-                (job["payload"]["method"], "queued", -1)
-            ])
+            self.updateQueueCounters([(job["payload"]["method"], "in_progress", 1), (job["payload"]["method"], "queued", -1)])
         return self._wrap_one(job)
 
     def _jobs_to_do(self):
@@ -667,17 +659,10 @@ class Job:
         )
         # job result was not set by another completion before, or if it is forced by argument
         if (job and job["result"] is None) or result:
-            job = self._queue.collection.find_one_and_update(
-                filter={"_id": self.job_id},
-                update={"$set": {"result": self._data["result"]}},
-                return_document=ReturnDocument.AFTER
-            )
+            job = self._queue.collection.find_one_and_update(filter={"_id": self.job_id}, update={"$set": {"result": self._data["result"]}}, return_document=ReturnDocument.AFTER)
         if not job:
             return
-        self._queue.updateQueueCounters([
-            (self.method, "in_progress", -1),
-            (self.method, "finished", 1)
-        ])
+        self._queue.updateQueueCounters([(self.method, "in_progress", -1), (self.method, "finished", 1)])
         self._queue._notify_dependent_jobs(str(self.job_id))
         return job
 
@@ -690,10 +675,7 @@ class Job:
         )
         if not job:
             return
-        updates = [
-            (self.method, "in_progress", -1),
-            (self.method, "queued", 1)
-        ]
+        updates = [(self.method, "in_progress", -1), (self.method, "queued", 1)]
         if job["attempts_left"] <= 0:
             self._queue._notify_dependent_jobs(str(job["_id"]))
             updates.append((self.method, "queued", -1))
@@ -713,10 +695,7 @@ class Job:
         )
         if not job:
             return
-        updates = [
-            (self.method, "in_progress", -1),
-            (self.method, "queued", 1)
-        ]
+        updates = [(self.method, "in_progress", -1), (self.method, "queued", 1)]
         if job["attempts_left"] <= 0:
             self._queue._notify_dependent_jobs(str(job["_id"]))
             updates.append((self.method, "queued", -1))
@@ -755,8 +734,5 @@ class Job:
         )
         if not job:
             return
-        self._queue.updateQueueCounters([
-            (job["payload"]["method"], "in_progress", -1),
-            (job["payload"]["method"], "terminated", 1)
-        ])
+        self._queue.updateQueueCounters([(job["payload"]["method"], "in_progress", -1), (job["payload"]["method"], "terminated", 1)])
         return job

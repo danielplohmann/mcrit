@@ -16,7 +16,8 @@ if TYPE_CHECKING:  # pragma: no cover
 # constructor -> .fromSmdaFunction
 # assume sample_entry, smda_function always available
 
-class FunctionEntry(object):
+
+class FunctionEntry:
     # MCRIT specific
     function_id: int
     family_id: int

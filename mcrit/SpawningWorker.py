@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import subprocess
+import threading
 import time
 import uuid
 from typing import TYPE_CHECKING, Optional
@@ -69,7 +70,7 @@ class SpawningWorker(Worker):
 
         def reader(pipe, label, accum):
             try:
-                for line in iter(pipe.readline, b''):
+                for line in iter(pipe.readline, b""):
                     decoded_line = line.decode("utf-8", errors="replace").rstrip()
                     if decoded_line:
                         LOGGER.info("%s logs from subprocess: %s", label, decoded_line)
