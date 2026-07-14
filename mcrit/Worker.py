@@ -14,7 +14,6 @@ from smda.common.SmdaFunction import SmdaFunction
 from smda.common.SmdaInstruction import SmdaInstruction
 from smda.common.SmdaReport import SmdaReport
 from smda.Disassembler import Disassembler
-from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 from smda.SmdaConfig import SmdaConfig
 
 from mcrit.config.McritConfig import McritConfig
@@ -367,9 +366,11 @@ class Worker(QueueRemoteCallee):
         blocks_result_dict["yara_rule"] = yara_rule
         # enrich with escaped sequences
         sample_addr_borders = {}
+        sample_escaper = {}
         for sample_id in sample_ids:
             sample_entry = self._storage.getSampleById(sample_id)
             sample_addr_borders[sample_id] = {"lower": sample_entry.base_addr, "upper": sample_entry.base_addr + sample_entry.binary_size}
+            sample_escaper[sample_id] = SmdaFunction.getInstructionEscaper(sample_entry.architecture)
         for block_hash, entry in unique_blocks.items():
             sample_id = entry["sample_id"]
             escaped_sequences = []
@@ -377,7 +378,7 @@ class Worker(QueueRemoteCallee):
                 smda_instruction = SmdaInstruction(instruction)
                 escaped_sequences.append(
                     smda_instruction.getEscapedBinary(
-                        IntelInstructionEscaper,
+                        sample_escaper[sample_id],
                         escape_intraprocedural_jumps=True,
                         lower_addr=sample_addr_borders[sample_id]["lower"],
                         upper_addr=sample_addr_borders[sample_id]["upper"],

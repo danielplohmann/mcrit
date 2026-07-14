@@ -46,13 +46,15 @@ class MatcherTestSuite(unittest.TestCase):
         self.smda_report_3.family = "test_family_b"
         self.library_report = SmdaReport.fromFile(library_file_path)
 
+        # make a selfmatch (mutate xcfg *before* any getFunctions() call, otherwise the
+        # cached function list built by SmdaReport.getFunctions() would hide the mutation)
+        _funcs_1 = sorted(self.smda_report_1.xcfg.values(), key=lambda f: f.offset)
+        self.smda_report_1.xcfg[_funcs_1[1].offset] = _funcs_1[5]
+
         function_1_selected = list(self.smda_report_1.getFunctions())[3]
         function_2_selected = list(self.smda_report_2.getFunctions())[5]
         # self.smda_report_2.xcfg[offset] = function_1_selected
         function_2_selected.pic_hash = function_1_selected.pic_hash
-
-        # make a selfmatch
-        self.smda_report_1.xcfg[list(self.smda_report_1.getFunctions())[1].offset] = list(self.smda_report_1.getFunctions())[5]
 
     # from matchervs
     function_matches_expected = [

@@ -2,7 +2,7 @@ import hashlib
 import struct
 
 from rapidfuzz.distance import Levenshtein
-from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
+from smda.common.SmdaFunction import SmdaFunction
 
 
 class FunctionCfgMatcher:
@@ -14,6 +14,8 @@ class FunctionCfgMatcher:
         self.sample_entry_b = sample_entry_b
         self.smda_function_a = smda_function_a
         self.smda_function_b = smda_function_b
+        self.escaper_a = SmdaFunction.getInstructionEscaper(sample_entry_a.architecture)
+        self.escaper_b = SmdaFunction.getInstructionEscaper(sample_entry_b.architecture)
         self.match_colors = {
             # based on hashing
             "regular_pic": "#00DDFF",
@@ -30,13 +32,14 @@ class FunctionCfgMatcher:
     @staticmethod
     def getPicBlockHashesForFunction(sample_entry, smda_function, min_size=0):
         pic_block_hashes = []
+        escaper = SmdaFunction.getInstructionEscaper(sample_entry.architecture)
         for block in smda_function.getBlocks():
             if block.length >= min_size:
                 escaped_binary_seq = []
                 for instruction in block.getInstructions():
                     escaped_binary_seq.append(
                         instruction.getEscapedBinary(
-                            IntelInstructionEscaper,
+                            escaper,
                             escape_intraprocedural_jumps=True,
                             lower_addr=sample_entry.base_addr,
                             upper_addr=sample_entry.base_addr + sample_entry.binary_size,
@@ -55,7 +58,7 @@ class FunctionCfgMatcher:
             for instruction in block.getInstructions():
                 escaped_binary_seq.append(
                     instruction.getEscapedBinary(
-                        IntelInstructionEscaper,
+                        self.escaper_a,
                         escape_intraprocedural_jumps=True,
                         lower_addr=self.sample_entry_a.base_addr,
                         upper_addr=self.sample_entry_a.base_addr + self.sample_entry_a.binary_size,
@@ -70,7 +73,7 @@ class FunctionCfgMatcher:
             for instruction in block.getInstructions():
                 escaped_binary_seq.append(
                     instruction.getEscapedBinary(
-                        IntelInstructionEscaper,
+                        self.escaper_b,
                         escape_intraprocedural_jumps=True,
                         lower_addr=self.sample_entry_b.base_addr,
                         upper_addr=self.sample_entry_b.base_addr + self.sample_entry_b.binary_size,
@@ -101,7 +104,7 @@ class FunctionCfgMatcher:
         for block in self.smda_function_a.getBlocks():
             escaped_ins_seq = []
             for instruction in block.getInstructions():
-                escaped_ins = IntelInstructionEscaper.escapeMnemonic(instruction.mnemonic) + " " + IntelInstructionEscaper.escapeOperands(instruction)
+                escaped_ins = instruction.getMnemonicGroup(self.escaper_a) + " " + instruction.getEscapedOperands(self.escaper_a)
                 escaped_ins_seq.append(escaped_ins)
             merged = ";".join(escaped_ins_seq)
             # print("0x%x" % block.offset, merged)
@@ -111,7 +114,7 @@ class FunctionCfgMatcher:
         for block in self.smda_function_b.getBlocks():
             escaped_ins_seq = []
             for instruction in block.getInstructions():
-                escaped_ins = IntelInstructionEscaper.escapeMnemonic(instruction.mnemonic) + " " + IntelInstructionEscaper.escapeOperands(instruction)
+                escaped_ins = instruction.getMnemonicGroup(self.escaper_b) + " " + instruction.getEscapedOperands(self.escaper_b)
                 escaped_ins_seq.append(escaped_ins)
             merged = ";".join(escaped_ins_seq)
             # print("0x%x" % block.offset, merged)
@@ -141,7 +144,7 @@ class FunctionCfgMatcher:
                 continue
             symbolified_block = ""
             for instruction in block.getInstructions():
-                escaped_ins = instruction.mnemonic + " " + IntelInstructionEscaper.escapeOperands(instruction)
+                escaped_ins = instruction.mnemonic + " " + instruction.getEscapedOperands(self.escaper_a)
                 if escaped_ins not in alphabet:
                     alphabet[escaped_ins] = chr(0x30 + num_symbols)
                     num_symbols += 1
@@ -155,7 +158,7 @@ class FunctionCfgMatcher:
                 continue
             symbolified_block = ""
             for instruction in block.getInstructions():
-                escaped_ins = instruction.mnemonic + " " + IntelInstructionEscaper.escapeOperands(instruction)
+                escaped_ins = instruction.mnemonic + " " + instruction.getEscapedOperands(self.escaper_b)
                 if escaped_ins not in alphabet:
                     alphabet[escaped_ins] = chr(0x30 + num_symbols)
                     num_symbols += 1

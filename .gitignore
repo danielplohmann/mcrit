@@ -75,3 +75,8 @@ diagnosis/*
 experiments/*
 
 profiler
+
+# devcontainer / local dev environment artifacts
+.devcontainer/
+.dockerignore
+
