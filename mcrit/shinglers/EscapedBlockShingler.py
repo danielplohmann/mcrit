@@ -3,7 +3,6 @@
 from collections import Counter
 
 from AbstractShingler import AbstractShingler
-from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 
 class EscapedBlockShingler(AbstractShingler):
@@ -15,8 +14,9 @@ class EscapedBlockShingler(AbstractShingler):
         self._weight = weight
 
     def _escapeInstruction(self, instruction):
-        return instruction.getMnemonicGroup(IntelInstructionEscaper) + " " + instruction.getEscapedOperands(IntelInstructionEscaper)
-        # return instruction.mnemonic + " " + instruction.getEscapedOperands(IntelInstructionEscaper)
+        escaper = instruction.smda_function._escaper
+        return instruction.getMnemonicGroup(escaper) + " " + instruction.getEscapedOperands(escaper)
+        # return instruction.mnemonic + " " + instruction.getEscapedOperands(escaper)
 
     def _maskInstructions(self, instructions, ngram_size=3):
         sequences = []

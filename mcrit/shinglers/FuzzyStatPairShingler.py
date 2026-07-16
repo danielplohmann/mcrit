@@ -4,7 +4,6 @@ from collections import Counter
 
 from AbstractShingler import AbstractShingler
 from LogBucket import LogBucket
-from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 from mcrit.libs.utility import generate_unique_pairs
 
@@ -20,6 +19,10 @@ class FuzzyStatPairShingler(AbstractShingler):
 
     def _getStackSize(self, function_object):
         stack_size = 0
+        from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
+
+        if function_object._escaper is not IntelInstructionEscaper:
+            return stack_size
         for ins in function_object.blocks[function_object.offset][:10]:
             if ins.mnemonic == "sub":
                 operands = [op.strip() for op in ins.operands.split(",")]
@@ -61,7 +64,7 @@ class FuzzyStatPairShingler(AbstractShingler):
         byte_sequences = []
         mnemonic_type_count = Counter()
         for instruction in function_object.getInstructions():
-            mnemonic_type_count[instruction.getMnemonicGroup(IntelInstructionEscaper)] += 1
+            mnemonic_type_count[instruction.getMnemonicGroup(function_object._escaper)] += 1
         num_ins_C = mnemonic_type_count["C"] if "C" in mnemonic_type_count else 0
         num_ins_S = mnemonic_type_count["S"] if "S" in mnemonic_type_count else 0
         num_ins_M_rel = int(100 * mnemonic_type_count["M"] / function_object.num_instructions) if "M" in mnemonic_type_count else 0
