@@ -702,6 +702,8 @@ class MemoryStorage(StorageInterface):
 
     # -> Set[function_id]
     def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
+        if not minhash.hasMinHash():
+            return set()
         candidates = {}
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
