@@ -10,7 +10,7 @@ pyparsing>=3
 pytest
 pytest-cov
 mmh3>=2.5.1
-numpy<2.0.0
+numpy>=1.26
 rapidfuzz
 requests
 scipy

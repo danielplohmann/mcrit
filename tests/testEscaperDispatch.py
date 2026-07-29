@@ -5,6 +5,7 @@ import unittest
 from smda.aarch64.AArch64InstructionEscaper import AArch64InstructionEscaper
 from smda.cil.CilInstructionEscaper import CilInstructionEscaper
 from smda.common.SmdaFunction import SmdaFunction
+from smda.dalvik.DalvikInstructionEscaper import DalvikInstructionEscaper
 from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 
@@ -20,8 +21,8 @@ class EscaperDispatchTestSuite(unittest.TestCase):
     def test_cil(self):
         self.assertIs(SmdaFunction.getInstructionEscaper("cil"), CilInstructionEscaper)
 
-    def test_dalvik_has_no_escaper(self):
-        self.assertIsNone(SmdaFunction.getInstructionEscaper("dalvik"))
+    def test_dalvik(self):
+        self.assertIs(SmdaFunction.getInstructionEscaper("dalvik"), DalvikInstructionEscaper)
 
     def test_unknown_architecture_has_no_escaper(self):
         self.assertIsNone(SmdaFunction.getInstructionEscaper("does-not-exist"))
