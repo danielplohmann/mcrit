@@ -55,6 +55,7 @@ class LogBucket:
         this_path = str(os.path.abspath(__file__))
         root_path = os.sep.join(this_path.split(os.sep)[:-3])
         bucket_path = os.sep.join([root_path, "mcrit", "cache", "logbuckets.json"])
+        os.makedirs(os.path.dirname(bucket_path), exist_ok=True)
         value_to_bucket_range = {}
         if os.path.isfile(bucket_path):
             with open(bucket_path) as fjson:

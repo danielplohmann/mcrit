@@ -122,6 +122,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 ## Version History
 
+ * 2026-07-29 v1.5.2:  More packaging adjustments. 
  * 2026-07-29 v1.5.1:  Minor packaging bugfix to include shingler dir in PyPI packages, Dalvik capability upgrade. 
  * 2026-07-16 v1.5.0:  MCRIT now supports experimental minhash matching for CIL and Aarch64 binaries.
  * 2026-07-10 v1.4.7:  Major linting and CI/CD overhaul. (THX to @r0ny123!)
