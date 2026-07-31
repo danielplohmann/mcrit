@@ -1,20 +1,35 @@
+PYTHON ?= python3
+
+.PHONY: init package publish ruff-check ruff-format ruff-fix pylint lint format test test-nomongo test-nosleep test-coverage clean
+
 init:
-	pip install -r requirements.txt
+	$(PYTHON) -m ensurepip --upgrade
+	$(PYTHON) -m pip install --upgrade pip
+	$(PYTHON) -m pip install -r requirements.txt
+	$(PYTHON) -m pip install -r requirements-dev.txt
 package:
 	rm -rf dist/*
-	python setup.py sdist
+	$(PYTHON) setup.py sdist
 publish:
-	python -m twine upload dist/* -u __token__
+	$(PYTHON) -m twine upload dist/* -u __token__
+ruff-check:
+	$(PYTHON) -m ruff check .
+ruff-format:
+	$(PYTHON) -m ruff format .
+ruff-fix:
+	$(PYTHON) -m ruff check . --fix
+lint: ruff-check
+format: ruff-format
 pylint:
-	python -m pylint --rcfile=.pylintrc mcrit
+	$(PYTHON) -m pylint --rcfile=.pylintrc mcrit
 test:
-	python -m pytest
+	$(PYTHON) -m pytest
 test-nomongo:
-	python -m pytest -m 'not mongo'
+	$(PYTHON) -m pytest -m 'not mongo'
 test-nosleep:
-	python -m pytest -m 'not sleep'
+	$(PYTHON) -m pytest -m 'not sleep'
 test-coverage:
-	python -m pytest --cov=mcrit --cov-report html:./coverage-html --cov-config=.coveragerc
+	$(PYTHON) -m pytest --cov=mcrit --cov-report html:./coverage-html --cov-config=.coveragerc
 clean:
 	rm -rf env
 	rm -rf coverage-html
