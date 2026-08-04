@@ -35,9 +35,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logging.disable(logging.CRITICAL)
 
 THIS_FILE_PATH = str(os.path.abspath(__file__))
-# walk up from this file's directory until we find the repo root (marked by pytest.ini)
+# walk up from this file's directory until we find the repo root (marked by pyproject.toml)
 _repo_dir = os.path.dirname(THIS_FILE_PATH)
-while not os.path.isfile(os.path.join(_repo_dir, "pytest.ini")):
+while not os.path.isfile(os.path.join(_repo_dir, "pyproject.toml")):
     parent = os.path.dirname(_repo_dir)
     if parent == _repo_dir:
         break
@@ -145,15 +145,19 @@ class CrossArchMinHashingTestSuite(unittest.TestCase):
 
     def test_aarch64_minhash_uses_aarch64_escaper(self):
         report = SmdaReport.fromFile(AARCH64_REPORT_A)
+        assert report is not None
         self._assert_minhashes_use_escaper(report, "aarch64")
 
     def test_cil_minhash_uses_cil_escaper(self):
         report = SmdaReport.fromFile(CIL_REPORT_A)
+        assert report is not None
         self._assert_minhashes_use_escaper(report, "cil")
 
     def test_aarch64_near_duplicate_minhash_and_pichash_matches(self):
         report_a = SmdaReport.fromFile(AARCH64_REPORT_A)
+        assert report_a is not None
         report_b = SmdaReport.fromFile(AARCH64_REPORT_B)
+        assert report_b is not None
         entry_a, entry_b, result = self._submit_pair_and_match(report_a, report_b)
 
         for offset in AARCH64_MINHASH_ONLY_OFFSETS:
@@ -172,7 +176,9 @@ class CrossArchMinHashingTestSuite(unittest.TestCase):
 
     def test_cil_near_duplicate_minhash_and_pichash_matches(self):
         report_a = SmdaReport.fromFile(CIL_REPORT_A)
+        assert report_a is not None
         report_b = SmdaReport.fromFile(CIL_REPORT_B)
+        assert report_b is not None
         entry_a, entry_b, result = self._submit_pair_and_match(report_a, report_b)
 
         for offset in CIL_MINHASH_ONLY_OFFSETS:
@@ -191,7 +197,9 @@ class CrossArchMinHashingTestSuite(unittest.TestCase):
 
     def test_no_cross_architecture_minhash_match(self):
         intel_report = SmdaReport.fromFile(INTEL_REPORT)
+        assert intel_report is not None
         aarch64_report = SmdaReport.fromFile(AARCH64_REPORT_A)
+        assert aarch64_report is not None
         index = MinHashIndex(config=config)
         worker = index.queue._worker
         intel_entry = index._storage.addSmdaReport(intel_report)

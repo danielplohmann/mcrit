@@ -8,7 +8,7 @@ from .StorageConfig import StorageConfig
 
 
 class McritConfig:
-    # NOTE to self: always change this in setup.py as well!
+    # NOTE to self: always change this in pyproject.toml and the README changelog as well!
     VERSION = "1.5.3"
     # basic pathing info
     CONFIG_FILE_PATH = str(os.path.abspath(__file__))

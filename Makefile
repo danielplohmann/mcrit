@@ -1,15 +1,13 @@
 PYTHON ?= python3
 
-.PHONY: init package publish ruff-check ruff-format ruff-fix pylint lint format test test-nomongo test-nosleep test-coverage clean
+.PHONY: init package publish ruff-check ruff-format ruff-fix lint format typecheck test test-nomongo test-nosleep test-coverage clean
 
 init:
-	$(PYTHON) -m ensurepip --upgrade
 	$(PYTHON) -m pip install --upgrade pip
-	$(PYTHON) -m pip install -r requirements.txt
-	$(PYTHON) -m pip install -r requirements-dev.txt
+	$(PYTHON) -m pip install -e ".[dev]"
 package:
-	rm -rf dist/*
-	$(PYTHON) setup.py sdist
+	rm -rf dist
+	$(PYTHON) -m build
 publish:
 	$(PYTHON) -m twine upload dist/* -u __token__
 ruff-check:
@@ -20,8 +18,8 @@ ruff-fix:
 	$(PYTHON) -m ruff check . --fix
 lint: ruff-check
 format: ruff-format
-pylint:
-	$(PYTHON) -m pylint --rcfile=.pylintrc mcrit
+typecheck:
+	$(PYTHON) -m ty check
 test:
 	$(PYTHON) -m pytest
 test-nomongo:
@@ -29,8 +27,8 @@ test-nomongo:
 test-nosleep:
 	$(PYTHON) -m pytest -m 'not sleep'
 test-coverage:
-	$(PYTHON) -m pytest --cov=mcrit --cov-report html:./coverage-html --cov-config=.coveragerc
+	$(PYTHON) -m pytest --cov=mcrit --cov-report html:./coverage-html
 clean:
-	rm -rf env
-	rm -rf coverage-html
-	find . | grep -E "(__pycache__|\.pyc|\.pyo$\)" | xargs rm -rf
+	rm -rf build dist coverage-html coverage_html_report .coverage
+	rm -rf .pytest_cache .ruff_cache
+	find . -path ./.venv -prune -o \( -name '__pycache__' -o -name '*.py[co]' \) -print0 | xargs -0 rm -rf
