@@ -110,15 +110,15 @@ class MatcherCross:
         matching_percent = {i: {j: 0 for j in sample_sequence} for i in sample_sequence}
         matching_matches = {i: {j: 0 for j in sample_sequence} for i in sample_sequence}
         for sample_id, matches in sorted(sample_id_to_matches.items()):
+            # skip samples which are not part of the cross-compare
+            if sample_id not in sample_id_set:
+                continue
             for matched_sample in matches:
-                other_sample_id = matched_sample["sample_id"]
-                if str(other_sample_id) in sample_id_set:
-                    matching_percent[str(sample_id)][str(other_sample_id)] = matched_sample["matched"]["percent"][method]
-                    matching_matches[str(sample_id)][str(other_sample_id)] = matched_sample["matched"]["functions"]["combined"]
-            # TODO: 2022-06-30 Don't process samples which are not part of the cross-compare
-            if str(sample_id) not in matching_percent:
-                matching_percent[str(sample_id)] = {}
-            matching_percent[str(sample_id)][str(sample_id)] = 100
+                other_sample_id = str(matched_sample["sample_id"])
+                if other_sample_id in sample_id_set:
+                    matching_percent[sample_id][other_sample_id] = matched_sample["matched"]["percent"][method]
+                    matching_matches[sample_id][other_sample_id] = matched_sample["matched"]["functions"]["combined"]
+            matching_percent[sample_id][sample_id] = 100
         if cluster_sequence:
             clustered_sequence = self._calculate_clustered_sequence(matching_percent)
         return {
