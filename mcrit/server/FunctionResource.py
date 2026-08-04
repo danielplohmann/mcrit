@@ -51,7 +51,7 @@ class FunctionResource:
             with_label_only = req.params["with_label_only"].lower().strip() == "true"
         # assume the POST body consists of comma separated function_ids
         post_body = req.stream.read()
-        if re.match(b"^\d+(?:[\s]*,[\s]*\d+)*$", post_body):
+        if re.match(rb"^\d+(?:[\s]*,[\s]*\d+)*$", post_body):
             target_function_ids = [int(function_id) for function_id in post_body.split(b",")]
             function_entries = {}
             for function_id in target_function_ids:
