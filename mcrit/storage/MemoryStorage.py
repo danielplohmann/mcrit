@@ -473,11 +473,17 @@ class MemoryStorage(StorageInterface):
         return function_entry
 
     def addMinHash(self, minhash: "MinHash") -> bool:
-        if minhash.function_id is None or minhash.function_id not in self._functions:
+        if minhash.function_id is None:
             return False
-        self._functions[minhash.function_id].minhash = minhash.getMinHash()
-        self._functions[minhash.function_id].minhash_shingle_composition = minhash.getComposition()
-        self._addMinHashToBands(minhash)
+        is_query_function = minhash.function_id < 0
+        functions = self._query_functions if is_query_function else self._functions
+        if minhash.function_id not in functions:
+            return False
+        functions[minhash.function_id].minhash = minhash.getMinHash()
+        functions[minhash.function_id].minhash_shingle_composition = minhash.getComposition()
+        # query functions are not indexed into bands, they are only ever used as query input
+        if not is_query_function:
+            self._addMinHashToBands(minhash)
         return True
 
     def addMinHashes(self, minhashes: List["MinHash"]) -> None:
