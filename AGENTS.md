@@ -10,23 +10,29 @@ For the full methodology (PicHash/MinHash, LSH banding, case studies) see [`READ
   - `mcrit/server/` — Falcon REST API (`application_routes.py`, `*Resource.py`).
   - `mcrit/storage/` — data model and storage backends (`MongoDbStorage`, `MemoryStorage`).
   - `mcrit/queue/` — job queue (`LocalQueue`, `MongoQueue`) and RPC plumbing.
+  - `mcrit/index/` — `MinHashIndex` facade plus the search query parser/tree and pagination cursor.
+  - `mcrit/matchers/` — `MatcherInterface` and its per-scope subclasses (sample, query, cross, vs, vs-group).
+  - `mcrit/minhash/` — `MinHash`, `MinHasher`, and the `ShingleLoader`.
+  - `mcrit/shinglers/` — feature extractors, discovered by directory scan (`archived/` excluded).
+  - `mcrit/config/` — `McritConfig` and the per-area config dataclasses.
+  - `mcrit/client/` — `McritClient` (Python API) and `McritConsole` (the `mcrit client` CLI).
   - `mcrit/libs/` — helpers (parallel processing, graph, hashing).
   - `Worker.py`, `__main__.py` — worker process and CLI entry point.
 - `tests/` — pytest suite (unit + integration).
 - `docs/` — CLI docs, migration guides.
-- `examples/`, `experiments/`, `diagnosis/` — auxiliary scripts.
+- `examples/` — auxiliary scripts. (`experiments/`, `diagnosis/`, `data/` are gitignored local working directories and are not part of a fresh checkout.)
 - `setup.py`, `requirements.txt`, `ruff.toml`, `pytest.ini` — build/config.
 
 ## Development setup
 
-Requires **Python 3.11 or 3.12**.
+Requires **Python 3.11 or newer** (`setup.py` sets `python_requires=">=3.11"` with no upper bound). CI exercises 3.11 and 3.12.
 
 ```bash
 pip install -r requirements.txt
 pip install -e .
 ```
 
-MongoDB 5.0+ is the recommended persistent backend, but the in-memory storage works for development without a database.
+MongoDB 5.0+ is the recommended persistent backend (CI runs the integration suite against `mongo:5.0`; newer 8.x servers work too), but the in-memory storage works for development without a database. The integration tests read the server address from `TEST_MONGODB` and fall back to `127.0.0.1:27017`.
 
 ## Common commands
 
@@ -81,9 +87,9 @@ mcrit client submit <file> -f <family_name>
 
 ## Code conventions
 
-- Lint/format: `ruff` (line-length 180, `target-version = "py311"`, selects `E4/E7/E9/F/I/UP`). Run `ruff format .` to auto-format.
-- Supported Python: 3.11–3.12 (`python_requires=">=3.11,<3.13"`).
-- License: GPL-3.0-only. Version is bumped manually in `setup.py` and the `README.md` changelog — do not change unless asked.
+- Lint/format: `ruff` (line-length 180, `target-version = "py311"`, selects `E4/E7/E9/F/I/UP`). Run `ruff format .` to auto-format. Note most `UP` rules are explicitly ignored in `ruff.toml`, so the existing `Dict`/`Optional` typing style is intentional — do not "modernize" it.
+- Supported Python: 3.11+ (`python_requires=">=3.11"`).
+- License: GPL-3.0-only. The version is bumped manually in **three** places that must agree — `setup.py`, `McritConfig.VERSION` (served by the `/version` endpoint), and the `README.md` changelog — do not change unless asked.
 - Never introduce or log secrets/API tokens/keys.
 
 ## Agent guardrails
