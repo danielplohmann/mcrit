@@ -45,6 +45,9 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Type check
+        run: ty check
+
   unit:
     name: Unit tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest

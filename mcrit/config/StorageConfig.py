@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict
+from typing import Dict, Optional
 
 from mcrit.config.ConfigInterface import ConfigInterface, default_field
 from mcrit.storage.StorageFactory import StorageFactory
@@ -9,15 +9,15 @@ from mcrit.storage.StorageFactory import StorageFactory
 class StorageConfig(ConfigInterface):
     # storage configuration, use "memory" for local testing or "mongodb" when working with larger data
     # STORAGE_METHOD = StorageFactory.STORAGE_METHOD_MEMORY
-    STORAGE_METHOD: ... = StorageFactory.STORAGE_METHOD_MONGODB
+    STORAGE_METHOD: str = StorageFactory.STORAGE_METHOD_MONGODB
     # Use this as endpoint for our server
     STORAGE_SERVER: str = "127.0.0.1"
     STORAGE_PORT: str = "27017"
     # By default, MongoDbStorage's DB's name and MongoQueue's DB's name are both "mcrit"
     # Changing one DB name here or at runtime DOES NOT change the other name!
     STORAGE_MONGODB_DBNAME: str = "mcrit"
-    STORAGE_MONGODB_USERNAME: str = None
-    STORAGE_MONGODB_PASSWORD: str = None
+    STORAGE_MONGODB_USERNAME: Optional[str] = None
+    STORAGE_MONGODB_PASSWORD: Optional[str] = None
     STORAGE_MONGODB_FLAGS: str = ""
     # Enable periodic deletion of queried samples and their results after a given time
     STORAGE_MONGODB_ENABLE_CLEANUP: bool = False

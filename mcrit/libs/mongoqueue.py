@@ -16,14 +16,14 @@
 import json
 import traceback
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import gridfs
 import pymongo
 from bson.objectid import ObjectId
 from pymongo import MongoClient, ReturnDocument, UpdateOne
 
-DEFAULT_INSERT = {
+DEFAULT_INSERT: Dict[str, Any] = {
     "locked_by": None,
     "locked_at": None,
     "last_error": None,
@@ -62,7 +62,9 @@ class MongoQueue:
         self._default_insert["attempts_left"] = max_attempts
         self.fs = None
         self.fs_files = None
-        self.cache_time = 10**9
+        self.cache_time: float = 10**9
+        # overridden by QueueFactory from QUEUE_CLEAN_INTERVAL
+        self.clean_interval: float = queue_config.QUEUE_CLEAN_INTERVAL
 
     def _getCollection(self):
         # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
@@ -96,21 +98,28 @@ class MongoQueue:
         if self.fs is None:
             collection = self._getCollection()
             self.fs = gridfs.GridFS(collection.database)
-            self.fs_files = self.collection.database["fs.files"]
+            self.fs_files = collection.database["fs.files"]
         return self.fs
 
     def _getFsFiles(self):
         if self.fs_files is None:
             collection = self._getCollection()
-            self.fs = gridfs.GridFS(self.collection.database)
+            self.fs = gridfs.GridFS(collection.database)
             self.fs_files = collection.database["fs.files"]
         return self.fs_files
 
+    def _getQueueCounters(self):
+        self._getCollection()
+        assert self.queue_counters is not None
+        return self.queue_counters
+
     def _ensure_indices(self):
         # should only be called, after self.collection has been initiated
-        self.collection.create_index("payload.method")
-        self.collection.create_index("payload.descriptor")
-        self.fs_files.create_index("metadata.sha256")
+        collection = self.collection
+        assert collection is not None
+        collection.create_index("payload.method")
+        collection.create_index("payload.descriptor")
+        self._getFsFiles().create_index("metadata.sha256")
 
     def _identifyJobState(self, doc):
         # started_at and not finished_at or terminated -> in_progress
@@ -135,7 +144,7 @@ class MongoQueue:
         if refresh:
             self.refreshCounters()
         statistics = {}
-        for doc in self.queue_counters.find({}, {"_id": 0}):
+        for doc in self._getQueueCounters().find({}, {"_id": 0}):
             if "name" in doc and doc["name"] != "workers":
                 name = doc.pop("name")
                 statistics[name] = doc
@@ -143,7 +152,7 @@ class MongoQueue:
 
     def refreshCounters(self):
         aggregated = {}
-        for doc in self.collection.find():
+        for doc in self._getCollection().find():
             method = doc["payload"]["method"]
             if method not in aggregated:
                 aggregated[method] = {"queued": 0, "failed": 0, "in_progress": 0, "finished": 0, "terminated": 0}
@@ -153,7 +162,7 @@ class MongoQueue:
         operations = [UpdateOne({"name": key}, {"$set": counters}, upsert=True) for key, counters in aggregated.items()]
         operations.append(UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True))
         if operations:
-            self.queue_counters.bulk_write(operations)
+            self._getQueueCounters().bulk_write(operations)
 
     def updateQueueCounter(self, method, state, value):
         self.updateQueueCounters([(method, state, value)])
@@ -179,16 +188,16 @@ class MongoQueue:
             return
 
         operations.append(UpdateOne({"last_updated": {"$ne": None}}, {"$set": {"last_updated": datetime.now()}}, upsert=True))
-        self.queue_counters.bulk_write(operations)
+        self._getQueueCounters().bulk_write(operations)
 
     def registerWorker(self):
         if self.consumer_id != "index":
-            self.queue_counters.find_one_and_update({"name": "workers"}, {"$push": {"workers": self.consumer_id}}, upsert=True)
+            self._getQueueCounters().find_one_and_update({"name": "workers"}, {"$push": {"workers": self.consumer_id}}, upsert=True)
         self.release_orphaned_jobs()
 
     def unregisterWorker(self):
         if self.queue_counters is not None:
-            self.queue_counters.find_one_and_update({"name": "workers"}, {"$pull": {"workers": self.consumer_id}}, upsert=True)
+            self._getQueueCounters().find_one_and_update({"name": "workers"}, {"$pull": {"workers": self.consumer_id}}, upsert=True)
 
     def close(self):
         """Close the in memory queue connection."""
@@ -529,7 +538,7 @@ class MongoQueue:
     def release_orphaned_jobs(self):
         # release all jobs associated with non- or no longer existing worker_ids, if they are started, locked, but not finished.
         all_worker_ids = set([wid for wid in self._getCollection().distinct("locked_by") if wid])
-        active_workers = self.queue_counters.find_one({"name": "workers"}, {"workers": 1, "_id": 0})
+        active_workers = self._getQueueCounters().find_one({"name": "workers"}, {"workers": 1, "_id": 0})
         orphan_ids = []
         if active_workers:
             active_worker_ids = set(active_workers["workers"])

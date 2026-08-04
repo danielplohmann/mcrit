@@ -31,6 +31,7 @@ class ShinglerEscaperAwarenessTestSuite(unittest.TestCase):
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
         smda_report = SmdaReport.fromFile(example_file_path)
+        assert smda_report is not None
         functions = [f for f in smda_report.getFunctions() if f.num_instructions > 0]
         self.assertTrue(functions, "need at least one function in the fixture")
         return functions[0]

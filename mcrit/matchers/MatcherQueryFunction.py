@@ -22,6 +22,8 @@ class MatcherQueryFunction(MatcherInterface):
         smda_function = None
         for fun in smda_report.getFunctions():
             smda_function = fun
+        if smda_function is None:
+            raise ValueError("SmdaReport does not contain any function.")
         if not self._worker.minhasher.isMinHashableFunction(smda_function):
             raise ValueError("SmdaFunction is not MinHashable.")
         # create temporary objects similar to the stored samples/functions

@@ -4,7 +4,7 @@ import logging
 import math
 from collections import Counter, defaultdict
 from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import tqdm
 
@@ -16,12 +16,11 @@ if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.MemoryStorage import MemoryStorage
-    from mcrit.storage.SampleEntry import SampleEntry
     from mcrit.Worker import Worker
 
 
 # Only do basicConfig if no handlers have been configured
-if len(logging._handlerList) == 0:
+if not logging.root.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 LOGGER = logging.getLogger(__name__)
 
@@ -77,7 +76,8 @@ class MatcherInterface:
         self._pichash_size = pichash_size
         self._additional_setup()
         self._sample_to_lib_info: Dict[int, bool]
-        self._sample_id_to_entry: Dict[int, SampleEntry]
+        # NOTE: query matchers seed this with a sentinel entry for the query sample itself
+        self._sample_id_to_entry: Dict[int, Any]
 
     def _additional_setup(self):
         pass
@@ -90,7 +90,7 @@ class MatcherInterface:
         # Query
         raise NotImplementedError
 
-    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int]]]:
+    def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int, int]]]:
         # Query, VS, Sample
         # Every Matcher has own implementation
         raise NotImplementedError
@@ -218,7 +218,7 @@ class MatcherInterface:
                     self._progress_reporter.step()
         full_score_counts = sorted([(item[0] * 64 / 100, item[1]) for item in dict(counted_scores).items()])
         LOGGER.info("Minhash Signature Field Match Counts: " + ", ".join([f"({i[0]}: {i[1]})" for i in full_score_counts]))
-        matching_results = [k + v for k, v in organized_matching_results.items()]
+        matching_results: MinhashMatches = [(key[0], key[1], key[2], value[0], value[1]) for key, value in organized_matching_results.items()]
         self._storage.clearMatchingCache()
         return matching_results
 
@@ -244,6 +244,8 @@ class MatcherInterface:
                 minhash_b = cache.getMinHashByFunctionId(function_id_b)
                 sample_id_a = cache.getSampleIdByFunctionId(function_id_a)
                 sample_id_b = cache.getSampleIdByFunctionId(function_id_b)
+                # the candidate groups only contain function_ids that are present in the cache
+                assert minhash_a is not None and minhash_b is not None and sample_id_a is not None and sample_id_b is not None
                 current_pack.append((sample_id_a, function_id_a, minhash_a, sample_id_b, function_id_b, minhash_b))
                 if count < self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_CANDIDATE_WORKPACK_SIZE:
                     count += 1
@@ -365,7 +367,9 @@ class MatcherInterface:
                 has_libinfo = self._sample_to_lib_info[foreign_sample_id]
 
                 if foreign_sample_id not in self._sample_id_to_entry:
-                    self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
+                    foreign_sample_entry = self._storage.getSampleById(foreign_sample_id)
+                    assert foreign_sample_entry is not None
+                    self._sample_id_to_entry[foreign_sample_id] = foreign_sample_entry
                 foreign_family_id = self._sample_id_to_entry[foreign_sample_id].family_id
 
                 flags = is_pichash_match * MatcherFlags.IS_PICHASH_FLAG + is_minhash_match * MatcherFlags.IS_MINHASH_FLAG + has_libinfo * MatcherFlags.IS_LIBRARY_FLAG
@@ -427,13 +431,15 @@ class MatcherInterface:
             function_num_bytes[own_function_id] = function_data["num_bytes"]
         # summarize samples
         matches_per_sample = self._aggregateMatchesPerSample(match_report)
-        sample_summary = {}
+        sample_summary: Dict[int, Dict[str, Any]] = {}
 
         family_adjustment = self._get_family_adjustment(match_report)
 
         for foreign_sample_id in matches_per_sample:
             if foreign_sample_id not in self._sample_id_to_entry:
-                self._sample_id_to_entry[foreign_sample_id] = self._storage.getSampleById(foreign_sample_id)
+                foreign_sample_entry = self._storage.getSampleById(foreign_sample_id)
+                assert foreign_sample_entry is not None
+                self._sample_id_to_entry[foreign_sample_id] = foreign_sample_entry
             sample_info = self._sample_id_to_entry[foreign_sample_id]
             sample_summary[foreign_sample_id] = {
                 "family": sample_info.family,
@@ -531,13 +537,13 @@ class MatcherInterface:
         if self._worker._minhash_config.PICHASH_IMPLIES_MINHASH_MATCH:
             for key, new_entry in pichash_matches.items():
                 if key not in minhash_matches:
-                    minhash_matches[key] = (100.0, 0, 1)
+                    minhash_matches[key] = (100.0, False, True)
         all_matches = minhash_matches.copy()
         for key, new_entry in pichash_matches.items():
             if key in all_matches:
                 old_entry = all_matches[key]
                 # update values: score, is_pic, is_min
-                all_matches[key] = tuple([max(old_entry[i], new_entry[i]) for i in range(3)])
+                all_matches[key] = (max(old_entry[0], new_entry[0]), old_entry[1] or new_entry[1], old_entry[2] or new_entry[2])
             else:
                 all_matches[key] = new_entry
 

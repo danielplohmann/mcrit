@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime, timedelta
 from itertools import zip_longest
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import tqdm
 from smda.common.BinaryInfo import BinaryInfo
@@ -130,7 +130,7 @@ class Worker(QueueRemoteCallee):
     def deleteSample(self, sample_id, progress_reporter=NoProgressReporter()):
         return self._storage.deleteSample(sample_id)
 
-    def _addReport(self, smda_report, calculate_hashes=True, calculate_matches=False) -> "SampleEntry":
+    def _addReport(self, smda_report, calculate_hashes=True, calculate_matches=False) -> Optional["SampleEntry"]:
         sample_entry = self._storage.getSampleBySha256(smda_report.sha256)
         if sample_entry:
             LOGGER.info("Sample is already present in database: %s", sample_entry)
@@ -139,7 +139,7 @@ class Worker(QueueRemoteCallee):
         if not sample_entry:
             return None
         LOGGER.info("Added %s", sample_entry)
-        function_entries = self._storage.getFunctionsBySampleId(sample_entry.sample_id)
+        function_entries = self._storage.getFunctionsBySampleId(sample_entry.sample_id) or []
         LOGGER.info("Added %d function entries.", len(function_entries))
         if calculate_hashes:
             self.updateMinHashesForSample(sample_entry.sample_id)
@@ -284,7 +284,7 @@ class Worker(QueueRemoteCallee):
             progress_reporter.set_total(total_batches)
             for sliced_ids in zip_longest(*[iter(unhashed_function_ids)] * self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
-                unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
+                unhashed_functions = self._storage.getUnhashedFunctions([fid for fid in sliced_ids if isinstance(fid, int)])
                 minhashes = self.calculateMinHashes(unhashed_functions, progress_reporter=progress_reporter)
                 if minhashes:
                     self._storage.addMinHashes(minhashes)
@@ -298,7 +298,7 @@ class Worker(QueueRemoteCallee):
             progress_reporter.set_total(total_batches)
             for sliced_ids in zip_longest(*[iter(function_ids)] * self.config.MINHASH_CONFIG.MINHASH_GENERATION_WORKPACK_SIZE):
                 sliced_ids = [fid for fid in sliced_ids if fid is not None]
-                unhashed_functions = self._storage.getUnhashedFunctions(sliced_ids)
+                unhashed_functions = self._storage.getUnhashedFunctions([fid for fid in sliced_ids if isinstance(fid, int)])
                 LOGGER.info("Updating MinHashes: %d function entries have no MinHash yet.", len(unhashed_functions))
                 minhashes = self.calculateMinHashes(unhashed_functions, progress_reporter=progress_reporter)
                 if minhashes:
@@ -356,7 +356,7 @@ class Worker(QueueRemoteCallee):
                 break
             # if not, choose the best block
             block_candidates.sort(key=lambda i: (i["value"], i["score"]))
-            selected_block = block_candidates.pop()
+            selected_block: Dict[str, Any] = block_candidates.pop()
             yara_rule.append(selected_block["block_hash"])
             # and update counters
             for sample_id in selected_block["coverable"]:
@@ -369,6 +369,7 @@ class Worker(QueueRemoteCallee):
         sample_escaper = {}
         for sample_id in sample_ids:
             sample_entry = self._storage.getSampleById(sample_id)
+            assert sample_entry is not None
             sample_addr_borders[sample_id] = {"lower": sample_entry.base_addr, "upper": sample_entry.base_addr + sample_entry.binary_size}
             sample_escaper[sample_id] = SmdaFunction.getInstructionEscaper(sample_entry.architecture)
         for block_hash, entry in unique_blocks.items():
