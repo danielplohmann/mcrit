@@ -1,5 +1,4 @@
 import math
-from copy import deepcopy
 from typing import TYPE_CHECKING, Dict, List
 
 from smda.common.BinaryInfo import BinaryInfo
@@ -25,9 +24,7 @@ class MatchingResult:
     match_aggregation: Dict
     sample_matches: List["MatchedSampleEntry"]
     function_matches: List["MatchedFunctionEntry"]
-    # filtered versions
-    filtered_sample_matches: List["MatchedSampleEntry"]
-    filtered_function_matches: List["MatchedFunctionEntry"]
+    # filtered versions - lazily materialized shallow copies, see the properties below
     # function_id -> [(family_id, sample_id), ...]
     library_matches: Dict
     # function_id -> {family_id_a, family_id_b, ...}
@@ -52,6 +49,8 @@ class MatchingResult:
         self.is_query = False
         self.filter_values = {}
         self.function_id_to_family_ids_matched = {}
+        self._filtered_sample_matches = None
+        self._filtered_function_matches = None
 
     @property
     def num_original_function_matches(self):
@@ -68,6 +67,44 @@ class MatchingResult:
     @property
     def num_original_library_matches(self):
         return len(set([sample.family_id for sample in self.sample_matches if sample.is_library]))
+
+    # The filtered_* lists are materialized lazily on first access, as shallow copies of the
+    # originals. Building them eagerly (as a deepcopy) in fromDict used to dominate the whole
+    # load cost, while the common case - rendering a report without any filter - never needs
+    # them to be independent. Filters only ever rebind these lists (never mutate the entries),
+    # so sharing the entry objects with the originals is safe.
+    # NOTE: getLinkHuntResults does write to matched_family / matched_link_score /
+    # matched_unique on the original entries, so those three fields are shared. They are
+    # additive-only, absent from getMatchTuple()/toDict(), and read exclusively by the
+    # link-hunt views, hence not observable through the filtered_* lists.
+    @property
+    def filtered_sample_matches(self) -> List["MatchedSampleEntry"]:
+        if self._filtered_sample_matches is None:
+            self._filtered_sample_matches = list(self.sample_matches)
+        return self._filtered_sample_matches
+
+    @filtered_sample_matches.setter
+    def filtered_sample_matches(self, value):
+        self._filtered_sample_matches = value
+
+    @property
+    def filtered_function_matches(self) -> List["MatchedFunctionEntry"]:
+        if self._filtered_function_matches is None:
+            self._filtered_function_matches = list(self.function_matches)
+        return self._filtered_function_matches
+
+    @filtered_function_matches.setter
+    def filtered_function_matches(self, value):
+        self._filtered_function_matches = value
+
+    def resetFilters(self):
+        """Drop all filtering, so that the filtered_* lists are re-derived from the originals.
+
+        Needed whenever a MatchingResult is reused across several filter runs, because
+        applyFilterValues() narrows the filtered_* lists cumulatively and never resets them.
+        """
+        self._filtered_sample_matches = None
+        self._filtered_function_matches = None
 
     @property
     def num_function_matches(self):
@@ -627,9 +664,8 @@ class MatchingResult:
                         if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
                             matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
         matching_entry.function_matches = sorted(list_of_function_matches, key=lambda x: x.function_id)
-        # create deep copies for filtering
-        matching_entry.filtered_function_matches = deepcopy(matching_entry.function_matches)
-        matching_entry.filtered_sample_matches = deepcopy(matching_entry.sample_matches)
+        # the filtered_* lists are derived lazily on first access, see their properties
+        matching_entry.resetFilters()
         return matching_entry
 
     def __str__(self):
