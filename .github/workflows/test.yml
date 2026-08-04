@@ -22,7 +22,7 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v6
-        
+
       - name: Install Ruff
         run: python -m pip install --upgrade pip ruff
 
@@ -124,7 +124,7 @@ jobs:
 
       - name: Set up Python
         uses: actions/setup-python@v6
-        
+
       - name: Install build tooling
         run: |
           python -m pip install --upgrade pip
