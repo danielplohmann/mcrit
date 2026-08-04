@@ -89,9 +89,9 @@ class MemorySearchTranspiler(BaseVisitor):
             "=": operator.eq,
             "": operator.eq,
             "!=": operator.ne,
-            "?": None,
-            "!?": None,
         }
+        # NOTE: the substring operators "?" / "!?" are handled by the early return below
+        # and deliberately have no entry here.
         value = node.value
         if node.operator.endswith("?"):
             regex = re.compile(re.escape(node.value), re.IGNORECASE)
@@ -223,6 +223,7 @@ class MemoryStorage(StorageInterface):
         self._sample_by_sha256.pop(self._samples[sample_id].sha256, None)
 
         sample_entry = self.getSampleById(sample_id)
+        assert sample_entry is not None
         self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
@@ -270,16 +271,18 @@ class MemoryStorage(StorageInterface):
         if not self.isFamilyId(family_id):
             return False
         old_family_info = self.getFamily(family_id)
+        assert old_family_info is not None
         if "is_library" in update_information:
             for sample_id, sample_entry in self._samples.items():
                 if family_id == sample_entry.family_id:
-                    self._samples["sample_id"].is_library = update_information["is_library"]
+                    self._samples[sample_id].is_library = update_information["is_library"]
             self._families[family_id].num_library_samples = self._families[family_id].num_samples
         if "family_name" in update_information:
             old_family_info = self.getFamily(family_id)
             family_name = update_information["family_name"]
             new_family_id = self.addFamily(family_name)
             new_family_info = self.getFamily(new_family_id)
+            assert old_family_info is not None and new_family_info is not None
             new_num_samples = new_family_info.num_samples + old_family_info.num_samples
             new_num_functions = new_family_info.num_functions + old_family_info.num_functions
             new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
@@ -306,10 +309,10 @@ class MemoryStorage(StorageInterface):
         self._updateDbState()
         return True
 
-    def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
+    def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         if family_id not in self._families:
             return False
-        sample_entries = self.getSamplesByFamilyId(family_id)
+        sample_entries = self.getSamplesByFamilyId(family_id) or []
         if family_id == 0:
             self._families[0].num_samples = 0
             self._families[0].num_functions = 0
@@ -318,14 +321,14 @@ class MemoryStorage(StorageInterface):
             self._families.pop(family_id)
         if keep_samples:
             for sample_entry in sample_entries:
-                self._samples[sample_entry.sample_id]["family_id"] = 0
-                self._samples[sample_entry.sample_id]["family"] = ""
+                self._samples[sample_entry.sample_id].family_id = 0
+                self._samples[sample_entry.sample_id].family = ""
             function_ids_to_modify = set()
             for function_id, function_entry in self._functions.items():
                 if function_entry.family_id == family_id:
                     function_ids_to_modify.add(function_id)
             for function_id in function_ids_to_modify:
-                self._functions[function_id]["family_id"] = 0
+                self._functions[function_id].family_id = 0
             self._families[0].num_samples += len(sample_entries)
             self._families[0].num_functions += len(function_ids_to_modify)
             self._families[0].num_library_samples += len([s for s in sample_entries if s.is_library])
@@ -336,17 +339,18 @@ class MemoryStorage(StorageInterface):
         return True
 
     def updateFunctionLabels(self, smda_report: "SmdaReport", username: str) -> Optional["SampleEntry"]:
+        assert smda_report.sha256 is not None
         sample_entry = self.getSampleBySha256(smda_report.sha256)
         if not sample_entry:
-            return False
+            return None
         # check which functions in the SmdaReport have suitable function_names
         extracted_labels = {}
         for smda_function in smda_report.getFunctions():
             function_name = smda_function.function_name
-            if function_name and not re.match("sub_[a-fA-F0-9]{1,16}", function_name):
+            if function_name and smda_function.offset is not None and not re.match("sub_[a-fA-F0-9]{1,16}", function_name):
                 extracted_labels[smda_function.offset] = function_name
         # get the respective FunctionEntries and check if the label is novel
-        sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
+        sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id) or []}
         for label_offset, extracted_label in extracted_labels.items():
             is_new_label = False
             if label_offset in sample_function_entries:
@@ -358,9 +362,12 @@ class MemoryStorage(StorageInterface):
             # match by function_id or offset and add the label if it had not existed before.
             if is_new_label:
                 new_function_entry_label = FunctionLabelEntry(extracted_label, username)
-                self._functions[sample_function_entries[label_offset].function_id].function_labels.append(new_function_entry_label)
+                matched_function_id = sample_function_entries[label_offset].function_id
+                assert matched_function_id is not None
+                self._functions[matched_function_id].function_labels.append(new_function_entry_label)
 
     def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
+        assert smda_report.sha256 is not None
         sample_entry = None
         if isQuery:
             sample_entry = SampleEntry(smda_report, sample_id=-1 * self._useCounter("query_samples"), family_id=0)
@@ -372,7 +379,7 @@ class MemoryStorage(StorageInterface):
             self._sample_id_to_function_ids[sample_entry.sample_id] = function_ids
         else:
             if not self.getSampleBySha256(smda_report.sha256):
-                family_id = self.addFamily(smda_report.family)
+                family_id = self.addFamily(smda_report.family or "")
                 sample_entry = SampleEntry(smda_report, sample_id=self._useCounter("samples"), family_id=family_id)
                 self._samples[sample_entry.sample_id] = sample_entry
                 self._sample_by_sha256[sample_entry.sha256] = sample_entry.sample_id
@@ -557,7 +564,7 @@ class MemoryStorage(StorageInterface):
         for function_id, function_entry in self._functions.items():
             for pbh in function_entry.picblockhashes:
                 if picblockhash == pbh["hash"]:
-                    result.add([function_entry.family_id, function_entry.sample_id, function_id, pbh["offset"]])
+                    result.add((function_entry.family_id, function_entry.sample_id, function_id, pbh["offset"]))
         return result
 
     def getFamily(self, family_id: int) -> Optional[FamilyEntry]:
@@ -613,7 +620,7 @@ class MemoryStorage(StorageInterface):
             function_ids = self._sample_id_to_function_ids[sample_id]
         return function_ids
 
-    def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
+    def getFunctions(self, start_index: int, limit: int) -> List["FunctionEntry"]:
         index = 0
         function_entries = []
         for _, function_entry in self._functions.items():
@@ -639,8 +646,14 @@ class MemoryStorage(StorageInterface):
                 entries[sample_id] = entry
         return entries
 
-    def getSampleBySha256(self, sha256: str) -> Optional["SampleEntry"]:
+    def getSampleBySha256(self, sha256: str, is_query=False) -> Optional["SampleEntry"]:
         sample_entry = None
+        if is_query:
+            # query_samples are not covered by the _sample_by_sha256 index
+            for query_sample_entry in self._query_samples.values():
+                if query_sample_entry.sha256 == sha256:
+                    return deepcopy(query_sample_entry)
+            return None
         if sha256 in self._sample_by_sha256:
             sample_id = self._sample_by_sha256[sha256]
             sample_entry = deepcopy(self._samples[sample_id])
@@ -663,10 +676,11 @@ class MemoryStorage(StorageInterface):
                 sample_ids[function_id] = self._query_functions[function_id].sample_id
         return sample_ids
 
-    def getSamples(self, start_index: int, limit: int) -> Optional["SampleEntry"]:
+    def getSamples(self, start_index: int, limit: int, is_query=False) -> List["SampleEntry"]:
         index = 0
         sample_entries = []
-        for _, sample_entry in self._samples.items():
+        samples = self._query_samples if is_query else self._samples
+        for _, sample_entry in samples.items():
             if index >= start_index:
                 if (limit == 0) or (len(sample_entries) < limit):
                     sample_entries.append(sample_entry)
@@ -675,7 +689,7 @@ class MemoryStorage(StorageInterface):
             index += 1
         return deepcopy(sample_entries)
 
-    def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
+    def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
         if function_id not in self._functions:
             return None
         pichash = self._functions[function_id].pichash
@@ -683,7 +697,7 @@ class MemoryStorage(StorageInterface):
             return None
         return {pichash: deepcopy(self._pichashes[pichash])}
 
-    def getPicHashMatchesByFunctionIds(self, function_ids: List[int]) -> Dict[int, Set[Tuple[int, int]]]:
+    def getPicHashMatchesByFunctionIds(self, function_ids: List[int]) -> Dict[int, Set[Tuple[int, int, int]]]:
         pichashes = {}
         for function_id in function_ids:
             if function_id in self._functions:
@@ -693,7 +707,7 @@ class MemoryStorage(StorageInterface):
                 pichashes[pichash] = deepcopy(self._pichashes[pichash])
         return pichashes
 
-    def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
+    def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
         function_entries = self.getFunctionsBySampleId(sample_id)
         if function_entries is None:
             return None
@@ -736,8 +750,8 @@ class MemoryStorage(StorageInterface):
                 valid_candidates.add(function_id)
         return valid_candidates
 
-    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
-        result = []
+    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
+        result: List[Union[int, FunctionEntry]] = []
         if function_ids is None:
             if only_function_ids:
                 result = [function_entry.function_id for _, function_entry in self._functions.items() if function_entry.xcfg and not function_entry.minhash]
@@ -785,9 +799,9 @@ class MemoryStorage(StorageInterface):
             if function_entry.pichash:
                 if function_entry.pichash not in self._pichashes:
                     self._pichashes[function_entry.pichash] = set()
-                self._pichashes[function_entry.pichash].add((function_entry.sample_id, function_entry.function_id))
+                self._pichashes[function_entry.pichash].add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
 
-    def getStats(self, with_pichash=True) -> Dict[str, Union[int, Dict[int, int]]]:
+    def getStats(self, with_pichash=True) -> Dict[str, Any]:
         stats = {
             "db_state": self._db_state,
             "db_timestamp": self._db_timestamp,
@@ -801,20 +815,21 @@ class MemoryStorage(StorageInterface):
         return stats
 
     def _addMinHashToBands(self, minhash: "MinHash") -> None:
+        assert minhash.function_id is not None
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
             if band_hash not in self._bands[band_number]:
                 self._bands[band_number][band_hash] = []
             self._bands[band_number][band_hash].append(minhash.function_id)
 
-    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
+    def getUniqueBlocks(self, sample_ids: List[int], progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
-        block_statistics = {
+        block_statistics: Dict[str, Any] = {
             "by_sample_id": {sample_id: {"sample_id": sample_id, "total_blocks": 0, "characteristic_blocks": 0, "unique_blocks": 0} for sample_id in sample_ids},
             "unique_blocks_overall": 0,
             "num_samples": len(sample_ids),
         }
-        candidate_picblockhashes = {}
+        candidate_picblockhashes: Dict[int, Dict[str, Any]] = {}
         for function_id, entry in self._functions.items():
             sample_id = entry.sample_id
             for block_entry in entry.picblockhashes:
@@ -823,7 +838,7 @@ class MemoryStorage(StorageInterface):
                     candidate_picblockhashes[block_hash] = {
                         "samples": set(),
                         "length": block_entry["length"],
-                        "function_id": entry["function_id"],
+                        "function_id": entry.function_id,
                         "offset": block_entry["offset"],
                         "instructions": [],
                     }
@@ -854,8 +869,10 @@ class MemoryStorage(StorageInterface):
             if entry["function_id"] not in function_id_to_block_offsets:
                 function_id_to_block_offsets[entry["function_id"]] = []
             function_id_to_block_offsets[entry["function_id"]].append((entry["offset"], picblockhash))
-        for function_id, entry in self._functions:
+        for function_id, entry in self._functions.items():
             if function_id not in function_id_to_block_offsets.keys():
+                continue
+            if entry.xcfg is None:
                 continue
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 candidate_picblockhashes[picblockhash]["instructions"] = entry.xcfg["blocks"][str(block_offset)]

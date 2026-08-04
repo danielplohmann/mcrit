@@ -10,7 +10,7 @@ class MinHashConfig(ConfigInterface):
     # Store the combination of shingles (unsorted) that were used to create the given MinHash
     MINHASH_TRACK_SHINGLES: bool = False
     # Which minhash calculation strategy should be used
-    MINHASH_STRATEGY: ... = MinHasher.MINHASH_STRATEGY_SEGMENTED
+    MINHASH_STRATEGY: int = MinHasher.MINHASH_STRATEGY_SEGMENTED
     # A function must consist of minimum N instructions to be considered for MinHashing
     MINHASH_FN_MIN_INS: int = 10
     # A function must alternatively consist of minimum N basic blocks to be considered for MinHashing

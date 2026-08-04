@@ -1,5 +1,6 @@
 import datetime
 import hashlib
+from typing import Any, Dict
 
 
 def wrap_string(input_str, max_column_length=100, padding=0):
@@ -72,9 +73,9 @@ class UniqueBlocksResult:
         return yara_rule
 
     def generateBlockCover(self, min_ins=None, max_ins=None, min_bytes=None, max_bytes=None, required_per_sample=10):
-        block_cover = {"block_hashes": [], "num_samples_covered": 0, "has_rule": False, "is_complete_cover": False}
+        block_cover: Dict[str, Any] = {"block_hashes": [], "num_samples_covered": 0, "has_rule": False, "is_complete_cover": False}
         # we need to filter first, according to the desired parameters
-        filtered_blocks = {}
+        filtered_blocks: Dict[int, Dict[str, Any]] = {}
         for block_hash, entry in self.unique_blocks.items():
             if min_ins and entry["length"] < min_ins:
                 continue
@@ -109,7 +110,7 @@ class UniqueBlocksResult:
                 break
             # if not, choose the best block
             block_candidates.sort(key=lambda i: (i["value"], i["score"]))
-            selected_block = block_candidates.pop()
+            selected_block: Dict[str, Any] = block_candidates.pop()
             yara_rule_blocks.append(selected_block["block_hash"])
             # and update counters
             for sample_id in selected_block["coverable"]:

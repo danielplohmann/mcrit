@@ -4,7 +4,7 @@ import math
 import os
 
 # Only do basicConfig if no handlers have been configured
-if len(logging._handlerList) == 0:
+if not logging.root.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 LOGGER = logging.getLogger(__name__)
 

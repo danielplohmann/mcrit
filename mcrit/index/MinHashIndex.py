@@ -235,7 +235,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 exported_escapers,
             )
         else:
-            shared_architectures = sorted(set(exported_escapers).intersection(local_escapers))
+            shared_architectures = sorted(set(local_escapers).intersection(exported_escapers))
             if not shared_architectures:
                 LOGGER.warning(
                     "Export carries no escaper probe this instance can compare (export: %s, local: %s). Imported minhashes may or may not share this instance's escaping behaviour.",
@@ -401,6 +401,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getMatchesForSmdaFunction(self, smda_report_with_function: SmdaReport, minhash_threshold=None, pichash_size=None, band_matches_required=None, exclude_self_matches=False):
         # convert function to FunctionEntry
         smda_report = SmdaReport.fromDict(smda_report_with_function)
+        assert smda_report is not None and smda_report.xcfg is not None and smda_report.sha256 is not None
         function_offset = None
         if len(smda_report.xcfg) != 1:
             raise ValueError("SmdaReport has to contain exactly one function.")

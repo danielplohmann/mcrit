@@ -84,7 +84,7 @@ class MongoDbStorageInitTest(TestCase):
             except Exception as exc:
                 errors.append(exc)
 
-        mongo_db_storage_module.MongoClient = countingMongoClient
+        setattr(mongo_db_storage_module, "MongoClient", countingMongoClient)
         try:
             threads = [threading.Thread(target=hitGetDb, args=(slot,)) for slot in range(num_threads)]
             for thread in threads:
@@ -92,7 +92,7 @@ class MongoDbStorageInitTest(TestCase):
             for thread in threads:
                 thread.join()
         finally:
-            mongo_db_storage_module.MongoClient = real_mongo_client
+            setattr(mongo_db_storage_module, "MongoClient", real_mongo_client)
 
         self.assertEqual([], errors)
         self.assertEqual(1, construction_count[0])
@@ -100,18 +100,20 @@ class MongoDbStorageInitTest(TestCase):
             self.assertIs(databases[0], database)
 
     def testEnsureIndexAndUnknownFamilyIsIdempotent(self):
-        self.storage._getDb()
+        database = self.storage._getDb()
         db_name = self.config.STORAGE_CONFIG.STORAGE_MONGODB_DBNAME
-        self.storage._database.client.drop_database(db_name)
+        database.client.drop_database(db_name)
         # bootstrapping twice (as the server and worker processes do against a shared
         # database) must yield exactly one family "" with family_id 0
         self.storage._ensureIndexAndUnknownFamily()
         self.storage._ensureIndexAndUnknownFamily()
         second_storage = MongoDbStorage(self.config)
         second_storage._getDb()
-        self.assertEqual(1, self.storage._database.families.count_documents({"family_id": 0}))
-        self.assertEqual(1, self.storage._database.families.count_documents({"family_name": ""}))
-        self.assertEqual("", self.storage.getFamily(0).family_name)
+        self.assertEqual(1, database.families.count_documents({"family_id": 0}))
+        self.assertEqual(1, database.families.count_documents({"family_name": ""}))
+        unknown_family = self.storage.getFamily(0)
+        assert unknown_family is not None
+        self.assertEqual("", unknown_family.family_name)
         # the families counter must be past 0, so the next family can never collide with id 0
         self.assertEqual(1, self.storage.addFamily("another_family"))
 

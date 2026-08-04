@@ -5,12 +5,12 @@ import os
 import time
 from datetime import UTC, datetime
 from functools import wraps
-from typing import List
+from typing import Iterator, List, Optional
 
 import pymongo.errors
 
 # Only do basicConfig if no handlers have been configured
-if len(logging._handlerList) == 0:
+if not logging.root.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 LOGGER = logging.getLogger(__name__)
 
@@ -281,8 +281,9 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
         self.queue.clean()
         self._alive = True
         self.t_last_cleanup = time.time()
-        if profiling_path is not None:
-            self._executeJob = self.profiling_wrapper(self._executeJob, profiling_path)
+        # NOTE: the profiling variant is kept in a separate attribute rather than rebinding
+        # _executeJob itself, so the method keeps its normal signature.
+        self._executeJobProfiled = self.profiling_wrapper(self._executeJobImpl, profiling_path) if profiling_path is not None else None
 
     def profiling_wrapper(self, function, profiling_path):
         import cProfile
@@ -339,6 +340,11 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
         return result
 
     def _executeJob(self, job):
+        if self._executeJobProfiled is not None:
+            return self._executeJobProfiled(job)
+        return self._executeJobImpl(job)
+
+    def _executeJobImpl(self, job):
         if time.time() - self.t_last_cleanup >= self.queue.clean_interval:
             try:
                 self.queue.clean()
@@ -446,6 +452,9 @@ def restore_int_keys(params):
 
 
 class NoProgressReporter:
+    # mirrors JobProgressReporter so callers can tweak the interval regardless of reporter
+    _report_interval = 0
+
     def set_total(self, total):
         pass
 
@@ -504,7 +513,7 @@ class JobProgressReporter:
 class EmptyProgressWrapper:
     def __init__(self, iterable, total=None):
         self._iterable = iterable
-        self._iterator = None
+        self._iterator: Optional[Iterator] = None
         if total is not None:
             self._length = total
         else:
@@ -516,5 +525,7 @@ class EmptyProgressWrapper:
         return self
 
     def __next__(self):
+        if self._iterator is None:
+            self._iterator = iter(self._iterable)
         self._progress_reporter.step()
         return next(self._iterator)

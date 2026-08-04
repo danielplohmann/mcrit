@@ -32,6 +32,11 @@ class MatchResource:
     @timing
     def on_get_sample_cross(self, req, resp, sample_ids=None):
         parameters = getMatchingParams(req.params)
+        if sample_ids is None:
+            resp.status = falcon.HTTP_400
+            resp.data = jsonify({"status": "failed", "data": {"message": "No sample_ids provided."}})
+            db_log_msg(self.index, req, "MatchResource.on_get_sample_cross - failed - no sample_ids.")
+            return
         sample_ids_list = [int(id) for id in sample_ids.split(",")]
         cross_matches = self.index.getMatchesCross(sample_ids_list, **parameters)
         resp.data = jsonify({"status": "successful", "data": cross_matches})
@@ -62,7 +67,7 @@ class MatchResource:
 
     @timing
     def on_get_function_vs(self, req, resp, function_id=None, function_id_b=None):
-        if not self.index.isFunctionId(function_id) or not self.index.isFunctionId(function_id_b):
+        if function_id is None or function_id_b is None or not self.index.isFunctionId(function_id) or not self.index.isFunctionId(function_id_b):
             resp.data = jsonify(
                 {
                     "status": "failed",

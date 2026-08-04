@@ -29,6 +29,7 @@ class TestStatusResourceSearch(unittest.TestCase):
                 resp = falcon.Response()
                 getattr(StatusResource(index), endpoint)(self._request(path, "query=foo&sort_by=pichash"), resp)
                 self.assertEqual(falcon.HTTP_400, resp.status)
+                assert resp.data is not None
                 payload = json.loads(resp.data)
                 self.assertEqual("failed", payload["status"])
                 self.assertIn("pichash", payload["data"]["message"])
@@ -41,6 +42,7 @@ class TestStatusResourceSearch(unittest.TestCase):
                 resp = falcon.Response()
                 getattr(StatusResource(index), endpoint)(self._request(path, "query=foo"), resp)
                 self.assertEqual(falcon.HTTP_200, resp.status)
+                assert resp.data is not None
                 payload = json.loads(resp.data)
                 self.assertEqual("successful", payload["status"])
                 self.assertEqual({"search_results": {}}, payload["data"])

@@ -1,6 +1,7 @@
 import hashlib
 import os
 from dataclasses import dataclass
+from typing import Dict, List
 
 from mcrit.config.ConfigInterface import ConfigInterface, default_field
 from mcrit.minhash.ShingleLoader import ShingleLoader
@@ -14,7 +15,7 @@ class ShinglerConfig(ConfigInterface):
     # Directory in which to search for files matching pattern "*Shingler.py"
     SHINGLER_DIR: str = str(os.path.abspath(os.sep.join([PROJECT_ROOT, "shinglers"])))
     # Application of Shinglers can be influenced by weights, effectively running the same instance multiple times (increasing their "chance")
-    SHINGLER_WEIGHT_STRATEGY: ... = ShingleLoader.WEIGHT_STRATEGY_SHINGLER_WEIGHTS
+    SHINGLER_WEIGHT_STRATEGY: int = ShingleLoader.WEIGHT_STRATEGY_SHINGLER_WEIGHTS
     # the expected range for logbucket matching
     SHINGLER_LOGBUCKETS: int = 100000
     # number of values to put in the range left and right
@@ -22,11 +23,11 @@ class ShinglerConfig(ConfigInterface):
     # add additional counts for values further to the center
     SHINGLER_LOGBUCKET_CENTERED: bool = True
     # The weights to use for the above described method
-    SHINGLERS_WEIGHTS: ... = default_field({"FuzzyStatPairShingler": 1, "EscapedBlockShingler": 3})
+    SHINGLERS_WEIGHTS: Dict[str, int] = default_field({"FuzzyStatPairShingler": 1, "EscapedBlockShingler": 3})
     # random seed to be used when initiating XOR values for shingler hash seeds
     SHINGLERS_SEED: int = 0xDEADBEEF
     # will be set automatically when shinglers are loaded (listed here for completeness)
-    SHINGLERS_XOR_VALUES: ... = default_field([])
+    SHINGLERS_XOR_VALUES: List[int] = default_field([])
 
     def getConfigHash(self):
         config_str = ""

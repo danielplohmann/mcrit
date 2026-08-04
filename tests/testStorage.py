@@ -47,6 +47,7 @@ class MemoryStorageTest(TestCase):
     def testBasicStorageUsage(self):
         self.storage.clearStorage()
         smda_report = SmdaReport.fromFile(self.example_file_path)
+        assert smda_report is not None
         self.storage.addSmdaReport(smda_report)
         stats = self.storage.getStats()
         self.assertEqual(1, stats["num_samples"])
@@ -102,18 +103,22 @@ class MemoryStorageTest(TestCase):
         with open(self.example_file_path) as fjson:
             smda_json = json.load(fjson)
         smda_report_a = SmdaReport.fromDict(smda_json)
+        assert smda_report_a is not None
         smda_report_a.family = "family_1"
         smda_report_a.is_library = False
         smda_report_a.sha256 = 64 * "a"
         smda_report_b = SmdaReport.fromDict(smda_json)
+        assert smda_report_b is not None
         smda_report_b.family = "family_1"
         smda_report_b.is_library = False
         smda_report_b.sha256 = 64 * "b"
         smda_report_c = SmdaReport.fromDict(smda_json)
+        assert smda_report_c is not None
         smda_report_c.family = "family_2"
         smda_report_c.is_library = False
         smda_report_c.sha256 = 64 * "c"
         smda_report_d = SmdaReport.fromDict(smda_json)
+        assert smda_report_d is not None
         smda_report_d.family = "family_3"
         smda_report_d.is_library = True
         smda_report_d.version = "3.42"
@@ -206,9 +211,11 @@ class MemoryStorageTest(TestCase):
         with open(self.example_file_path) as fjson:
             smda_json = json.load(fjson)
         smda_report_a = SmdaReport.fromDict(smda_json)
+        assert smda_report_a is not None
         smda_report_a.sha256 = 64 * "a"
         smda_report_a.family = "family_1"
         smda_report_b = SmdaReport.fromDict(smda_json)
+        assert smda_report_b is not None
         smda_report_b.family = "family_1"
         smda_report_b.sha256 = 64 * "b"
         self.storage.addSmdaReport(smda_report_a)
@@ -250,9 +257,11 @@ class MemoryStorageTest(TestCase):
         with open(self.example_file_path) as fjson:
             smda_json = json.load(fjson)
         smda_report_a = SmdaReport.fromDict(smda_json)
+        assert smda_report_a is not None
         smda_report_a.sha256 = 64 * "a"
         smda_report_a.family = "family_1"
         smda_report_b = SmdaReport.fromDict(smda_json)
+        assert smda_report_b is not None
         smda_report_b.family = "family_1"
         smda_report_b.sha256 = 64 * "b"
         self.storage.addSmdaReport(smda_report_a)
@@ -260,7 +269,9 @@ class MemoryStorageTest(TestCase):
 
         # pichash tests
         sample_entry = SampleEntry(smda_report_a, sample_id=1, family_id=1)
-        function_entry = FunctionEntry(sample_entry, smda_report_a.getFunction(356), 1)
+        smda_function_356 = smda_report_a.getFunction(356)
+        assert smda_function_356 is not None
+        function_entry = FunctionEntry(sample_entry, smda_function_356, 1)
         # Will this work?
         initial_pichash = function_entry.pichash
         pichashes = self.storage.getPicHashMatchesByFunctionId(1)
@@ -321,6 +332,7 @@ class MemoryStorageTest(TestCase):
     def testMatchingCacheAllowSelfReturnDoesNotMutateStorage(self):
         self.storage.clearStorage()
         smda_report = SmdaReport.fromFile(self.example_file_path)
+        assert smda_report is not None
         self.storage.addSmdaReport(smda_report)
 
         cache = self.storage.createMatchingCache([0], allow_self_return=True)
@@ -338,6 +350,7 @@ class MemoryStorageTest(TestCase):
     def testMatchingCacheSupportsQueryFunctions(self):
         self.storage.clearStorage()
         smda_report = SmdaReport.fromFile(self.example_file_path)
+        assert smda_report is not None
         query_sample = self.storage.addSmdaReport(smda_report, isQuery=True)
         assert query_sample is not None
         query_function_ids = self.storage.getFunctionIdsBySampleId(query_sample.sample_id)
@@ -375,6 +388,20 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(set(), self.storage.getCandidatesForMinHash(bulk))
         self.assertIsNone(self.storage.getMinHashByFunctionId(unknown.function_id))
         self.assertFalse(self.storage.addMinHash(unknown))
+
+    def testGetSamplesIsQuery(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        assert smda_report is not None
+        query_sample = self.storage.addSmdaReport(smda_report, isQuery=True)
+        assert query_sample is not None
+
+        # query samples live in their own collection and must not show up in the regular listing
+        self.assertEqual([], self.storage.getSamples(start_index=0, limit=0))
+        query_samples = self.storage.getSamples(start_index=0, limit=0, is_query=True)
+        self.assertEqual([query_sample.sample_id], [entry.sample_id for entry in query_samples])
+        self.assertEqual(query_sample.sample_id, self.storage.getSampleBySha256(smda_report.sha256, is_query=True).sample_id)
+        self.assertIsNone(self.storage.getSampleBySha256(smda_report.sha256))
 
 
 @pytest.mark.mongo

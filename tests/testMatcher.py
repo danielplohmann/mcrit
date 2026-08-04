@@ -6,6 +6,7 @@ import os
 import unittest
 from copy import deepcopy
 from types import SimpleNamespace
+from typing import Any, Dict, List, cast
 
 from smda.common.SmdaReport import SmdaReport
 
@@ -136,11 +137,15 @@ class MatcherTestSuite(unittest.TestCase):
         example_file_path_3 = os.sep.join([PROJECT_ROOT, "tests", "example_report_3.smda"])
         library_file_path = os.sep.join([PROJECT_ROOT, "tests", "library_report.smda"])
         self.smda_report_1 = SmdaReport.fromFile(example_file_path_1)
+        assert self.smda_report_1 is not None
         self.smda_report_2 = SmdaReport.fromFile(example_file_path_2)
+        assert self.smda_report_2 is not None
         self.smda_report_2.family = "test_family"
         self.smda_report_3 = SmdaReport.fromFile(example_file_path_3)
+        assert self.smda_report_3 is not None
         self.smda_report_3.family = "test_family_b"
         self.library_report = SmdaReport.fromFile(library_file_path)
+        assert self.library_report is not None
 
         # make a selfmatch (mutate xcfg *before* any getFunctions() call, otherwise the
         # cached function list built by SmdaReport.getFunctions() would hide the mutation)
@@ -153,7 +158,7 @@ class MatcherTestSuite(unittest.TestCase):
         function_2_selected.pic_hash = function_1_selected.pic_hash
 
     # from matchervs
-    function_matches_expected = [
+    function_matches_expected: List[Dict[str, Any]] = [
         {
             "fid": 9,
             "matches": [
@@ -215,7 +220,7 @@ class MatcherTestSuite(unittest.TestCase):
         },
     ]
 
-    function_matches_expected_vs = [
+    function_matches_expected_vs: List[Dict[str, Any]] = [
         {
             "fid": 9,
             "matches": [
@@ -784,7 +789,7 @@ class PairBudgetBatchingTestSuite(unittest.TestCase):
 
         for batch_size in (200, 500, 10000):
             stub = StubMatcher(batch_size, max_pairs=50000000)
-            batches = [len(groups) for groups in MatcherInterface._iterCandidateGroupBatches(stub)]
+            batches = [len(groups) for groups in MatcherInterface._iterCandidateGroupBatches(cast(MatcherInterface, stub))]
             self.assertEqual(num_functions, sum(batches))
             self.assertLessEqual(max(batches), batch_size, f"batch size {batch_size} stopped bounding the batch")
 

@@ -4,9 +4,10 @@ import traceback
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
 
 # Only do basicConfig if no handlers have been configured
-if len(logging._handlerList) == 0:
+if not logging.root.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 LOGGER = logging.getLogger(__name__)
 
@@ -81,19 +82,19 @@ class Job:
         return f"ID: {self.job_id} - {self.parameters} | created: {self.created_at}, finished: {self.finished_at}, result: {self.result}, progress: {self.progress}"
 
     @property
-    def family(self) -> str:
+    def family(self) -> Optional[str]:
         if self.method in ["addBinarySample"]:
             descriptor = json.loads(self._data["payload"]["descriptor"])
             return descriptor[1]["2"]
 
     @property
-    def sha256(self) -> str:
+    def sha256(self) -> Optional[str]:
         if self.method in ["getMatchesForUnmappedBinary", "getMatchesForMappedBinary", "getMatchesForSmdaReport", "addBinarySample"]:
             descriptor = json.loads(self._data["payload"]["descriptor"])
             return descriptor[2]["0"]
 
     @property
-    def filename(self) -> str:
+    def filename(self) -> Optional[str]:
         if self.method in ["addBinarySample"]:
             descriptor = json.loads(self._data["payload"]["descriptor"])
             return descriptor[1]["1"]
@@ -361,18 +362,18 @@ class Job:
 class LocalQueue:
     def __init__(self):
         self._setup_empty_queue()
-        self._worker = None
+        self._worker: Any = None
         self._job_counter = 0
-        self.clean_interval = 10**9
-        self.cache_time = 10**9
+        self.clean_interval: float = 10**9
+        self.cache_time: float = 10**9
         self.max_attempts = 1
 
     def _setup_empty_queue(self):
-        self._jobs = defaultdict(lambda: None)
-        self._files = defaultdict(lambda: None)
-        self._files_meta = defaultdict(lambda: None)
-        self._descriptor_to_job = defaultdict(lambda: None)
-        self._hash_to_file = defaultdict(lambda: None)
+        self._jobs: Dict[str, Any] = defaultdict(lambda: None)
+        self._files: Dict[str, Any] = defaultdict(lambda: None)
+        self._files_meta: Dict[str, Any] = defaultdict(lambda: None)
+        self._descriptor_to_job: Dict[str, Any] = defaultdict(lambda: None)
+        self._hash_to_file: Dict[str, Any] = defaultdict(lambda: None)
 
     def registerWorker(self):
         # left empty, as we only have one worker in local mode
@@ -414,18 +415,16 @@ class LocalQueue:
             if not isinstance(file, (str, bytes)):
                 raise TypeError("Only strings, bytes or file-like objecs are supported")
             if isinstance(file, str):
-                try:
-                    data = data.encode(self.encoding)
-                except AttributeError:
-                    raise TypeError("no encoding was specified")
+                data = file.encode("utf-8")
             else:
                 data = file
         self._files[id] = data
         self._files_meta[id] = metadata
-        try:
-            self._hash_to_file[metadata["sha256"]] = id
-        except KeyError:
-            pass
+        if metadata is not None:
+            try:
+                self._hash_to_file[metadata["sha256"]] = id
+            except KeyError:
+                pass
         return id
 
     def _grid_to_file(self, grid, results_only=True):
@@ -487,7 +486,7 @@ class LocalQueue:
 
     def put(self, payload, await_jobs=[]):
         id = str(uuid.uuid4())
-        job_data = defaultdict(lambda: None)
+        job_data: Dict[str, Any] = defaultdict(lambda: None)
         job_data["_id"] = id
         job_data["number"] = self._job_counter
         self._job_counter += 1

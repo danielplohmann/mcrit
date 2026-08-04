@@ -4,14 +4,20 @@
 
 import math
 from abc import abstractmethod
+from typing import TYPE_CHECKING
 
 from mcrit.minhash.MinHash import MinHash
 
+if TYPE_CHECKING:  # pragma: no cover
+    from mcrit.config.ShinglerConfig import ShinglerConfig
+
 
 class AbstractShingler:
+    # every concrete shingler is constructed with a ShinglerConfig and assigns it here
+    _config: "ShinglerConfig"
+
     def __init__(self, plugin_name):
         self._name = plugin_name
-        self._config = {}
         self._weight = 0
         self._use_weights = True
 
@@ -48,6 +54,7 @@ class AbstractShingler:
         shingled_sequences.append(shingled_reference)
         if self._use_weights:
             for index in range(1, self._weight, 1):
+                assert self._config is not None
                 xored_sequence = [shingle ^ self._config.SHINGLERS_XOR_VALUES[index] for shingle in shingled_reference]
                 shingled_sequences.append(xored_sequence)
         return shingled_sequences

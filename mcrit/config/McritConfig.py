@@ -30,5 +30,5 @@ class McritConfig:
     QUEUE_CONFIG = QueueConfig()
 
     def __init__(self, log_level=logging.INFO):
-        if len(logging._handlerList) == 0:
+        if not logging.root.handlers:
             logging.basicConfig(level=log_level, format=self.LOG_FORMAT)

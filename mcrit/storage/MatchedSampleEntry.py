@@ -94,7 +94,7 @@ class MatchedSampleEntry:
 
     @classmethod
     def fromDict(cls, entry_dict):
-        matching_entry = cls(None)
+        matching_entry = cls(-1)
         matching_entry.family = entry_dict["family"]
         matching_entry.family_id = entry_dict["family_id"]
         matching_entry.version = entry_dict["version"]
