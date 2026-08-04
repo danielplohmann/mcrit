@@ -874,8 +874,14 @@ class MemoryStorage(StorageInterface):
                 continue
             if entry.xcfg is None:
                 continue
+            blocks = entry.xcfg["blocks"]
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
-                candidate_picblockhashes[picblockhash]["instructions"] = entry.xcfg["blocks"][str(block_offset)]
+                # a live xcfg (from SmdaFunction.toDict()) keys blocks by int, while one that has
+                # been through a JSON round trip keys them by str - accept either
+                block_instructions = blocks.get(block_offset, blocks.get(str(block_offset)))
+                if block_instructions is None:
+                    continue
+                candidate_picblockhashes[picblockhash]["instructions"] = block_instructions
         return {"statistics": block_statistics, "unique_blocks": candidate_picblockhashes}
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):

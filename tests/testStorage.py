@@ -403,6 +403,40 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(query_sample.sample_id, self.storage.getSampleBySha256(smda_report.sha256, is_query=True).sample_id)
         self.assertIsNone(self.storage.getSampleBySha256(smda_report.sha256))
 
+    def testUniqueBlocks(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        assert smda_report is not None
+        sample_entry = self.storage.addSmdaReport(smda_report)
+        assert sample_entry is not None
+
+        result = self.storage.getUniqueBlocks([sample_entry.sample_id])
+        unique_blocks = result["unique_blocks"]
+        self.assertTrue(unique_blocks)
+        # every block is unique to the only sample in storage
+        self.assertEqual(len(unique_blocks), result["statistics"]["unique_blocks_overall"])
+        for block in unique_blocks.values():
+            self.assertEqual([sample_entry.sample_id], list(block["samples"]))
+            # instructions are looked up in the xcfg by block offset - this is where the two
+            # backends key their blocks differently (int vs. str after a JSON round trip)
+            self.assertTrue(block["instructions"], f"no instructions extracted for block at offset {block['offset']}")
+
+    def testMatchesForPicBlockHash(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        assert smda_report is not None
+        sample_entry = self.storage.addSmdaReport(smda_report)
+        assert sample_entry is not None
+
+        function_entries = self.storage.getFunctionsBySampleId(sample_entry.sample_id)
+        assert function_entries is not None
+        picblockhash = next(fe.picblockhashes[0]["hash"] for fe in function_entries if fe.picblockhashes)
+        matches = self.storage.getMatchesForPicBlockHash(picblockhash)
+        self.assertTrue(matches)
+        for match in matches:
+            self.assertEqual(4, len(match))
+            self.assertEqual(sample_entry.sample_id, match[1])
+
 
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
