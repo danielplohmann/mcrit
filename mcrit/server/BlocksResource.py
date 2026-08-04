@@ -21,7 +21,7 @@ class BlocksResource:
     def on_get_unique_blocks_for_samples(self, req, resp, comma_separated_sample_ids=None):
         db_log_msg(self.index, req, "BlocksResource.on_get_unique_blocks")
         blocks_result = {}
-        if re.match("^\d+(?:[\s]*,[\s]*\d+)*$", comma_separated_sample_ids):
+        if re.match(r"^\d+(?:[\s]*,[\s]*\d+)*$", comma_separated_sample_ids):
             target_sample_ids = [int(sample_id) for sample_id in comma_separated_sample_ids.split(",")]
             blocks_result = self.index.getUniqueBlocks(target_sample_ids)
         resp.data = jsonify({"status": "successful", "data": blocks_result})
