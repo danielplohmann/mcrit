@@ -984,29 +984,39 @@ class MongoDbStorage(StorageInterface):
     def addMinHash(self, minhash: "MinHash") -> bool:
         if minhash.function_id is None:
             return False
-        function_entry = self.getFunctionById(minhash.function_id)
-        if function_entry is None:
-            return False
-        function_entry.minhash = minhash.getMinHash()
-        function_entry.minhash_shingle_composition = minhash.getComposition()
-        function_dict = function_entry.toDict()
-        self._encodeFunction(function_dict)
+        is_query_function = minhash.function_id < 0
+        collection = self._getDb().query_functions if is_query_function else self._getDb().functions
         set_command = {"$set": {"minhash": minhash.getMinHash().hex(), "minhash_shingle_composition": minhash.getComposition()}}
-        self._getDb().functions.find_one_and_update({"function_id": minhash.function_id}, set_command)
-        self._addMinHashToBands(minhash)
+        if collection.find_one_and_update({"function_id": minhash.function_id}, set_command) is None:
+            return False
+        # query functions are not indexed into bands, they are only ever used as query input
+        if not is_query_function:
+            self._addMinHashToBands(minhash)
         return True
 
     def addMinHashes(self, minhashes: List["MinHash"]) -> None:
-        # TODO can this be removed
         if not minhashes:
             return
-        function_updates = []
-        for minhash in minhashes:
-            set_command = {"$set": {"minhash": minhash.getMinHash().hex(), "minhash_shingle_composition": minhash.getComposition()}}
-            # TODO what happens if one of the function_ids is not found or minhash.function_id is not set?
-            function_updates.append(UpdateOne({"function_id": minhash.function_id}, set_command))
-        self._getDb().functions.bulk_write(function_updates, ordered=False)
-        self._addMinHashesToBands(minhashes)
+        for is_query_function in (False, True):
+            relevant_minhashes = [minhash for minhash in minhashes if minhash.function_id is not None and (minhash.function_id < 0) == is_query_function]
+            if not relevant_minhashes:
+                continue
+            collection = self._getDb().query_functions if is_query_function else self._getDb().functions
+            function_ids = [minhash.function_id for minhash in relevant_minhashes]
+            existing_ids = set(collection.distinct("function_id", {"function_id": {"$in": function_ids}}))
+            function_updates = []
+            stored_minhashes = []
+            for minhash in relevant_minhashes:
+                if minhash.function_id not in existing_ids:
+                    LOGGER.warning("addMinHashes() - no function with id %d, skipping its minhash.", minhash.function_id)
+                    continue
+                set_command = {"$set": {"minhash": minhash.getMinHash().hex(), "minhash_shingle_composition": minhash.getComposition()}}
+                function_updates.append(UpdateOne({"function_id": minhash.function_id}, set_command))
+                stored_minhashes.append(minhash)
+            if function_updates:
+                collection.bulk_write(function_updates, ordered=False)
+            if stored_minhashes and not is_query_function:
+                self._addMinHashesToBands(stored_minhashes)
 
     # original implementation, already working
     def _addMinHashToBands(self, minhash: "MinHash") -> None:
