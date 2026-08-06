@@ -72,7 +72,7 @@ mcrit client submit <file> -f <family_name>
 
 ## Key concepts
 
-- **PicHash / PicBlockHash** — exact, position-independent hashes (function- and basic-block-level).
+- **PicHash / PicBlockHash** — position-independent hashes (function- and basic-block-level). The hash comparison is exact; the code match it implies is quasi-exact, since identical position-independent bytes do not guarantee the same function.
 - **MinHash signature** — fuzzy similarity estimate derived from shingled code features.
 - **Shingler** — encodes properties of a disassembled function into a feature set for MinHashing.
 - **Band** — LSH band used for candidate generation during matching.
