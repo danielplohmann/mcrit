@@ -17,12 +17,12 @@ First and foremost, this will ensure that you have fully compatible versions acr
 Installing MCRIT on its own will require some more steps.
 For the following, we assume Ubuntu as host operating system.
 
-The Python installation requirements are listed in `requirements.txt` and can be installed using:
+MCRIT requires **Python 3.11 or newer**. Its dependencies are declared in `pyproject.toml` and are installed together with the package:
 
 ```bash
-# install python and MCRIT dependencies
+# install python and MCRIT along with its dependencies
 $ sudo apt install python3 python3-pip
-$ pip install -r requirements.txt
+$ pip install -e .
 ```
 
 By default, MongoDB 5.0 is used as backend, which is also the recommended mode of operation as it provides a persistent data storage.
@@ -123,8 +123,8 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 ## Version History
 
  * 2026-08-04 v1.5.3:  Matching reports now load ~7x faster, as MatchingResult.fromDict no longer deep-copies the match lists for filtering (they are derived lazily instead). NOTE: filtered_function_matches / filtered_sample_matches now share their entry objects with function_matches / sample_matches, so consumers must not mutate entries in place; requires mcritweb >= 1.4.2.
- * 2026-07-29 v1.5.2:  More packaging adjustments. 
- * 2026-07-29 v1.5.1:  Minor packaging bugfix to include shingler dir in PyPI packages, Dalvik capability upgrade. 
+ * 2026-07-29 v1.5.2:  More packaging adjustments.
+ * 2026-07-29 v1.5.1:  Minor packaging bugfix to include shingler dir in PyPI packages, Dalvik capability upgrade.
  * 2026-07-16 v1.5.0:  MCRIT now supports experimental minhash matching for CIL and Aarch64 binaries.
  * 2026-07-10 v1.4.7:  Major linting and CI/CD overhaul. (THX to @r0ny123!)
  * 2026-01-13 v1.4.6:  Introduced linear banding strategy, to be used as default in future releases (will require re-creation of the whole index).

@@ -1,5 +1,5 @@
 import math
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
@@ -20,7 +20,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 class MatchingResult:
     reference_sample_entry: "SampleEntry"
-    other_sample_entry: "SampleEntry"
+    other_sample_entry: Optional["SampleEntry"]
     match_aggregation: Dict
     sample_matches: List["MatchedSampleEntry"]
     function_matches: List["MatchedFunctionEntry"]
@@ -29,8 +29,8 @@ class MatchingResult:
     library_matches: Dict
     # function_id -> {family_id_a, family_id_b, ...}
     function_id_to_family_ids_matched: Dict
-    unique_family_scores_per_sample: Dict
-    family_id_to_name_map: Dict
+    unique_family_scores_per_sample: Optional[Dict]
+    family_id_to_name_map: Optional[Dict]
     is_family_filtered: bool
     is_sample_filtered: bool
     is_function_filtered: bool
@@ -335,7 +335,7 @@ class MatchingResult:
         return function_id in self.library_matches and self.library_matches[function_id]
 
     def getBestSampleMatchesPerFamily(self, start=None, limit=None, unfiltered=False, library_only=False, malware_only=False):
-        by_family = {}
+        by_family: Dict[str, Dict[str, Any]] = {}
         source_matches = self.sample_matches if unfiltered else self.filtered_sample_matches
         for sample_match in source_matches:
             if library_only and not sample_match.is_library:
@@ -413,7 +413,7 @@ class MatchingResult:
         return result_list
 
     def getAggregatedFunctionMatches(self, start=None, limit=None, unfiltered=False):
-        by_function_id = {}
+        by_function_id: Dict[int, Dict[str, Any]] = {}
         source_matches = self.function_matches if unfiltered else self.filtered_function_matches
         for function_match in source_matches:
             if function_match.function_id not in by_function_id:
@@ -471,7 +471,7 @@ class MatchingResult:
     ):
         """Returns the most promising matches for finding inter-family relationship as a list"""
         # run over all function_matches while applying filters, collect aggregate data needed to calculate scores
-        by_function_id = {}
+        by_function_id: Dict[int, Dict[str, Any]] = {}
         link_matches = []
         droppable_fids = set()
         for function_match in sorted(self.function_matches, key=lambda x: (x.matched_score, x.matched_family_id), reverse=True):
@@ -568,8 +568,10 @@ class MatchingResult:
         all_function_links = {}
         for function_entry in function_entries:
             binfo.architecture = function_entry.architecture
+            if function_entry.xcfg is None:
+                continue
             smda_function = SmdaFunction.fromDict(function_entry.xcfg, binfo)
-            for _, to_offsets in smda_function.outrefs.items():
+            for _, to_offsets in (smda_function.outrefs or {}).items():
                 for to_offset in [o for o in to_offsets if o in function_offsets]:
                     from_offset = smda_function.offset
                     if from_offset not in all_function_links:
@@ -612,7 +614,7 @@ class MatchingResult:
 
     def toDict(self):
         # we need to aggregate by function_id here
-        summarized_function_match_summaries = {}
+        summarized_function_match_summaries: Dict[int, Dict[str, Any]] = {}
         for function_match_entry in self.function_matches:
             if function_match_entry.function_id not in summarized_function_match_summaries:
                 summarized_function_match_summaries[function_match_entry.function_id] = {
@@ -634,7 +636,7 @@ class MatchingResult:
 
     @classmethod
     def fromDict(cls, entry_dict):
-        matching_entry = cls(None)
+        matching_entry = cls(SampleEntry(None))
         matching_entry.reference_sample_entry = SampleEntry.fromDict(entry_dict["info"]["sample"])
         if "other_sample_info" in entry_dict:
             matching_entry.other_sample_entry = SampleEntry.fromDict(entry_dict["other_sample_info"])

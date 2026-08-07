@@ -86,7 +86,7 @@ class JobResource:
     @timing
     def on_get(self, req, resp, job_id=None):
         # validate that we only allow hexstrings with 24 chars
-        if not re.match("[a-fA-F0-9]{24}", job_id):
+        if job_id is None or not re.match("[a-fA-F0-9]{24}", job_id):
             resp.status = falcon.HTTP_400
             resp.data = jsonify({"status": "failed", "data": {"message": "Valid JobIDs are hexstrings with 24 characters."}})
             db_log_msg(self.index, req, "JobResource.on_get - failed - invalid job_id.")
@@ -100,7 +100,7 @@ class JobResource:
     @timing
     def on_delete(self, req, resp, job_id=None):
         # validate that we only allow hexstrings with 24 chars
-        if not re.match("[a-fA-F0-9]{24}", job_id):
+        if job_id is None or not re.match("[a-fA-F0-9]{24}", job_id):
             resp.status = falcon.HTTP_400
             resp.data = jsonify({"status": "failed", "data": {"message": "Valid JobIDs are hexstrings with 24 characters."}})
             db_log_msg(self.index, req, "JobResource.on_delete - failed - invalid job_id.")
@@ -114,7 +114,7 @@ class JobResource:
     @timing
     def on_get_results(self, req, resp, result_id=None):
         # validate that we only allow hexstrings with 24 chars
-        if not re.match("[a-fA-F0-9]{24}", result_id):
+        if result_id is None or not re.match("[a-fA-F0-9]{24}", result_id):
             resp.status = falcon.HTTP_400
             resp.data = jsonify({"status": "failed", "data": {"message": "Valid ResultIDs are hexstrings with 24 characters."}})
             db_log_msg(self.index, req, "JobResource.on_get_results - failed - invalid result_id.")
@@ -135,9 +135,9 @@ class JobResource:
     @timing
     def on_get_job_result(self, req, resp, job_id=None):
         # validate that we only allow hexstrings with 24 chars
-        if not re.match("[a-fA-F0-9]{24}", job_id):
+        if job_id is None or not re.match("[a-fA-F0-9]{24}", job_id):
             resp.status = falcon.HTTP_400
-            resp.data = jsonify()
+            resp.data = jsonify({"status": "failed", "data": {"message": "Valid JobIDs are hexstrings with 24 characters."}})
             db_log_msg(self.index, req, "JobResource.on_get_job_result - failed - invalid job_id.")
             return
         job_data = self.index.getJobData(job_id)
@@ -155,7 +155,7 @@ class JobResource:
     @timing
     def on_get_result_job(self, req, resp, result_id=None):
         # validate that we only allow hexstrings with 24 chars
-        if not re.match("[a-fA-F0-9]{24}", result_id):
+        if result_id is None or not re.match("[a-fA-F0-9]{24}", result_id):
             resp.status = falcon.HTTP_400
             resp.data = jsonify({"status": "failed", "data": {"message": "Valid ResultIDs are hexstrings with 24 characters."}})
             db_log_msg(self.index, req, "JobResource.on_get_job_result - failed - invalid result_id.")

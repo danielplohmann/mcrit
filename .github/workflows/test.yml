@@ -2,29 +2,42 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
 jobs:
   lint:
     name: Ruff
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
-        
-      - name: Install Ruff
-        run: python -m pip install --upgrade pip ruff
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install lint tooling
+        run: python -m pip install -e ".[dev]"
 
       - name: Check formatting
         run: ruff format --check .
@@ -32,31 +45,36 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      - name: Type check
+        run: ty check
+
   unit:
     name: Unit tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
 
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -e . --no-deps
+        run: python -m pip install -e ".[dev]"
 
       - name: Run unit tests
         run: python -m pytest -m "not mongo and not sleep"
@@ -64,52 +82,38 @@ jobs:
   integration:
     name: Integration tests
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
     env:
       TEST_MONGODB: 127.0.0.1:27017
     services:
       mongo:
-        image: mongo:5.0
+        image: mongo:8.0
         ports:
           - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ping: 1})'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --health-start-period 20s
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
+          python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -e . --no-deps
-
-      - name: Wait for MongoDB
-        run: |
-          python - <<'PY'
-          import os
-          import time
-          import pymongo
-
-          uri = f"mongodb://{os.environ['TEST_MONGODB']}/"
-          deadline = time.time() + 60
-          last_error = None
-          while time.time() < deadline:
-              try:
-                  client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=1000)
-                  client.admin.command("ping")
-                  print("MongoDB is ready.")
-                  break
-              except Exception as exc:
-                  last_error = exc
-                  time.sleep(1)
-          else:
-              raise SystemExit(f"MongoDB did not become ready: {last_error}")
-          PY
+        run: python -m pip install -e ".[dev]"
 
       - name: Run integration tests
         run: python -m pytest
@@ -117,21 +121,33 @@ jobs:
   build:
     name: Build package
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v6
-        
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
       - name: Install build tooling
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install build twine "packaging>=25.0"
+        run: python -m pip install build twine
 
       - name: Build distributions
-        run: python -m build --sdist --wheel
+        run: python -m build
 
       - name: Validate distributions
         run: python -m twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error

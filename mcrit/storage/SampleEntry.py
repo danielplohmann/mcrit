@@ -1,5 +1,5 @@
 import datetime
-from typing import TYPE_CHECKING, Dict
+from typing import TYPE_CHECKING, Dict, Optional
 
 from mcrit.libs.utility import decode_two_complement, encode_two_complement
 
@@ -23,29 +23,29 @@ class SampleEntry:
     filename: str
     sha256: str
     smda_version: str
-    summary: None
+    summary: Optional[str]
     statistics: Dict[str, int]
-    timestamp: datetime.datetime
+    timestamp: Optional[datetime.datetime]
 
     # TODO -> rename to fromSmdaReport
-    def __init__(self, smda_report: "SmdaReport", sample_id=-1, family_id=0):
+    def __init__(self, smda_report: Optional["SmdaReport"], sample_id=-1, family_id=0):
         self.sample_id = sample_id
         self.family_id = family_id
         if smda_report:
-            self.architecture = smda_report.architecture
-            self.base_addr = smda_report.base_addr
-            self.binary_size = smda_report.binary_size
-            self.binweight = smda_report.binweight
-            self.bitness = smda_report.bitness
-            self.component = smda_report.component
-            self.family = smda_report.family
-            self.filename = smda_report.filename
-            self.is_library = smda_report.is_library
-            self.sha256 = smda_report.sha256
-            self.smda_version = smda_report.smda_version
-            self.statistics = smda_report.statistics.toDict()
+            self.architecture = smda_report.architecture or ""
+            self.base_addr = smda_report.base_addr or 0
+            self.binary_size = smda_report.binary_size or 0
+            self.binweight = smda_report.binweight or 0
+            self.bitness = smda_report.bitness or 0
+            self.component = smda_report.component or ""
+            self.family = smda_report.family or ""
+            self.filename = smda_report.filename or ""
+            self.is_library = bool(smda_report.is_library)
+            self.sha256 = smda_report.sha256 or ""
+            self.smda_version = smda_report.smda_version or ""
+            self.statistics = smda_report.statistics.toDict() if smda_report.statistics is not None else {}
             self.timestamp = smda_report.timestamp
-            self.version = smda_report.version
+            self.version = smda_report.version or ""
 
     def getShortSha256(self, prefix=8, border=0):
         if border > 0:
@@ -75,14 +75,14 @@ class SampleEntry:
             "sha256": self.sha256,
             "smda_version": self.smda_version,
             "statistics": self.statistics,
-            "timestamp": self.timestamp.strftime("%Y-%m-%dT%H-%M-%S"),
+            "timestamp": self.timestamp.strftime("%Y-%m-%dT%H-%M-%S") if self.timestamp is not None else None,
             "version": self.version,
         }
         return sample_entry
 
     @classmethod
     def fromDict(cls, entry_dict):
-        sample_entry = cls(None)  # type: ignore
+        sample_entry = cls(None)
         sample_entry.family_id = entry_dict["family_id"]
         sample_entry.sample_id = entry_dict["sample_id"]
         sample_entry.architecture = entry_dict["architecture"]

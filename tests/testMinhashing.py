@@ -28,6 +28,7 @@ class MinHashingTestSuite(unittest.TestCase):
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
         smda_report = SmdaReport.fromFile(example_file_path)
+        assert smda_report is not None
         # with open(example_file_path, "r") as fjson:
         #    smda_json = json.load(fjson)
         #    example_functions = [f for key, entry in smda_json["xcfg"].items()]

@@ -42,7 +42,7 @@ class FamilyEntry:
 
     @classmethod
     def fromDict(cls, entry_dict: Dict):
-        family_entry = cls(None)  # type: ignore
+        family_entry = cls(None)
         family_entry.family_id = entry_dict["family_id"]
         family_entry.family_name = entry_dict["family_name"]
         family_entry.num_samples = entry_dict["num_samples"]

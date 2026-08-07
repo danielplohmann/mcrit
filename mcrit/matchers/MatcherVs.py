@@ -28,16 +28,12 @@ class MatcherVs(MatcherInterface):
         return matching_report
 
     def _getPicHashMatches(self) -> Dict[int, Set[Tuple[int, int, int]]]:
-        by_pichash = {}
+        by_pichash: Dict[int, Set[Tuple[int, int, int]]] = {}
         for function_entry in self._function_entries:
-            pic_entry = by_pichash.get(function_entry.pichash, [])
-            pic_entry.append((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
-            by_pichash[function_entry.pichash] = pic_entry
+            by_pichash.setdefault(function_entry.pichash, set()).add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
         for function_entry in self._function_entries_b:
             if function_entry.pichash in by_pichash:
-                pic_entry = by_pichash.get(function_entry.pichash, None)
-                pic_entry.append((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
-                by_pichash[function_entry.pichash] = pic_entry
+                by_pichash[function_entry.pichash].add((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
         return by_pichash
 
     def _createMinHashCandidateGroups(self, start=0, end=None) -> Dict[int, Set[int]]:
