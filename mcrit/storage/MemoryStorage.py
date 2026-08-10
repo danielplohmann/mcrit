@@ -622,6 +622,14 @@ class MemoryStorage(StorageInterface):
         if sample_id in self._query_samples:
             return deepcopy(self._query_samples[sample_id])
 
+    def getSampleEntriesByIds(self, sample_ids: List[int]) -> Dict[int, "SampleEntry"]:
+        entries = {}
+        for sample_id in sample_ids:
+            entry = self.getSampleById(sample_id)
+            if entry is not None:
+                entries[sample_id] = entry
+        return entries
+
     def getSampleBySha256(self, sha256: str) -> Optional["SampleEntry"]:
         sample_entry = None
         if sha256 in self._sample_by_sha256:

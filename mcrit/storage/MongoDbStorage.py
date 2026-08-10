@@ -803,7 +803,7 @@ class MongoDbStorage(StorageInterface):
         pichash_raw = self._getDb().functions.find({"function_id": {"$in": function_ids}}, {"_pichash": 1, "_id": 0})
         pichashes_list = list(pichash_raw)  # broken? TODO
         pichashes = {}
-        fields_to_fetch = {"family_id": 1, "sample_id": 1, "function_id": 1, "_id": 0}
+        encoded_to_decoded = {}
         for pichash in pichashes_list:
             # TODO what happens if pichash does not exist??
             self._decodePichash(pichash, delete_old=False)
@@ -811,12 +811,15 @@ class MongoDbStorage(StorageInterface):
             decoded_pichash = pichash["pichash"]
             if decoded_pichash in pichashes:
                 continue
-            pichashes[decoded_pichash] = set(
-                map(
-                    lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
-                    list(self._getDb().functions.find({"_pichash": encoded_pichash}, fields_to_fetch)),
-                )
-            )
+            pichashes[decoded_pichash] = set()
+            encoded_to_decoded[encoded_pichash] = decoded_pichash
+        # one $in over all distinct pichashes instead of one query per pichash (N+1, #111);
+        # grouping client-side by the returned _pichash reproduces the per-query sets exactly
+        if encoded_to_decoded:
+            fields_to_fetch = {"_pichash": 1, "family_id": 1, "sample_id": 1, "function_id": 1, "_id": 0}
+            for hit in self._getDb().functions.find({"_pichash": {"$in": list(encoded_to_decoded)}}, fields_to_fetch):
+                decoded_pichash = encoded_to_decoded[hit.get("_pichash")]
+                pichashes[decoded_pichash].add((hit["family_id"], hit["sample_id"], hit["function_id"]))
         return pichashes
 
     def isFunctionId(self, function_id: int) -> bool:
@@ -1105,6 +1108,23 @@ class MongoDbStorage(StorageInterface):
         if not sample_document:
             return None
         return SampleEntry.fromDict(sample_document)
+
+    def getSampleEntriesByIds(self, sample_ids: List[int]) -> Dict[int, "SampleEntry"]:
+        """One $in per collection instead of one find_one per sample (N+1, #111).
+
+        Ids without a sample document are simply absent from the result, matching
+        getSampleById's None for them.
+        """
+        entries: Dict[int, SampleEntry] = {}
+        query_ids = [sample_id for sample_id in sample_ids if sample_id < 0]
+        corpus_ids = [sample_id for sample_id in sample_ids if sample_id >= 0]
+        for collection_name, collection_ids in (("query_samples", query_ids), ("samples", corpus_ids)):
+            if not collection_ids:
+                continue
+            for sample_document in self._getDb()[collection_name].find({"sample_id": {"$in": collection_ids}}, {"_id": 0}):
+                entry = SampleEntry.fromDict(sample_document)
+                entries[entry.sample_id] = entry
+        return entries
 
     # TODO add types
     def getStats(self, with_pichash=True) -> Dict:
