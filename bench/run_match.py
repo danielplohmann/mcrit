@@ -72,6 +72,8 @@ def main():
     parser.add_argument("--fetch-threads", type=int, default=None, help="concurrent $in queries in _getCacheDataForFunctionIds")
     parser.add_argument("--fetch-slice", type=int, default=None, help="function_ids per $in query")
     parser.add_argument("--vectorized", type=int, default=None, help="1=vectorised scoring (B2), 0=stock per-pair scoring")
+    parser.add_argument("--hot-collection", default=None,
+                        help='C1: "db.collection" with slim binary minhash docs, e.g. mcrit_bench.fn_bin; "" = off')
     parser.add_argument("--tag", default="baseline")
     parser.add_argument("--out", default="/opt/mcrit/bench/results")
     parser.add_argument("--mem-interval", type=float, default=0.05)
@@ -94,6 +96,8 @@ def main():
         config.STORAGE_CONFIG.STORAGE_CACHE_FETCH_THREADS = args.fetch_threads
     if args.fetch_slice is not None:
         config.STORAGE_CONFIG.STORAGE_CACHE_FETCH_SLICE_SIZE = args.fetch_slice
+    if args.hot_collection is not None:
+        config.STORAGE_CONFIG.STORAGE_HOT_MINHASH_COLLECTION = args.hot_collection
     band_matches_required = args.k if args.k is not None else config.MINHASH_CONFIG.BAND_MATCHES_REQUIRED
 
     os.makedirs(args.out, exist_ok=True)
@@ -167,6 +171,7 @@ def main():
             "vectorized_matching": getattr(config.MINHASH_CONFIG, "MINHASH_MATCHING_VECTORIZED", False),
             "cache_fetch_threads": getattr(config.STORAGE_CONFIG, "STORAGE_CACHE_FETCH_THREADS", 1),
             "cache_fetch_slice_size": getattr(config.STORAGE_CONFIG, "STORAGE_CACHE_FETCH_SLICE_SIZE", 500000),
+            "hot_minhash_collection": getattr(config.STORAGE_CONFIG, "STORAGE_HOT_MINHASH_COLLECTION", ""),
         },
         "result_digest": _digest(match_report),
         "memory": mem.summary(),
@@ -188,6 +193,8 @@ def main():
         "_vec" if getattr(config.MINHASH_CONFIG, "MINHASH_MATCHING_VECTORIZED", False) else ""))
     if getattr(config.STORAGE_CONFIG, "STORAGE_CACHE_FETCH_THREADS", 1) > 1:
         name = name.replace(".json", "_t%d.json" % config.STORAGE_CONFIG.STORAGE_CACHE_FETCH_THREADS)
+    if getattr(config.STORAGE_CONFIG, "STORAGE_HOT_MINHASH_COLLECTION", ""):
+        name = name.replace(".json", "_hot.json")
     path = os.path.join(args.out, name)
     with open(path, "w") as fh:
         json.dump(result, fh, indent=2, default=str)
