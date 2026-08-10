@@ -426,6 +426,30 @@ class MatcherProbe:
 
         MongoDbStorage.getFunctionsBySampleId = functions_by_sample
 
+        # -- result assembly and its inner phases (attribution of the previously
+        #    unaccounted wall). NOTE result_assembly CONTAINS summarize_matches and
+        #    sample_summary; do not sum the three together. harmonize/vectorized
+        #    scoring is covered by minhash_matching above.
+        for method_name, phase_name in (
+            ("_craftResultDict", "result_assembly"),
+            ("_summarizeMatches", "summarize_matches"),
+            ("_aggregateMatchSampleSummary", "sample_summary"),
+            ("_harmonizeMinHashMatches", "harmonize_minhash"),
+            ("_harmonizePicHashMatches", "harmonize_pichash"),
+            ("filter_pichashes_from_candidate_groups", "pichash_filter"),
+        ):
+            original_method = getattr(MatcherInterface, method_name)
+            self._patched.append((MatcherInterface, method_name, original_method))
+
+            def make_timed(original_inner, inner_phase):
+                @functools.wraps(original_inner)
+                def timed(self_matcher, *args, **kwargs):
+                    with probe.phases(inner_phase):
+                        return original_inner(self_matcher, *args, **kwargs)
+                return timed
+
+            setattr(MatcherInterface, method_name, make_timed(original_method, phase_name))
+
         return self
 
     def stop(self):
