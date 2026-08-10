@@ -364,8 +364,11 @@ class StorageInterface:
         raise NotImplementedError
 
     # TODO remove this?
-    def clearMatchingCache(self) -> None:
-        """Clears the temporary matching cache
+    def clearMatchingCache(self, force: bool = False) -> None:
+        """Deprecated no-op, kept for API compatibility.
+
+        Matching caches are owned by the matcher that created them and die with it; the
+        storage object holds no cache reference (#110).
 
         Returns:
             None
@@ -374,12 +377,16 @@ class StorageInterface:
 
     # TODO: make a MatchingCacheInterface for all backends.
     # TODO rename -> get?
-    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> "MatchingCache":
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False, previous: Optional["MatchingCache"] = None) -> "MatchingCache":
         """Creates a temporary matching cache, for a list of function_ids
 
         Args:
             function_ids: list of function ids
             allow_self_return: (optional) if True, allows a backend-specific optimized cache implementation
+            previous: (optional) the cache this matcher received for its previous batch.
+                Backends that persist entries across the batches of a job extend and return
+                it instead of building a fresh cache. The cache must only ever be owned by
+                one matcher - never stored on the (potentially shared) storage object.
 
         Returns:
             a matching cache for the specified list of function ids

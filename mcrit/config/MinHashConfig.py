@@ -34,6 +34,10 @@ class MinHashConfig(ConfigInterface):
     PICHASH_IMPLIES_MINHASH_MATCH: bool = True
     # size of batches for which candidates are processed
     MINHASH_MATCHING_FUNCTION_BATCH_SIZE: int = 10000
+    # score each query function against its candidates as one (C, L) numpy block instead of
+    # per-pair tuples. Same matches, but pair tuples are never materialised, so peak memory
+    # goes from O(pairs) to O(widest candidate group). Ignores MINHASH_POOL_MATCHING.
+    MINHASH_MATCHING_VECTORIZED: bool = False
     # size of candidate packs to be processed per work unit
     MINHASH_MATCHING_CANDIDATE_WORKPACK_SIZE: int = 20000
     # size of functions to be processed into minhashes per work iteration

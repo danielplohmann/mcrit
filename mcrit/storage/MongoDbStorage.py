@@ -4,10 +4,12 @@ import logging
 import re
 import traceback
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from itertools import zip_longest
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple
 
+import numpy as np
 from packaging import version
 
 try:
@@ -117,11 +119,9 @@ class MongoDbStorage(StorageInterface):
     _DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
     _database: "Database"
-    _matching_cache: Optional[MatchingCache]
 
     def __init__(self, config: "StorageConfig") -> None:
         super().__init__(config)  # sets config
-        self._matching_cache = None
         self.blockhasher = BlockHasher()
         self._database = None
 
@@ -891,7 +891,61 @@ class MongoDbStorage(StorageInterface):
             num_band_updates += len(band_updates)
         return num_band_updates
 
+    def _collectBandHashTargets(self, function_id_to_minhash: Dict[int, "MinHash"]):
+        """band_number -> set(band_hash) to query, and band_number -> band_hash -> query function_ids."""
+        target_band_hashes_per_band = {band_number: set() for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        band_hash_to_function_ids = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        for function_id, minhash in function_id_to_minhash.items():
+            if not minhash.hasMinHash():
+                continue
+            band_hashes = self.getBandHashesForMinHash(minhash)
+            for band_number, band_hash in sorted(band_hashes.items()):
+                target_band_hashes_per_band[band_number].add(band_hash)
+                if band_hash not in band_hash_to_function_ids[band_number]:
+                    band_hash_to_function_ids[band_number][band_hash] = set()
+                band_hash_to_function_ids[band_number][band_hash].add(function_id)
+        return target_band_hashes_per_band, band_hash_to_function_ids
+
+    def _getCandidatesForMinHashesNumpy(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
+        """Variant C: accumulate band hits as int32 arrays instead of dict[qid][cid] -> count.
+
+        Semantically identical to the dict version (np.unique(..., return_counts=True) counts
+        repeated ids exactly like the += 1 loop did), but it never builds the per-pair Python
+        dict, and it stores one array per posting list rather than one entry per pair - the
+        posting list is *shared* by reference between all query functions that hit that band
+        hash, so the inner O(pairs) Python loop disappears as well.
+        """
+        target_band_hashes_per_band, band_hash_to_function_ids = self._collectBandHashTargets(function_id_to_minhash)
+        hit_chunks = {}
+        for band_number, band_hashes in target_band_hashes_per_band.items():
+            match_query = {"$match": {"band_hash": {"$in": list(band_hashes)}}}
+            cursor = self._getDb()["band_%d" % band_number].aggregate([match_query])
+            for hit in cursor:
+                reference_function_ids = band_hash_to_function_ids[band_number][hit["band_hash"]]
+                posting_list = np.array(hit["function_ids"], dtype=np.int32)
+                for function_id in reference_function_ids:
+                    if function_id not in hit_chunks:
+                        hit_chunks[function_id] = [posting_list]
+                    else:
+                        hit_chunks[function_id].append(posting_list)
+        # reduce candidates based on banding requirements
+        valid_candidates = {}
+        for function_id in list(hit_chunks):
+            chunks = hit_chunks.pop(function_id)
+            all_hits = chunks[0] if len(chunks) == 1 else np.concatenate(chunks)
+            del chunks
+            if band_matches_required <= 1:
+                surviving = np.unique(all_hits)
+            else:
+                unique_ids, counts = np.unique(all_hits, return_counts=True)
+                surviving = unique_ids[counts >= band_matches_required]
+            if surviving.size:
+                valid_candidates[function_id] = set(surviving.tolist())
+        return valid_candidates
+
     def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
+        if getattr(self._storage_config, "STORAGE_CANDIDATE_ACCUMULATION", "dict") == "numpy":
+            return self._getCandidatesForMinHashesNumpy(function_id_to_minhash, band_matches_required=band_matches_required)
         candidates = {}
         target_band_hashes_per_band = {band_number: set() for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         band_hash_to_function_ids = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
@@ -954,21 +1008,48 @@ class MongoDbStorage(StorageInterface):
         # process this in batches as the number of function_ids can be exceedingly large, pushing beyond Mongo's 16M limit
         positive_function_ids = [function_id for function_id in set(function_ids) if function_id >= 0]
         negative_function_ids = [function_id for function_id in set(function_ids) if function_id < 0]
+        # This call is latency-bound, not bandwidth-bound: the projection returns 186 B per
+        # document but WiredTiger reads the whole ~4 kB record to produce it, so a single
+        # sequential cursor leaves mongod's I/O parallelism unused. Measured on 500k ids:
+        # 1 thread 12.96 s, 8 threads 1.90 s (6.81x) for a byte-identical result. Threads, not
+        # processes - pymongo releases the GIL for socket I/O and BSON decode.
+        fetch_threads = max(1, getattr(self._storage_config, "STORAGE_CACHE_FETCH_THREADS", 1))
+        slice_size = max(1, getattr(self._storage_config, "STORAGE_CACHE_FETCH_SLICE_SIZE", 500000))
+        if fetch_threads > 1:
+            # the two knobs are not independent: with the 500k default almost every batch is a
+            # single slice and the pool is never built, so the thread count silently does
+            # nothing (measured: 1.09 effective workers on bumblebee). Derive it instead.
+            # aim for several slices per worker rather than exactly one: equal-sized slices
+            # do not take equal time, and with one slice each a single straggler leaves the
+            # other workers idle. Measured on citadel (824k ids, 8 threads): one slice per
+            # worker 65.2 s, four 46.4 s.
+            # Several slices per worker, because equal-sized slices do not take equal time.
+            # But floor it: with fix 01 the per-batch delta shrinks steadily, and dividing a
+            # small delta by 32 produces dozens of tiny round trips whose per-query overhead
+            # costs more than the concurrency saves.
+            widest = max(len(positive_function_ids), len(negative_function_ids))
+            target = -(-widest // (fetch_threads * 4))
+            slice_size = max(10000, min(slice_size, target))
         for collection_name, collection_ids in (
             ("functions", positive_function_ids),
             ("query_functions", negative_function_ids),
         ):
             if not collection_ids:
                 continue
-            for sliced_ids in zip_longest(*[iter(collection_ids)] * 500000):
-                query_function_ids = [function_id for function_id in sliced_ids if function_id is not None]
-                for function_document in self._getDb()[collection_name].find(
-                    {"function_id": {"$in": query_function_ids}},
-                    {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1},
-                ):
-                    function_id = function_document["function_id"]
-                    sample_id = function_document["sample_id"]
-                    minhash = bytes.fromhex(function_document["minhash"])
+            slices = [
+                [function_id for function_id in sliced_ids if function_id is not None]
+                for sliced_ids in zip_longest(*[iter(collection_ids)] * slice_size)
+            ]
+            if fetch_threads > 1 and len(slices) > 1:
+                with ThreadPoolExecutor(max_workers=min(fetch_threads, len(slices))) as pool:
+                    # map preserves input order, so the resulting dicts are built in the same
+                    # order a sequential fetch would build them
+                    decoded_slices = list(pool.map(
+                        lambda ids: self._fetchCacheSlice(collection_name, ids), slices))
+            else:
+                decoded_slices = [self._fetchCacheSlice(collection_name, ids) for ids in slices]
+            for decoded in decoded_slices:
+                for function_id, sample_id, minhash in decoded:
                     minhashes[function_id] = minhash
                     sample_ids[function_id] = sample_id
                     if sample_id not in sample_to_func_ids:
@@ -978,6 +1059,21 @@ class MongoDbStorage(StorageInterface):
         cache_data["func_id_to_sample_id"] = sample_ids
         cache_data["sample_id_to_func_ids"] = sample_to_func_ids
         return cache_data
+
+    def _fetchCacheSlice(self, collection_name: str, query_function_ids: List[int]) -> List[Tuple[int, int, bytes]]:
+        """One $in query's worth of (function_id, sample_id, minhash), decoded but not merged.
+
+        Kept free of shared state so it can be run from a thread pool; merging into the cache
+        dicts happens in the calling thread, in input order.
+        """
+        return [
+            (function_document["function_id"], function_document["sample_id"],
+             bytes.fromhex(function_document["minhash"]))
+            for function_document in self._getDb()[collection_name].find(
+                {"function_id": {"$in": query_function_ids}},
+                {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1},
+            )
+        ]
 
     def deleteXcfgForSampleId(self, sample_id: int) -> None:
         self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"_xcfg": "{}"}})
@@ -1050,14 +1146,81 @@ class MongoDbStorage(StorageInterface):
         self._encodeFunction(function_dict)
         return function_dict
 
-    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> MatchingCache:
-        cache_data = self._getCacheDataForFunctionIds(function_ids)
-        # TODO dont store this as attribute
-        self._matching_cache = MatchingCache(cache_data)
-        return self._matching_cache
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False, previous: Optional[MatchingCache] = None) -> MatchingCache:
+        if not getattr(self._storage_config, "STORAGE_MATCHING_CACHE_PERSIST", False):
+            cache_data = self._getCacheDataForFunctionIds(function_ids)
+            return MatchingCache(cache_data)
+        return self._createIncrementalMatchingCache(function_ids, previous)
 
-    def clearMatchingCache(self) -> None:
-        self._matching_cache = None
+    def _createIncrementalMatchingCache(self, function_ids: List[int], previous: Optional[MatchingCache] = None) -> MatchingCache:
+        """Serve a batch from a job-scoped cache, fetching only what is not already held.
+
+        The per-batch rebuild re-fetches the same candidate signatures many times over
+        (measured 1.54x-12.21x on real samples). Retaining them across the batches of one job
+        turns total fetches into the distinct union, and decouples the batch size from I/O
+        cost entirely.
+
+        The cache is owned by the calling matcher, which passes it back in as `previous` on
+        every batch after the first - the storage object holds NO reference to it. One
+        matcher instance is one job (worker) or one request (server), so concurrent matchers
+        on a shared storage can never see each other's entries, evict each other's rows, or
+        overwrite each other's query minhashes (the function_id = -1 collision of #110).
+
+        Only entries fetched from storage are evictable (tracked in cache._evictable).
+        Entries injected by the query matchers via addFunctionEntriesToCache are left alone,
+        and the whole cache dies with the matcher that owns it, so nothing leaks between jobs.
+        """
+        requested = set(function_ids)
+        cache = previous
+        if cache is None:
+            cache = MatchingCache(
+                {"func_id_to_minhash": {}, "func_id_to_sample_id": {}, "sample_id_to_func_ids": {}}
+            )
+        held = cache._func_id_to_minhash
+        missing = [function_id for function_id in requested if function_id not in held]
+
+        max_entries = getattr(self._storage_config, "STORAGE_MATCHING_CACHE_MAX_ENTRIES", 0)
+        if max_entries:
+            overflow = len(held) + len(missing) - max_entries
+            if overflow > 0:
+                self._evictFromMatchingCache(cache, overflow, protected=requested)
+
+        if missing:
+            cache_data = self._getCacheDataForFunctionIds(missing)
+            fetched_sample_ids = cache_data["func_id_to_sample_id"]
+            for function_id, minhash in cache_data["func_id_to_minhash"].items():
+                cache._setFunctionEntry(function_id, fetched_sample_ids[function_id], minhash)
+                cache._evictable[function_id] = None
+
+        # refresh recency for everything this batch needs, so eviction is least-recently-needed
+        for function_id in requested:
+            if function_id in cache._evictable:
+                cache._evictable.move_to_end(function_id)
+        return cache
+
+    def _evictFromMatchingCache(self, cache: MatchingCache, count: int, protected: Set[int]) -> int:
+        evicted = 0
+        for function_id in list(cache._evictable):
+            if evicted >= count:
+                break
+            if function_id in protected:
+                continue
+            sample_id = cache._func_id_to_sample_id.pop(function_id, None)
+            cache._func_id_to_minhash.pop(function_id, None)
+            if sample_id is not None and sample_id in cache._sample_id_to_func_ids:
+                cache._sample_id_to_func_ids[sample_id].discard(function_id)
+                if not cache._sample_id_to_func_ids[sample_id]:
+                    del cache._sample_id_to_func_ids[sample_id]
+            del cache._evictable[function_id]
+            evicted += 1
+        if evicted:
+            cache.invalidateSignatureMatrix()
+        return evicted
+
+    def clearMatchingCache(self, force: bool = False) -> None:
+        # the matching cache is owned by the matcher that created it and dies with that
+        # matcher; the storage object holds no reference to it, so there is nothing to clear
+        return
 
     def getFamilyId(self, family_name: str) -> Optional[int]:
         family_document = self._getDb().families.find_one({"family_name": family_name})
