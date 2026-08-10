@@ -74,6 +74,9 @@ def main():
     parser.add_argument("--vectorized", type=int, default=None, help="1=vectorised scoring (B2), 0=stock per-pair scoring")
     parser.add_argument("--hot-collection", default=None,
                         help='C1: "db.collection" with slim binary minhash docs, e.g. mcrit_bench.fn_bin; "" = off')
+    parser.add_argument("--malloc-trim", type=int, default=0,
+                        help="1 = call libc malloc_trim(0) at each batch start and log the RSS it frees; "
+                             "distinguishes glibc arena fragmentation (RSS drops) from genuine retention (it does not)")
     parser.add_argument("--tag", default="baseline")
     parser.add_argument("--out", default="/opt/mcrit/bench/results")
     parser.add_argument("--mem-interval", type=float, default=0.05)
@@ -98,6 +101,31 @@ def main():
         config.STORAGE_CONFIG.STORAGE_CACHE_FETCH_SLICE_SIZE = args.fetch_slice
     if args.hot_collection is not None:
         config.STORAGE_CONFIG.STORAGE_HOT_MINHASH_COLLECTION = args.hot_collection
+    if args.malloc_trim:
+        # discriminator for the monotonic cross-batch RSS growth: trim glibc arenas at each
+        # batch boundary (right before the next cache build) and log what that alone frees
+        import ctypes
+        from mcrit.matchers.MatcherInterface import MatcherInterface
+        libc = ctypes.CDLL("libc.so.6")
+
+        def _read_rss_kb():
+            with open("/proc/self/status") as status_fh:
+                for status_line in status_fh:
+                    if status_line.startswith("VmRSS:"):
+                        return int(status_line.split()[1])
+            return -1
+
+        _original_create_cache = MatcherInterface._createMatchingCache
+
+        def _trimming_create_cache(self, candidate_groups):
+            rss_before = _read_rss_kb()
+            libc.malloc_trim(0)
+            rss_after = _read_rss_kb()
+            print("MALLOC_TRIM batch_boundary rss_before=%d kB rss_after=%d kB freed=%d kB"
+                  % (rss_before, rss_after, rss_before - rss_after), flush=True)
+            return _original_create_cache(self, candidate_groups)
+
+        MatcherInterface._createMatchingCache = _trimming_create_cache
     band_matches_required = args.k if args.k is not None else config.MINHASH_CONFIG.BAND_MATCHES_REQUIRED
 
     os.makedirs(args.out, exist_ok=True)

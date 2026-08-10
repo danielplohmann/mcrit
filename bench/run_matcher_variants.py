@@ -118,7 +118,7 @@ class WorkerStub:
         return self.minhasher.calculateMinHashesFromStorage(smda_functions)
 
 
-def apply_flags(config, enabled, cache_max_entries, fetch_threads, fetch_slice):
+def apply_flags(config, enabled, cache_max_entries, fetch_threads, fetch_slice, hot_collection=None):
     config.MINHASH_CONFIG.MINHASH_POOL_MATCHING = False  # determinism, BUG-1
     config.STORAGE_CONFIG.STORAGE_MATCHING_CACHE_PERSIST = enabled
     config.STORAGE_CONFIG.STORAGE_CANDIDATE_ACCUMULATION = "numpy" if enabled else "dict"
@@ -127,6 +127,8 @@ def apply_flags(config, enabled, cache_max_entries, fetch_threads, fetch_slice):
     config.STORAGE_CONFIG.STORAGE_CACHE_FETCH_SLICE_SIZE = fetch_slice if enabled else 500000
     if enabled:
         config.STORAGE_CONFIG.STORAGE_MATCHING_CACHE_MAX_ENTRIES = cache_max_entries
+    if hot_collection is not None:
+        config.STORAGE_CONFIG.STORAGE_HOT_MINHASH_COLLECTION = hot_collection
 
 
 def main():
@@ -138,12 +140,13 @@ def main():
     ap.add_argument("--cache-max-entries", type=int, default=6000000)
     ap.add_argument("--fetch-threads", type=int, default=8)
     ap.add_argument("--fetch-slice", type=int, default=25000)
+    ap.add_argument("--hot-collection", default=None, help='C1: "db.collection" slim minhash source; "" = off')
     ap.add_argument("--keep", action="store_true", help="do not delete the query sample created")
     ap.add_argument("--out", default="/opt/mcrit/bench/results")
     opts = ap.parse_args()
 
     config = McritConfig()
-    apply_flags(config, bool(opts.flags), opts.cache_max_entries, opts.fetch_threads, opts.fetch_slice)
+    apply_flags(config, bool(opts.flags), opts.cache_max_entries, opts.fetch_threads, opts.fetch_slice, opts.hot_collection)
     band_matches_required = opts.k if opts.k is not None else config.MINHASH_CONFIG.BAND_MATCHES_REQUIRED
 
     storage = StorageFactory.getStorage(config)
@@ -194,7 +197,8 @@ def main():
         "query_sample_id": created_query_sample_id,
     }
     os.makedirs(opts.out, exist_ok=True)
-    path = os.path.join(opts.out, "matcher_%s_flags%d.json" % (label, opts.flags))
+    hot_suffix = "_hot" if opts.hot_collection else ""
+    path = os.path.join(opts.out, "matcher_%s_flags%d%s.json" % (label, opts.flags, hot_suffix))
     with open(path, "w") as fh:
         json.dump(result, fh, indent=2, default=str)
     try:
