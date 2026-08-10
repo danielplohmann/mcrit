@@ -199,7 +199,11 @@ class MatcherInterface:
                             key = (sample_id_a, function_id_a, sample_id_b)
                             new_value = (function_id_b, score)
                             original_value = organized_matching_results[key]
-                            organized_matching_results[key] = max([original_value, new_value], key=lambda x: x[1])
+                            # tie-break on the smaller function_id_b so the reported match does
+                            # not depend on worker arrival order (imap_unordered); this matches
+                            # what the single-process path below produces by iterating candidate
+                            # ids in ascending order
+                            organized_matching_results[key] = max([original_value, new_value], key=lambda x: (x[1], -x[0]))
                     if single_batch:
                         self._progress_reporter.step()
         else:
@@ -213,7 +217,7 @@ class MatcherInterface:
                         key = (sample_id_a, function_id_a, sample_id_b)
                         new_value = (function_id_b, score)
                         original_value = organized_matching_results[key]
-                        organized_matching_results[key] = max([original_value, new_value], key=lambda x: x[1])
+                        organized_matching_results[key] = max([original_value, new_value], key=lambda x: (x[1], -x[0]))
                 if single_batch:
                     self._progress_reporter.step()
         full_score_counts = sorted([(item[0] * 64 / 100, item[1]) for item in dict(counted_scores).items()])
