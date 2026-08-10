@@ -363,6 +363,17 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def getSampleEntriesByIds(self, sample_ids: List[int]) -> Dict[int, "SampleEntry"]:
+        """Batch form of getSampleById: one lookup for many ids.
+
+        Args:
+            sample_ids: sample ids to resolve (negative ids are query samples)
+
+        Returns:
+            sample_id -> SampleEntry for every id that exists; missing ids are absent
+        """
+        raise NotImplementedError
+
     # TODO remove this?
     def clearMatchingCache(self, force: bool = False) -> None:
         """Deprecated no-op, kept for API compatibility.
