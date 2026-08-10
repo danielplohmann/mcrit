@@ -86,7 +86,7 @@ class MinHash:
         else:
             first_np = np.frombuffer(first, dtype=np.uint32)
             second_np = np.frombuffer(second, dtype=np.uint32)
-        return 100.0 * sum(first_np == second_np) / len(first_np)
+        return 100.0 * np.count_nonzero(first_np == second_np) / len(first_np)
 
     @staticmethod
     def calculateMinHashIntScore(first, second):
