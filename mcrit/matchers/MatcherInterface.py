@@ -327,6 +327,15 @@ class MatcherInterface:
         # Query, VS, Sample
         # all use this version
         sample_fid_to_binweight = {entry.function_id: entry.binweight for entry in self._function_entries}
+        # prefetch every foreign sample entry in one $in instead of two find_ones per
+        # distinct sample inside the loop below (N+1, #111). The lazy per-id lookups stay
+        # as the fallback for anything the batch did not return.
+        missing_sample_ids = {match_ids[1] for match_ids in matches if match_ids[1] != sample_id and match_ids[1] not in self._sample_id_to_entry}
+        if missing_sample_ids and hasattr(self._storage, "getSampleEntriesByIds"):
+            for foreign_sample_id, entry in self._storage.getSampleEntriesByIds(list(missing_sample_ids)).items():
+                self._sample_id_to_entry.setdefault(foreign_sample_id, entry)
+                # same predicate as getLibraryInfoForSampleId(...) is not None
+                self._sample_to_lib_info.setdefault(foreign_sample_id, bool(entry.is_library))
         aggregation = {
             "num_own_functions_matched": 0,
             "num_foreign_functions_matched": 0,
