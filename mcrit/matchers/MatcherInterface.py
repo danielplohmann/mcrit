@@ -123,7 +123,11 @@ class MatcherInterface:
         cache_function_ids = set()
         for candidate_key, candidate_functions in candidate_groups.items():
             cache_function_ids.add(candidate_key)
-            cache_function_ids.update(candidate_functions)
+            # .tolist() also converts np.int32 to Python int - pymongo cannot encode numpy ints
+            if isinstance(candidate_functions, np.ndarray):
+                cache_function_ids.update(candidate_functions.tolist())
+            else:
+                cache_function_ids.update(candidate_functions)
         LOGGER.info("creating cache for %d functions", len(cache_function_ids))
         self._matching_cache = self._storage.createMatchingCache(cache_function_ids, previous=self._matching_cache)
         return self._matching_cache
@@ -139,7 +143,15 @@ class MatcherInterface:
                 if (own_fid, foreign_sid) not in finished_tuples:
                     if matching_cache.isSampleId(foreign_sid):
                         pichash_match_sid_fids = matching_cache.getFunctionIdsBySampleId(foreign_sid)
-                        candidate_groups[own_fid].difference_update(pichash_match_sid_fids)
+                        group = candidate_groups[own_fid]
+                        if isinstance(group, np.ndarray):
+                            # convert lazily, once, only for groups that pichash matching
+                            # actually touches - repeated array-difference is strictly more
+                            # work than one conversion plus set mutation (measured), and
+                            # every consumer accepts either shape
+                            group = set(group.tolist())
+                            candidate_groups[own_fid] = group
+                        group.difference_update(pichash_match_sid_fids)
                         finished_tuples.add((own_fid, foreign_sid))
         return candidate_groups
 
@@ -225,9 +237,13 @@ class MatcherInterface:
         for function_id_a, candidate_ids in tqdm.tqdm(sorted(candidate_groups.items()), total=len(candidate_groups)):
             if self._num_batches == 1:
                 self._progress_reporter.step()
-            if not candidate_ids:
+            if len(candidate_ids) == 0:
                 continue
-            candidates = np.fromiter(candidate_ids, dtype=np.int64, count=len(candidate_ids))
+            if isinstance(candidate_ids, np.ndarray):
+                # astype copies, so the in-place sort below cannot mutate a shared array
+                candidates = candidate_ids.astype(np.int64)
+            else:
+                candidates = np.fromiter(candidate_ids, dtype=np.int64, count=len(candidate_ids))
             candidates.sort()
             candidates = candidates[candidates != function_id_a]
             if not candidates.size:
@@ -342,7 +358,10 @@ class MatcherInterface:
         current_pack: List[Tuple[int, int, bytes, int, int, bytes]] = []
         count = 0
         for function_id_a, candidate_ids in sorted(candidate_pairs.items()):
-            for function_id_b in sorted(candidate_ids):
+            # .tolist() converts np.int32 to Python int so ids stay JSON/BSON-encodable
+            # downstream; np.unique output is already sorted, sorting again is cheap
+            sorted_candidate_ids = sorted(candidate_ids.tolist()) if isinstance(candidate_ids, np.ndarray) else sorted(candidate_ids)
+            for function_id_b in sorted_candidate_ids:
                 if function_id_a == function_id_b:
                     continue
                 minhash_a = cache.getMinHashByFunctionId(function_id_a)

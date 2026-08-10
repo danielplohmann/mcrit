@@ -53,6 +53,9 @@ class MatcherQuery(MatcherInterface):
     def _createMatchingCache(self, candidate_groups):
         function_ids_from_storage = set()
         for own_function_id, other_function_ids in candidate_groups.items():
+            # .tolist() converts np.int32 to Python int - pymongo cannot encode numpy ints
+            if hasattr(other_function_ids, "tolist"):
+                other_function_ids = other_function_ids.tolist()
             for function_id in other_function_ids:
                 if function_id >= 0:
                     function_ids_from_storage.add(function_id)

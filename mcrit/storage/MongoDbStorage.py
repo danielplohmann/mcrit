@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+import os
 import re
 import traceback
 import uuid
@@ -940,7 +941,15 @@ class MongoDbStorage(StorageInterface):
                 unique_ids, counts = np.unique(all_hits, return_counts=True)
                 surviving = unique_ids[counts >= band_matches_required]
             if surviving.size:
-                valid_candidates[function_id] = set(surviving.tolist())
+                # MCRIT_CANDIDATE_ARRAYS=1 keeps the sorted int32 array np.unique produced
+                # (~4 B/candidate vs ~60-100 B as a set; every consumer accepts both shapes).
+                # Measured: -4-11 % peak RSS everywhere, wall -4 % on the largest candidate
+                # volume (bumblebee) but +5-10 % on smaller ones (pichash-filter conversion),
+                # so sets stay the default until that trade is settled.
+                if os.environ.get("MCRIT_CANDIDATE_ARRAYS"):
+                    valid_candidates[function_id] = surviving
+                else:
+                    valid_candidates[function_id] = set(surviving.tolist())
         return valid_candidates
 
     def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:

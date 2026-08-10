@@ -1,5 +1,7 @@
 from typing import Dict, Set, Tuple
 
+import numpy as np
+
 from mcrit.matchers.MatcherInterface import MatcherInterface, add_duration
 
 
@@ -47,6 +49,12 @@ class MatcherVs(MatcherInterface):
         allowed_function_ids = set([entry.function_id for entry in self._function_entries_b])
         # NOTE Also include function ids of entry a to allow self-matches
         allowed_function_ids.update([entry.function_id for entry in self._function_entries])
+        allowed_array = None
         for fid, candidates in candidate_groups.items():
-            candidate_groups[fid] = candidates.intersection(allowed_function_ids)
+            if isinstance(candidates, np.ndarray):
+                if allowed_array is None:
+                    allowed_array = np.fromiter(allowed_function_ids, dtype=candidates.dtype, count=len(allowed_function_ids))
+                candidate_groups[fid] = candidates[np.isin(candidates, allowed_array)]
+            else:
+                candidate_groups[fid] = candidates.intersection(allowed_function_ids)
         return candidate_groups
