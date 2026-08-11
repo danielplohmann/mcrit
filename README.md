@@ -122,6 +122,7 @@ In July 2023, we started populating a [Github repository](https://github.com/dan
 
 ## Version History
 
+ * 2026-08-11 v1.6.0:  Major matching-performance release: four new opt-in optimisations (numpy candidate accumulation, vectorised minhash scoring, concurrent signature fetch, persistent per-job MatchingCache with LRU cap) measured at 4.4x aggregate / up to 10x on large samples when combined, with byte-identical results; pooled matching is now deterministic (#104); two N+1 query patterns removed (#111); minhash score computation micro-optimised (THX to @shaurya703!). All new options default to off - see StorageConfig/MinHashConfig comments for tuning guidance.
  * 2026-08-04 v1.5.3:  Matching reports now load ~7x faster, as MatchingResult.fromDict no longer deep-copies the match lists for filtering (they are derived lazily instead). NOTE: filtered_function_matches / filtered_sample_matches now share their entry objects with function_matches / sample_matches, so consumers must not mutate entries in place; requires mcritweb >= 1.4.2.
  * 2026-07-29 v1.5.2:  More packaging adjustments. 
  * 2026-07-29 v1.5.1:  Minor packaging bugfix to include shingler dir in PyPI packages, Dalvik capability upgrade. 
