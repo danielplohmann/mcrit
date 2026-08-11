@@ -47,10 +47,10 @@ class StorageConfig(ConfigInterface):
     # required by the batch currently being served. 0 disables the ceiling.
     STORAGE_MATCHING_CACHE_MAX_ENTRIES: int = 2000000
     # How getCandidatesForMinHashes accumulates band hits:
-    #  * "dict":  dict[query_fid][candidate_fid] -> count  (stock)
-    #  * "numpy": per-query-function int32 hit arrays + np.unique(return_counts)
+    #  * "numpy": per-query-function int32 hit arrays + np.unique(return_counts) (default)
+    #  * "dict":  dict[query_fid][candidate_fid] -> count  (legacy fallback, deprecated)
     # Same results either way; "numpy" avoids the ~100 B/pair Python dict and the O(pairs) loop.
-    STORAGE_CANDIDATE_ACCUMULATION: str = "dict"
+    STORAGE_CANDIDATE_ACCUMULATION: str = "numpy"
     # Fetch candidate signatures for the MatchingCache with this many concurrent queries.
     # The call is latency-bound (186 B returned per ~4 kB document read), so concurrency
     # overlaps mongod's disk reads: measured 6.81x warm / 15.3x cold at 8 threads on 500k ids,
