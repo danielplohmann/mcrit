@@ -8,6 +8,7 @@ from itertools import zip_longest
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple
 
+import numpy as np
 from packaging import version
 
 try:
@@ -894,8 +895,8 @@ class MongoDbStorage(StorageInterface):
             num_band_updates += len(band_updates)
         return num_band_updates
 
-    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
-        candidates = {}
+    def _collectBandHashTargets(self, function_id_to_minhash: Dict[int, "MinHash"]):
+        """band_number -> set(band_hash) to query, and band_number -> band_hash -> query function_ids."""
         target_band_hashes_per_band = {band_number: set() for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         band_hash_to_function_ids = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         for function_id, minhash in function_id_to_minhash.items():
@@ -907,6 +908,50 @@ class MongoDbStorage(StorageInterface):
                 if band_hash not in band_hash_to_function_ids[band_number]:
                     band_hash_to_function_ids[band_number][band_hash] = set()
                 band_hash_to_function_ids[band_number][band_hash].add(function_id)
+        return target_band_hashes_per_band, band_hash_to_function_ids
+
+    def _getCandidatesForMinHashesNumpy(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
+        """Variant C: accumulate band hits as int32 arrays instead of dict[qid][cid] -> count.
+
+        Semantically identical to the dict version (np.unique(..., return_counts=True) counts
+        repeated ids exactly like the += 1 loop did), but it never builds the per-pair Python
+        dict, and it stores one array per posting list rather than one entry per pair - the
+        posting list is *shared* by reference between all query functions that hit that band
+        hash, so the inner O(pairs) Python loop disappears as well.
+        """
+        target_band_hashes_per_band, band_hash_to_function_ids = self._collectBandHashTargets(function_id_to_minhash)
+        hit_chunks = {}
+        for band_number, band_hashes in target_band_hashes_per_band.items():
+            match_query = {"$match": {"band_hash": {"$in": list(band_hashes)}}}
+            cursor = self._getDb()["band_%d" % band_number].aggregate([match_query])
+            for hit in cursor:
+                reference_function_ids = band_hash_to_function_ids[band_number][hit["band_hash"]]
+                posting_list = np.array(hit["function_ids"], dtype=np.int32)
+                for function_id in reference_function_ids:
+                    if function_id not in hit_chunks:
+                        hit_chunks[function_id] = [posting_list]
+                    else:
+                        hit_chunks[function_id].append(posting_list)
+        # reduce candidates based on banding requirements
+        valid_candidates = {}
+        for function_id in list(hit_chunks):
+            chunks = hit_chunks.pop(function_id)
+            all_hits = chunks[0] if len(chunks) == 1 else np.concatenate(chunks)
+            del chunks
+            if band_matches_required <= 1:
+                surviving = np.unique(all_hits)
+            else:
+                unique_ids, counts = np.unique(all_hits, return_counts=True)
+                surviving = unique_ids[counts >= band_matches_required]
+            if surviving.size:
+                valid_candidates[function_id] = set(surviving.tolist())
+        return valid_candidates
+
+    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
+        if getattr(self._storage_config, "STORAGE_CANDIDATE_ACCUMULATION", "dict") == "numpy":
+            return self._getCandidatesForMinHashesNumpy(function_id_to_minhash, band_matches_required=band_matches_required)
+        candidates = {}
+        target_band_hashes_per_band, band_hash_to_function_ids = self._collectBandHashTargets(function_id_to_minhash)
         for band_number, band_hashes in target_band_hashes_per_band.items():
             match_query = {"$match": {"band_hash": {"$in": list(band_hashes)}}}
             cursor = self._getDb()["band_%d" % band_number].aggregate([match_query])
