@@ -96,12 +96,9 @@ class StorageConfig(ConfigInterface):
                 cpu_count,
             )
         if not self.STORAGE_MATCHING_CACHE_MAX_ENTRIES and self.STORAGE_MATCHING_CACHE_MAX_BYTES:
-            self.STORAGE_MATCHING_CACHE_MAX_ENTRIES = max(
-                1, self.STORAGE_MATCHING_CACHE_MAX_BYTES // MATCHING_CACHE_BYTES_PER_ENTRY
-            )
+            self.STORAGE_MATCHING_CACHE_MAX_ENTRIES = max(1, self.STORAGE_MATCHING_CACHE_MAX_BYTES // MATCHING_CACHE_BYTES_PER_ENTRY)
             LOGGER.info(
-                "STORAGE_MATCHING_CACHE_MAX_ENTRIES resolved to %d (derived from "
-                "STORAGE_MATCHING_CACHE_MAX_BYTES=%d at %d B/entry)",
+                "STORAGE_MATCHING_CACHE_MAX_ENTRIES resolved to %d (derived from STORAGE_MATCHING_CACHE_MAX_BYTES=%d at %d B/entry)",
                 self.STORAGE_MATCHING_CACHE_MAX_ENTRIES,
                 self.STORAGE_MATCHING_CACHE_MAX_BYTES,
                 MATCHING_CACHE_BYTES_PER_ENTRY,
