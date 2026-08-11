@@ -8,6 +8,10 @@ from mcrit.storage.StorageFactory import StorageFactory
 
 LOGGER = logging.getLogger(__name__)
 
+# measured resident cost per retained MatchingCache function (minhash bytes + dict/index
+# overhead), used to convert STORAGE_MATCHING_CACHE_MAX_BYTES into an entry ceiling
+MATCHING_CACHE_BYTES_PER_ENTRY = 314
+
 
 @dataclass
 class StorageConfig(ConfigInterface):
@@ -46,10 +50,17 @@ class StorageConfig(ConfigInterface):
     # Reuse the MatchingCache across the batches of a single matching job instead of
     # rebuilding it per batch. Measured redundancy of the per-batch rebuild on real data:
     # 1.54x (citadel) to 12.21x (merlin). Costs ~314 B resident per retained function.
-    STORAGE_MATCHING_CACHE_PERSIST: bool = False
-    # Ceiling on retained functions. Least-recently-needed are evicted first, and never those
-    # required by the batch currently being served. 0 disables the ceiling.
-    STORAGE_MATCHING_CACHE_MAX_ENTRIES: int = 2000000
+    STORAGE_MATCHING_CACHE_PERSIST: bool = True
+    # Memory budget for retained functions, in bytes (converted at ~314 B resident per
+    # retained function, measured). Least-recently-needed entries are evicted first, never
+    # those required by the batch currently being served, and every eviction is logged.
+    # 0 disables the byte budget.
+    STORAGE_MATCHING_CACHE_MAX_BYTES: int = 512 * 1024 * 1024
+    # Ceiling on retained functions as an entry count. 0 (the default) derives it from
+    # STORAGE_MATCHING_CACHE_MAX_BYTES at config load and logs the resolved value; an
+    # explicit value here overrides the byte budget. Setting both this and
+    # STORAGE_MATCHING_CACHE_MAX_BYTES to 0 disables the ceiling entirely.
+    STORAGE_MATCHING_CACHE_MAX_ENTRIES: int = 0
     # How getCandidatesForMinHashes accumulates band hits:
     #  * "numpy": per-query-function int32 hit arrays + np.unique(return_counts) (default)
     #  * "dict":  dict[query_fid][candidate_fid] -> count  (legacy fallback, deprecated)
@@ -83,6 +94,17 @@ class StorageConfig(ConfigInterface):
                 "STORAGE_CACHE_FETCH_THREADS resolved to %d (derived from cpu_count=%d)",
                 self.STORAGE_CACHE_FETCH_THREADS,
                 cpu_count,
+            )
+        if not self.STORAGE_MATCHING_CACHE_MAX_ENTRIES and self.STORAGE_MATCHING_CACHE_MAX_BYTES:
+            self.STORAGE_MATCHING_CACHE_MAX_ENTRIES = max(
+                1, self.STORAGE_MATCHING_CACHE_MAX_BYTES // MATCHING_CACHE_BYTES_PER_ENTRY
+            )
+            LOGGER.info(
+                "STORAGE_MATCHING_CACHE_MAX_ENTRIES resolved to %d (derived from "
+                "STORAGE_MATCHING_CACHE_MAX_BYTES=%d at %d B/entry)",
+                self.STORAGE_MATCHING_CACHE_MAX_ENTRIES,
+                self.STORAGE_MATCHING_CACHE_MAX_BYTES,
+                MATCHING_CACHE_BYTES_PER_ENTRY,
             )
 
     @property
