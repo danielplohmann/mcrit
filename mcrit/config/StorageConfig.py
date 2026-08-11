@@ -79,6 +79,13 @@ class StorageConfig(ConfigInterface):
     # function_ids per $in query. Must stay well under Mongo's 16 MB command limit; smaller
     # slices also give the thread pool something to overlap.
     STORAGE_CACHE_FETCH_SLICE_SIZE: int = 500000
+    # EXPERIMENT (C1): read candidate minhashes from a slim "db.collection" (documents:
+    # function_id, sample_id, minhash as BSON Binary) instead of the wide `functions`
+    # collection, so WiredTiger pages ~90 B instead of ~4 kB per candidate. Empty = off.
+    # The collection must cover EVERY function_id in `functions` (empty Binary for
+    # functions without a minhash) or results will silently lose candidates; only reads
+    # for non-negative ids are redirected - query_functions stays on the live DB.
+    STORAGE_HOT_MINHASH_COLLECTION: str = ""
     # limit maximum export size to protect the system against running OOM, default: 1 GB
     STORAGE_MAX_EXPORT_SIZE = 1024 * 1024 * 1024
 
