@@ -1055,6 +1055,17 @@ class MongoDbStorage(StorageInterface):
         Kept free of shared state so it can be run from a thread pool; merging into the cache
         dicts happens in the calling thread, in input order.
         """
+        hot = getattr(self._storage_config, "STORAGE_HOT_MINHASH_COLLECTION", "")
+        if hot and collection_name == "functions":
+            hot_db_name, _, hot_collection_name = hot.partition(".")
+            hot_collection = self._getDb().client[hot_db_name][hot_collection_name]
+            return [
+                (function_document["function_id"], function_document["sample_id"], bytes(function_document["minhash"]))
+                for function_document in hot_collection.find(
+                    {"function_id": {"$in": query_function_ids}},
+                    {"_id": 0, "sample_id": 1, "minhash": 1, "function_id": 1},
+                )
+            ]
         return [
             (function_document["function_id"], function_document["sample_id"], bytes.fromhex(function_document["minhash"]))
             for function_document in self._getDb()[collection_name].find(
