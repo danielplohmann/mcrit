@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from timeit import default_timer as timer
 from typing import TYPE_CHECKING, Dict, Iterable, List, Optional, Set, Tuple, Union
 
+import numpy as np
 import tqdm
 
 import mcrit.matchers.MatcherFlags as MatcherFlags
@@ -168,10 +169,93 @@ class MatcherInterface:
         return matching_report
 
     # Reports PROGRESS
+    @staticmethod
+    def _minMatchesForThreshold(signature_length: int, minhash_threshold: float) -> int:
+        """Smallest number of matching signature fields that still passes `score > threshold`.
+
+        Derived by evaluating the very expression the scalar path uses
+        (`100.0 * matches / signature_length > threshold`) over every possible match count, so
+        the integer predicate is exact by construction rather than by a rounding argument.
+        """
+        for matches in range(signature_length + 1):
+            if 100.0 * matches / signature_length > minhash_threshold:
+                return matches
+        return signature_length + 1
+
+    # Reports PROGRESS
+    # Reports PROGRESS
+    def _performMinHashMatchingVectorized(self, candidate_groups: Dict[int, Set[int]], cache) -> List[Tuple[int, int, int, int, float]]:
+        """B2: score one query function against all of its candidates as an (C, L) block.
+
+        Equivalent to _performMinHashMatching's single-process path, pair for pair:
+        candidates are visited in ascending function_id_b, and a strictly greater score is
+        required to displace the incumbent - so ties keep the smallest function_id_b, exactly
+        as `max(..., key=score)` does when it keeps the first element.
+
+        The point is not only speed: pairs are never materialised as tuples, so peak memory
+        goes from O(pairs) to O(candidates of the widest single query function).
+        """
+        minhash_config = self._worker.config.MINHASH_CONFIG
+        signature_length = minhash_config.MINHASH_SIGNATURE_LENGTH
+        min_matches = self._minMatchesForThreshold(signature_length, minhash_config.MINHASH_MATCHING_THRESHOLD)
+        sorted_ids, rows, matrix = cache.getSignatureMatrix(signature_length=signature_length, signature_bits=minhash_config.MINHASH_SIGNATURE_BITS)
+        func_id_to_sample_id = cache._func_id_to_sample_id
+        organized_matching_results: Dict[Tuple[int, int, int], Tuple[int, float]] = {}
+        score_counts = np.zeros(signature_length + 1, dtype=np.int64)
+        block_limit = max(1, minhash_config.MINHASH_MATCHING_CANDIDATE_WORKPACK_SIZE)
+        num_pairs = sum(len(candidate_ids) for candidate_ids in candidate_groups.values())
+        if self._num_batches == 1:
+            self._progress_reporter.set_total(len(candidate_groups))
+        for function_id_a, candidate_ids in tqdm.tqdm(sorted(candidate_groups.items()), total=len(candidate_groups)):
+            if self._num_batches == 1:
+                self._progress_reporter.step()
+            if not candidate_ids:
+                continue
+            candidates = np.fromiter(candidate_ids, dtype=np.int64, count=len(candidate_ids))
+            candidates.sort()
+            candidates = candidates[candidates != function_id_a]
+            if not candidates.size:
+                continue
+            query_row = cache.getRowsForFunctionIds(np.array([function_id_a], dtype=np.int64), sorted_ids, rows)
+            query_signature = matrix[query_row[0]]
+            candidate_rows = cache.getRowsForFunctionIds(candidates, sorted_ids, rows)
+            sample_id_a = func_id_to_sample_id[function_id_a]
+            # chunked so the gathered block stays bounded even for a query function sitting in
+            # a huge equivalence class
+            for offset in range(0, candidates.size, block_limit):
+                chunk_rows = candidate_rows[offset : offset + block_limit]
+                chunk_ids = candidates[offset : offset + block_limit]
+                matches = (matrix[chunk_rows] == query_signature).sum(axis=1, dtype=np.int16)
+                score_counts += np.bincount(matches, minlength=signature_length + 1)
+                surviving = np.flatnonzero(matches >= min_matches)
+                if not surviving.size:
+                    continue
+                surviving_ids = chunk_ids[surviving]
+                surviving_scores = 100.0 * matches[surviving] / signature_length
+                for function_id_b, score in zip(surviving_ids.tolist(), surviving_scores.tolist()):
+                    key = (sample_id_a, function_id_a, func_id_to_sample_id[function_id_b])
+                    incumbent = organized_matching_results.get(key)
+                    if incumbent is None or score > incumbent[1]:
+                        organized_matching_results[key] = (function_id_b, score)
+        LOGGER.info("Minhash Signature Field Match Counts: " + ", ".join("(%s: %d)" % (float(matches), int(count)) for matches, count in enumerate(score_counts) if count))
+        LOGGER.info("Vectorized matching over %d pairs in %d candidate groups", num_pairs, len(candidate_groups))
+        matching_results = [k + v for k, v in organized_matching_results.items()]
+        self._storage.clearMatchingCache()
+        return matching_results
+
+    # Reports PROGRESS
     def _performMinHashMatching(self, candidate_groups: Dict[int, Set[int]], cache) -> List[Tuple[int, int, int, int, float]]:
         # Query, VS, Sample
         # All use the same version
         """perform matching between candidates, provided as candidate_groups in the form of a dict: {function_id: [function_ids]}"""
+        if getattr(self._worker.config.MINHASH_CONFIG, "MINHASH_MATCHING_VECTORIZED", False):
+            try:
+                return self._performMinHashMatchingVectorized(candidate_groups, cache)
+            except (NotImplementedError, KeyError) as error:
+                # NotImplementedError: StorageBackedMatchingCache serves minhashes lazily.
+                # KeyError: an id the matrix does not cover (e.g. a function whose minhash was
+                # dropped). Either way the scalar path can still do the work.
+                LOGGER.warning("Vectorised scoring unavailable (%s: %s), scoring per pair instead", type(error).__name__, error)
         # result format: sample_id_a, function_id_a, sample_id_b, function_id_b, score
         matching_results: List[Tuple[int, int, int, int, float]] = []
         organized_matching_results: Dict[Tuple[int, int, int], Tuple[int, float]] = defaultdict(lambda: (-1, -1.0))
