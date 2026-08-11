@@ -385,7 +385,7 @@ class StorageInterface:
 
     # TODO: make a MatchingCacheInterface for all backends.
     # TODO rename -> get?
-    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> "MatchingCache":
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False, previous: Optional["MatchingCache"] = None) -> "MatchingCache":
         """Creates a temporary matching cache, for a list of function_ids
 
         Args:

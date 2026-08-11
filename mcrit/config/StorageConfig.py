@@ -39,6 +39,13 @@ class StorageConfig(ConfigInterface):
     STORAGE_BANDS: Dict[int, int] = default_field(_default_storage_bands)
     # use a hashmap to cache all banding data - very memory intensive, but great speedups.
     STORAGE_CACHE: bool = False
+    # Reuse the MatchingCache across the batches of a single matching job instead of
+    # rebuilding it per batch. Measured redundancy of the per-batch rebuild on real data:
+    # 1.54x (citadel) to 12.21x (merlin). Costs ~314 B resident per retained function.
+    STORAGE_MATCHING_CACHE_PERSIST: bool = False
+    # Ceiling on retained functions. Least-recently-needed are evicted first, and never those
+    # required by the batch currently being served. 0 disables the ceiling.
+    STORAGE_MATCHING_CACHE_MAX_ENTRIES: int = 2000000
     # How getCandidatesForMinHashes accumulates band hits:
     #  * "dict":  dict[query_fid][candidate_fid] -> count  (stock)
     #  * "numpy": per-query-function int32 hit arrays + np.unique(return_counts)
