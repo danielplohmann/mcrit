@@ -1,8 +1,12 @@
+import logging
+import os
 from dataclasses import dataclass
 from typing import Dict
 
 from mcrit.config.ConfigInterface import ConfigInterface, default_field
 from mcrit.storage.StorageFactory import StorageFactory
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -54,13 +58,32 @@ class StorageConfig(ConfigInterface):
     # Fetch candidate signatures for the MatchingCache with this many concurrent queries.
     # The call is latency-bound (186 B returned per ~4 kB document read), so concurrency
     # overlaps mongod's disk reads: measured 6.81x warm / 15.3x cold at 8 threads on 500k ids,
-    # byte-identical results. 1 keeps the sequential behaviour.
-    STORAGE_CACHE_FETCH_THREADS: int = 1
+    # byte-identical results. 1 keeps the sequential behaviour. 0 (the default) derives
+    # min(4, max(1, cpu_count // 2)) at config load and logs the resolved value - a
+    # conservative half-step that captures most of the win (2.16x at 2 threads, 3.36x at 4
+    # on the measured fetch) without turning a shared mongod into a contention point.
+    # With N concurrent jobs sharing one mongod, keep N x threads <= pymongo's maxPoolSize
+    # (default 100).
+    STORAGE_CACHE_FETCH_THREADS: int = 0
     # function_ids per $in query. Must stay well under Mongo's 16 MB command limit; smaller
     # slices also give the thread pool something to overlap.
     STORAGE_CACHE_FETCH_SLICE_SIZE: int = 500000
     # limit maximum export size to protect the system against running OOM, default: 1 GB
     STORAGE_MAX_EXPORT_SIZE = 1024 * 1024 * 1024
+
+    def __post_init__(self):
+        super().__post_init__()
+        # resolve derived defaults once, here, so every consumer sees a concrete value and
+        # the resolved value is visible in the log - a silently-binding derived default is
+        # indistinguishable from a fix that does not work
+        if not self.STORAGE_CACHE_FETCH_THREADS:
+            cpu_count = os.cpu_count() or 1
+            self.STORAGE_CACHE_FETCH_THREADS = min(4, max(1, cpu_count // 2))
+            LOGGER.info(
+                "STORAGE_CACHE_FETCH_THREADS resolved to %d (derived from cpu_count=%d)",
+                self.STORAGE_CACHE_FETCH_THREADS,
+                cpu_count,
+            )
 
     @property
     def STORAGE_NUM_BANDS(self):
