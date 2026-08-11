@@ -39,6 +39,11 @@ class StorageConfig(ConfigInterface):
     STORAGE_BANDS: Dict[int, int] = default_field(_default_storage_bands)
     # use a hashmap to cache all banding data - very memory intensive, but great speedups.
     STORAGE_CACHE: bool = False
+    # How getCandidatesForMinHashes accumulates band hits:
+    #  * "dict":  dict[query_fid][candidate_fid] -> count  (stock)
+    #  * "numpy": per-query-function int32 hit arrays + np.unique(return_counts)
+    # Same results either way; "numpy" avoids the ~100 B/pair Python dict and the O(pairs) loop.
+    STORAGE_CANDIDATE_ACCUMULATION: str = "dict"
     # limit maximum export size to protect the system against running OOM, default: 1 GB
     STORAGE_MAX_EXPORT_SIZE = 1024 * 1024 * 1024
 
