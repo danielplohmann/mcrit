@@ -484,7 +484,9 @@ class MemoryStorage(StorageInterface):
         for minhash in minhashes:
             self.addMinHash(minhash)
 
-    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> MatchingCache:
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False, previous: Optional[MatchingCache] = None) -> MatchingCache:
+        # previous is accepted for interface compatibility; MemoryStorage serves from memory
+        # anyway, so there is nothing to retain across batches
         if allow_self_return:
             return StorageBackedMatchingCache(self, function_ids)
         cache_data = self._getCacheDataForFunctionIds(function_ids)

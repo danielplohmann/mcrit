@@ -118,11 +118,9 @@ class MongoDbStorage(StorageInterface):
     _DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
     _database: "Database"
-    _matching_cache: Optional[MatchingCache]
 
     def __init__(self, config: "StorageConfig") -> None:
         super().__init__(config)  # sets config
-        self._matching_cache = None
         self.blockhasher = BlockHasher()
         self._database = None
 
@@ -1098,14 +1096,88 @@ class MongoDbStorage(StorageInterface):
         self._encodeFunction(function_dict)
         return function_dict
 
-    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False) -> MatchingCache:
-        cache_data = self._getCacheDataForFunctionIds(function_ids)
-        # TODO dont store this as attribute
-        self._matching_cache = MatchingCache(cache_data)
-        return self._matching_cache
+    def createMatchingCache(self, function_ids: List[int], allow_self_return: bool = False, previous: Optional[MatchingCache] = None) -> MatchingCache:
+        if not getattr(self._storage_config, "STORAGE_MATCHING_CACHE_PERSIST", False):
+            cache_data = self._getCacheDataForFunctionIds(function_ids)
+            return MatchingCache(cache_data)
+        return self._createIncrementalMatchingCache(function_ids, previous)
+
+    def _createIncrementalMatchingCache(self, function_ids: List[int], previous: Optional[MatchingCache] = None) -> MatchingCache:
+        """Serve a batch from a job-scoped cache, fetching only what is not already held.
+
+        The per-batch rebuild re-fetches the same candidate signatures many times over
+        (measured 1.54x-12.21x on real samples). Retaining them across the batches of one job
+        turns total fetches into the distinct union, and decouples the batch size from I/O
+        cost entirely.
+
+        The cache is owned by the calling matcher, which passes it back in as `previous` on
+        every batch after the first - the storage object holds NO reference to it. One
+        matcher instance is one job (worker) or one request (server), so concurrent matchers
+        on a shared storage can never see each other's entries, evict each other's rows, or
+        overwrite each other's query minhashes (the function_id = -1 collision of #110).
+
+        Only entries fetched from storage are evictable (tracked in cache._evictable).
+        Entries injected by the query matchers via addFunctionEntriesToCache are left alone,
+        and the whole cache dies with the matcher that owns it, so nothing leaks between jobs.
+        """
+        requested = set(function_ids)
+        cache = previous
+        if cache is None:
+            cache = MatchingCache({"func_id_to_minhash": {}, "func_id_to_sample_id": {}, "sample_id_to_func_ids": {}})
+        held = cache._func_id_to_minhash
+        missing = [function_id for function_id in requested if function_id not in held]
+
+        max_entries = getattr(self._storage_config, "STORAGE_MATCHING_CACHE_MAX_ENTRIES", 0)
+        if max_entries:
+            overflow = len(held) + len(missing) - max_entries
+            if overflow > 0:
+                self._evictFromMatchingCache(cache, overflow, protected=requested)
+
+        if missing:
+            cache_data = self._getCacheDataForFunctionIds(missing)
+            fetched_sample_ids = cache_data["func_id_to_sample_id"]
+            for function_id, minhash in cache_data["func_id_to_minhash"].items():
+                cache._setFunctionEntry(function_id, fetched_sample_ids[function_id], minhash)
+                cache._evictable[function_id] = None
+
+        # refresh recency for everything this batch needs, so eviction is least-recently-needed
+        for function_id in requested:
+            if function_id in cache._evictable:
+                cache._evictable.move_to_end(function_id)
+        return cache
+
+    def _evictFromMatchingCache(self, cache: MatchingCache, count: int, protected: Set[int]) -> int:
+        evicted = 0
+        for function_id in list(cache._evictable):
+            if evicted >= count:
+                break
+            if function_id in protected:
+                continue
+            sample_id = cache._func_id_to_sample_id.pop(function_id, None)
+            cache._func_id_to_minhash.pop(function_id, None)
+            if sample_id is not None and sample_id in cache._sample_id_to_func_ids:
+                cache._sample_id_to_func_ids[sample_id].discard(function_id)
+                if not cache._sample_id_to_func_ids[sample_id]:
+                    del cache._sample_id_to_func_ids[sample_id]
+            del cache._evictable[function_id]
+            evicted += 1
+        if evicted:
+            cache.invalidateSignatureMatrix()
+            # the ceiling is otherwise silent when it binds, which has already caused wrong
+            # performance readings - make every eviction visible
+            LOGGER.info(
+                "MatchingCache eviction: evicted %d of %d requested, %d entries retained (ceiling %d)",
+                evicted,
+                count,
+                len(cache._func_id_to_minhash),
+                getattr(self._storage_config, "STORAGE_MATCHING_CACHE_MAX_ENTRIES", 0),
+            )
+        return evicted
 
     def clearMatchingCache(self) -> None:
-        self._matching_cache = None
+        # the matching cache is owned by the matcher that created it and dies with that
+        # matcher; the storage object holds no reference to it, so there is nothing to clear
+        return
 
     def getFamilyId(self, family_name: str) -> Optional[int]:
         family_document = self._getDb().families.find_one({"family_name": family_name})

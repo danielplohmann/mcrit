@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 import numpy as np
 
 
@@ -13,6 +15,10 @@ class MatchingCache:
         self._version = 0
         self._signature_view = None
         self._signature_version = None
+        # function_ids fetched from storage (and therefore evictable), in
+        # least-recently-needed order; lives on the cache so that the cache and its LRU
+        # bookkeeping share one scope - the job/matcher that owns this object
+        self._evictable = OrderedDict()
 
     def invalidateSignatureMatrix(self):
         """Callers that mutate _func_id_to_minhash directly must announce it."""
@@ -110,6 +116,7 @@ class StorageBackedMatchingCache(MatchingCache):
         self._version = 0
         self._signature_view = None
         self._signature_version = None
+        self._evictable = OrderedDict()
         self._func_id_to_minhash = {}
         unique_function_ids = set(function_ids)
         self._func_id_to_sample_id = dict(self._storage.getSampleIdsByFunctionIds(list(unique_function_ids)))

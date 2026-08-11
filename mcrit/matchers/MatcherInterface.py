@@ -68,6 +68,11 @@ class MatcherInterface:
         self._sample_id: Optional[int] = None
         self._progress_reporter = progress_reporter
         self._num_batches = None
+        # job-scoped MatchingCache handle: with STORAGE_MATCHING_CACHE_PERSIST the cache is
+        # retained across this job's batches by passing it back into createMatchingCache as
+        # previous=. It lives on the matcher, never on the shared storage object, so
+        # concurrent jobs/requests cannot see each other's entries (#110).
+        self._matching_cache = None
         self._minhash_threshold = minhash_threshold
         self._exclude_self_matches = exclude_self_matches
         if pichash_size is None:
@@ -120,7 +125,8 @@ class MatcherInterface:
             cache_function_ids.add(candidate_key)
             cache_function_ids.update(candidate_functions)
         LOGGER.info("creating cache for %d functions", len(cache_function_ids))
-        return self._storage.createMatchingCache(cache_function_ids)
+        self._matching_cache = self._storage.createMatchingCache(cache_function_ids, previous=self._matching_cache)
+        return self._matching_cache
 
     ######## Below this line, nothing will be overwritten by Subclasses #########
 
@@ -140,6 +146,16 @@ class MatcherInterface:
     def _getMatchesRoutine(self):
         # Query, VS, Sample
         # All use this version
+        try:
+            return self._getMatchesRoutineInner()
+        finally:
+            # the matching cache may be retained across batches; the job is over either way,
+            # so drop it even if the job raised - a cancelled job (JobProgressReporter raises
+            # from inside the batch loop) would otherwise keep up to
+            # STORAGE_MATCHING_CACHE_MAX_ENTRIES minhashes pinned for this matcher's lifetime.
+            self._matching_cache = None
+
+    def _getMatchesRoutineInner(self):
         pichash_matches = self._harmonizePicHashMatches(self._getPicHashMatches())
         LOGGER.info("Calculated PicHash matches")
         all_minhash_matches = {}
@@ -240,7 +256,6 @@ class MatcherInterface:
         LOGGER.info("Minhash Signature Field Match Counts: " + ", ".join("(%s: %d)" % (float(matches), int(count)) for matches, count in enumerate(score_counts) if count))
         LOGGER.info("Vectorized matching over %d pairs in %d candidate groups", num_pairs, len(candidate_groups))
         matching_results = [k + v for k, v in organized_matching_results.items()]
-        self._storage.clearMatchingCache()
         return matching_results
 
     # Reports PROGRESS
@@ -307,7 +322,6 @@ class MatcherInterface:
         full_score_counts = sorted([(item[0] * 64 / 100, item[1]) for item in dict(counted_scores).items()])
         LOGGER.info("Minhash Signature Field Match Counts: " + ", ".join([f"({i[0]}: {i[1]})" for i in full_score_counts]))
         matching_results = [k + v for k, v in organized_matching_results.items()]
-        self._storage.clearMatchingCache()
         return matching_results
 
     def _countPackedTuples(self, candidate_pairs) -> int:
