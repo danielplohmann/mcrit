@@ -44,6 +44,14 @@ class StorageConfig(ConfigInterface):
     #  * "numpy": per-query-function int32 hit arrays + np.unique(return_counts)
     # Same results either way; "numpy" avoids the ~100 B/pair Python dict and the O(pairs) loop.
     STORAGE_CANDIDATE_ACCUMULATION: str = "dict"
+    # Fetch candidate signatures for the MatchingCache with this many concurrent queries.
+    # The call is latency-bound (186 B returned per ~4 kB document read), so concurrency
+    # overlaps mongod's disk reads: measured 6.81x warm / 15.3x cold at 8 threads on 500k ids,
+    # byte-identical results. 1 keeps the sequential behaviour.
+    STORAGE_CACHE_FETCH_THREADS: int = 1
+    # function_ids per $in query. Must stay well under Mongo's 16 MB command limit; smaller
+    # slices also give the thread pool something to overlap.
+    STORAGE_CACHE_FETCH_SLICE_SIZE: int = 500000
     # limit maximum export size to protect the system against running OOM, default: 1 GB
     STORAGE_MAX_EXPORT_SIZE = 1024 * 1024 * 1024
 
