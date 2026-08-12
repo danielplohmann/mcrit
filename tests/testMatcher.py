@@ -714,5 +714,44 @@ class MatcherTestSuite(unittest.TestCase):
         )
 
 
+class PairBudgetBatchingTestSuite(unittest.TestCase):
+    """MINHASH_MATCHING_MAX_PAIRS packs batches by candidate volume; results must be
+    invariant to how query functions are partitioned into batches."""
+
+    def _matchWith(self, max_pairs, batch_size):
+        from .context import config as base_config
+
+        run_config = deepcopy(base_config)
+        run_config.MINHASH_CONFIG.MINHASH_MATCHING_MAX_PAIRS = max_pairs
+        run_config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE = batch_size
+        index = MinHashIndex(config=run_config)
+        worker = index.queue._worker
+
+        THIS_FILE_PATH = str(os.path.abspath(__file__))
+        PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
+        report_a = SmdaReport.fromFile(os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"]))
+        report_b = SmdaReport.fromFile(os.sep.join([PROJECT_ROOT, "tests", "example_report_2.smda"]))
+        report_b.family = "test_family"
+        entry_b = index._storage.addSmdaReport(report_b)
+        entry_a = index._storage.addSmdaReport(report_a)
+        worker.updateMinHashesForSample(entry_a.sample_id)
+        worker.updateMinHashesForSample(entry_b.sample_id)
+        matcher = MatcherSample(worker)
+        return matcher.getMatchesForSample(entry_a.sample_id)["matches"]
+
+    def testPartitionInvariance(self):
+        # legacy fixed batches, one batch total
+        legacy = self._matchWith(max_pairs=0, batch_size=10000)
+        # legacy, many small batches
+        legacy_small = self._matchWith(max_pairs=0, batch_size=3)
+        # pair budget so small every candidate group flushes alone
+        budget_min = self._matchWith(max_pairs=1, batch_size=10000)
+        # shipped default budget
+        budget_default = self._matchWith(max_pairs=50000000, batch_size=10000)
+        self.assertEqual(legacy, legacy_small)
+        self.assertEqual(legacy, budget_min)
+        self.assertEqual(legacy, budget_default)
+
+
 if __name__ == "__main__":
     unittest.main()

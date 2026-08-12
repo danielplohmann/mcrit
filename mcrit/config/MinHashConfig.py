@@ -32,8 +32,24 @@ class MinHashConfig(ConfigInterface):
     PICHASH_SIZE: int = 10
     # do not perform minhash matching for pichash matches, instead assume they are implied
     PICHASH_IMPLIES_MINHASH_MATCH: bool = True
-    # size of batches for which candidates are processed
+    # size of batches for which candidates are processed. With MINHASH_MATCHING_MAX_PAIRS
+    # active this only bounds how many query functions are banded per storage round trip;
+    # the memory-relevant unit is the pair budget below.
     MINHASH_MATCHING_FUNCTION_BATCH_SIZE: int = 10000
+    # Upper bound on candidate pairs accumulated before a batch is scored. Candidate volume
+    # per query function is extremely skewed (measured p50 ~7, p90 ~220k candidates), so any
+    # fixed function count is simultaneously too big for the tail (peak RSS scales with
+    # pairs: a single 10000-function batch has been measured holding 50M+ pairs / >7 GiB)
+    # and needlessly small for the median. Packing batches to a pair budget caps matcher
+    # memory by construction; a single query function whose candidate set alone exceeds the
+    # budget is scored in a batch of its own, bounding the peak at the widest single group.
+    # The default is a guard against runaway jobs (#69-class: hundreds of millions of pairs)
+    # and leaves typical jobs in one or two batches (measured +2% wall / -6% peak on a
+    # 53M-pair sample). Lower values buy memory with wall time - measured on that sample:
+    # 10M -> -40% peak / +68% wall, 2M -> -49% peak / +203% wall (roughly ~250 B resident
+    # per in-flight pair; below the candidate-union size, batches also evict each other from
+    # the MatchingCache, which is most of the added wall). 0 restores fixed-size batches.
+    MINHASH_MATCHING_MAX_PAIRS: int = 50000000
     # score each query function against its candidates as one (C, L) numpy block instead of
     # per-pair tuples. Same matches, but pair tuples are never materialised, so peak memory
     # goes from O(pairs) to O(widest candidate group). When enabled, the matching phase runs

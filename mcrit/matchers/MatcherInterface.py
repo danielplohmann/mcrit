@@ -155,18 +155,63 @@ class MatcherInterface:
             # STORAGE_MATCHING_CACHE_MAX_ENTRIES minhashes pinned for this matcher's lifetime.
             self._matching_cache = None
 
+    def _iterCandidateGroupBatches(self):
+        """Yield candidate_groups dicts sized for one cache+scoring pass each.
+
+        With MINHASH_MATCHING_MAX_PAIRS > 0, query functions are banded in small chunks and
+        packed into batches by their actual candidate volume, flushing whenever the pending
+        pair count reaches the budget. Peak matcher memory is then bounded by the budget (plus
+        the widest single candidate group) instead of scaling with whatever a fixed count of
+        query functions happens to drag in - candidate volume per query function spans five
+        orders of magnitude on real corpora, so a fixed count cannot bound both sides.
+
+        With the budget disabled (0), the legacy fixed-size batching is preserved verbatim.
+        Progress is reported per banding chunk in budget mode (flush points are data-dependent),
+        per batch in legacy mode.
+        """
+        batch_size = self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE
+        max_pairs = getattr(self._worker.config.MINHASH_CONFIG, "MINHASH_MATCHING_MAX_PAIRS", 0)
+        num_functions = len(self._function_entries)
+        if max_pairs <= 0:
+            quotient, remainder = divmod(num_functions, batch_size)
+            self._num_batches = quotient + int(bool(remainder))  # always round up
+            self._progress_reporter.set_total(self._num_batches)
+            for start_index in range(0, num_functions, batch_size):
+                yield self._createMinHashCandidateGroups(start=start_index, end=start_index + batch_size)
+                if self._num_batches > 1:
+                    self._progress_reporter.step()
+            return
+        # banding itself is index lookups whose transient cost scales with the chunk, so the
+        # chunk only needs to be small enough that accumulation stays cheap - it is not the
+        # memory-relevant knob, the pair budget is.
+        band_chunk = min(batch_size, 1000)
+        quotient, remainder = divmod(num_functions, band_chunk)
+        self._num_batches = quotient + int(bool(remainder))
+        self._progress_reporter.set_total(self._num_batches)
+        pending_groups = {}
+        pending_pairs = 0
+        for start_index in range(0, num_functions, band_chunk):
+            chunk_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index + band_chunk)
+            for function_id, candidates in chunk_groups.items():
+                pending_groups[function_id] = candidates
+                pending_pairs += len(candidates)
+                if pending_pairs >= max_pairs:
+                    LOGGER.info("Pair budget reached (%d pairs, %d query functions), flushing batch", pending_pairs, len(pending_groups))
+                    yield pending_groups
+                    pending_groups = {}
+                    pending_pairs = 0
+            if self._num_batches > 1:
+                self._progress_reporter.step()
+        if pending_groups:
+            yield pending_groups
+
     def _getMatchesRoutineInner(self):
         pichash_matches = self._harmonizePicHashMatches(self._getPicHashMatches())
         LOGGER.info("Calculated PicHash matches")
         all_minhash_matches = {}
         # only do minhashing, if we have bands to evaluate
         if self._band_matches_required > 0:
-            # if we have an exceedingly large number of functions, we need to process in batches...
-            quotient, remainder = divmod(len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
-            self._num_batches = quotient + int(bool(remainder))  # always round up
-            self._progress_reporter.set_total(self._num_batches)
-            for start_index in range(0, len(self._function_entries), self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE):
-                candidate_groups = self._createMinHashCandidateGroups(start=start_index, end=start_index + self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_FUNCTION_BATCH_SIZE)
+            for candidate_groups in self._iterCandidateGroupBatches():
                 LOGGER.info("Created candidate groups from MinHash bands")
                 matching_cache = self._createMatchingCache(candidate_groups)
                 LOGGER.info("Created MatchingCache")
@@ -177,8 +222,6 @@ class MatcherInterface:
                 LOGGER.info("Now starting MinHash matching")
                 minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
                 all_minhash_matches.update(minhash_matches)
-                if self._num_batches > 1:
-                    self._progress_reporter.step()
             LOGGER.info("Calculated MinHash matches.")
         matching_report = self._craftResultDict(pichash_matches, all_minhash_matches)
         LOGGER.info("Returning aggregated match report.")
