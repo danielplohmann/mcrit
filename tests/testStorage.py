@@ -51,6 +51,11 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(1, stats["num_samples"])
         self.assertEqual(10, stats["num_functions"])
         self.assertEqual(10, stats["num_pichashes"])
+        # without pichash aggregation, the field is reported as None instead of a misleading 0
+        stats_without_pichash = self.storage.getStats(with_pichash=False)
+        self.assertEqual(1, stats_without_pichash["num_samples"])
+        self.assertEqual(10, stats_without_pichash["num_functions"])
+        self.assertIsNone(stats_without_pichash["num_pichashes"])
 
     def testFamilyHandling(self):
         self.storage.clearStorage()

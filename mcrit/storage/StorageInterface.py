@@ -608,7 +608,16 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getStats(self) -> Dict[str, Union[int, Dict[int, int]]]:
+    def getStats(self, with_pichash=True) -> Dict[str, Union[int, Dict[int, int]]]:
+        """Get statistics for the stored data, as a dict with counts per type of entry.
+
+        Args:
+            with_pichash: (optional) if False, skip the (potentially expensive) aggregation of
+                unique pichashes and report the field "num_pichashes" as None instead.
+
+        Returns:
+            a dict with statistics describing the stored data
+        """
         raise NotImplementedError
 
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:

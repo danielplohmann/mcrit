@@ -780,7 +780,7 @@ class MemoryStorage(StorageInterface):
                     self._pichashes[function_entry.pichash] = set()
                 self._pichashes[function_entry.pichash].add((function_entry.sample_id, function_entry.function_id))
 
-    def getStats(self) -> Dict[str, Union[int, Dict[int, int]]]:
+    def getStats(self, with_pichash=True) -> Dict[str, Union[int, Dict[int, int]]]:
         stats = {
             "db_state": self._db_state,
             "db_timestamp": self._db_timestamp,
@@ -788,7 +788,8 @@ class MemoryStorage(StorageInterface):
             "num_samples": len(self._samples),
             "num_functions": len(self._functions),
             "num_bands": len(self._bands),
-            "num_pichashes": len(self._pichashes),
+            # None signals "not computed", so that consumers can distinguish it from an actual count of 0
+            "num_pichashes": len(self._pichashes) if with_pichash else None,
         }
         return stats
 
