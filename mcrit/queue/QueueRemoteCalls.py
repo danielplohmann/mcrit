@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from functools import wraps
 from typing import List
 
+import pymongo.errors
+
 # Only do basicConfig if no handlers have been configured
 if len(logging._handlerList) == 0:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
@@ -338,7 +340,12 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
 
     def _executeJob(self, job):
         if time.time() - self.t_last_cleanup >= self.queue.clean_interval:
-            self.queue.clean()
+            try:
+                self.queue.clean()
+            except pymongo.errors.PyMongoError:
+                # periodic housekeeping must not take the worker down with it; the next
+                # interval retries once the database is reachable again
+                LOGGER.error("Queue cleanup failed, deferring to next interval.", exc_info=True)
             self.t_last_cleanup = time.time()
         try:
             with job as j:
@@ -349,17 +356,39 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
                 job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
                 LOGGER.info("Finished Remote Job: %s", job)
         except Exception:
-            pass
+            # the failure may include the Job.__exit__ error() write itself (e.g. the
+            # database went away mid-job), in which case the job is still locked by us
+            # with its release lost - reconcile before the next claim
+            self._needs_lock_reconcile = True
 
     def run(self):
         self._alive = True
+        self._needs_lock_reconcile = False
+        backoff_seconds = 1
         while self._alive:
-            job = self.queue.next()
-            if job:
-                LOGGER.debug("Found job")
-                self._executeJob(job)
-            else:
-                time.sleep(0.1)
+            try:
+                if self._needs_lock_reconcile:
+                    # a previous failure may have left a job locked by this consumer with
+                    # its error() release lost; nothing else reclaims a live worker's locks
+                    # (orphan release only covers unregistered consumers), so release our
+                    # own before claiming anew. Runs BEFORE next() so it can never release
+                    # a job we just claimed. No-op when the release already landed.
+                    self.queue.release_all_jobs()
+                    self._needs_lock_reconcile = False
+                job = self.queue.next()
+                if job:
+                    LOGGER.debug("Found job")
+                    self._executeJob(job)
+                else:
+                    time.sleep(0.1)
+                backoff_seconds = 1
+            except pymongo.errors.PyMongoError:
+                # a transient database outage (e.g. mongod restart during maintenance) must
+                # suspend the worker, not kill it: pymongo re-establishes the connection on
+                # its own once the server is back, so keep polling with a capped backoff
+                LOGGER.error("Queue polling failed, retrying in %d s.", backoff_seconds, exc_info=True)
+                time.sleep(backoff_seconds)
+                backoff_seconds = min(backoff_seconds * 2, 30)
 
     def terminate(self):
         self._alive = False

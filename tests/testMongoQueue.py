@@ -90,6 +90,33 @@ class MongoQueueTest(TestCase):
         self.assertIsNotNone(untouched["locked_at"])
         self.assertEqual(untouched["attempts_left"], self.queue.max_attempts)
 
+    def test_progressor_does_not_resurrect_released_lock(self):
+        # regression test for the half-locked starvation found while reproducing #106:
+        # a progress heartbeat racing a concurrent release must not write locked_at back
+        # onto a job whose locked_by was just cleared - the job would otherwise satisfy
+        # neither "claimable" nor "locked" and starve forever
+        data = {"method": "test_method", "context_id": "alpha", "data": [1]}
+        self.queue.put(data)
+        job = self.queue.next()
+        job.release()
+        job.progressor(count=0.5)
+        document = self.queue.collection.find_one({"_id": job.job_id})
+        self.assertIsNone(document["locked_by"])
+        self.assertEqual(document["progress"], 0.5)
+        reclaimed = self.queue.next()
+        self.assertIsNotNone(reclaimed.job_id)
+
+    def test_next_claims_half_released_job(self):
+        # jobs left half-released by older versions (locked_by None, locked_at set) must
+        # remain claimable: locked_by is the authoritative lock, locked_at its heartbeat
+        data = {"method": "test_method", "context_id": "alpha", "data": [1]}
+        self.queue.put(data)
+        job = self.queue.next()
+        self.queue.collection.update_one({"_id": job.job_id}, {"$set": {"locked_by": None}})
+        reclaimed = self.queue.next()
+        self.assertIsNotNone(reclaimed.job_id)
+        self.assertEqual(reclaimed.job_id, job.job_id)
+
     def test_release(self):
         data = {"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
 
