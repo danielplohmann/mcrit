@@ -9,6 +9,8 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
+import pymongo.errors
+
 from mcrit.config.McritConfig import McritConfig
 from mcrit.minhash.MinHasher import MinHasher
 from mcrit.queue.QueueFactory import QueueFactory
@@ -56,8 +58,14 @@ class SpawningWorker(Worker):
 
     def __exit__(self, *args):
         # TODO unregister our worker_id from all in-progress jobs found in the queue
-        self.queue.unregisterWorker()
-        self.queue.release_all_jobs()
+        try:
+            self.queue.unregisterWorker()
+            self.queue.release_all_jobs()
+        except pymongo.errors.PyMongoError:
+            # best-effort teardown: if the database is unreachable while we exit, orphaned
+            # locks are reclaimed later by release_orphaned_jobs/clean rather than turning
+            # the shutdown itself into a crash
+            LOGGER.error("Could not release jobs on shutdown, queue cleanup will reclaim them.", exc_info=True)
 
     #### NO REDIRECTION: SPAWM SINGLE JOB WORKERS INSTEAD ###
 
@@ -89,21 +97,10 @@ class SpawningWorker(Worker):
         t2.start()
 
         try:
-            stdout_result, stderr_result = console_handle.communicate(timeout=self._queue_config.QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT)
-            stdout_result = stdout_result.strip().decode("utf-8")
-            # TODO: log output from subprocess in the order it arrived
-            # instead of the split to stdout, stderr
-            if stdout_result:
-                LOGGER.info("STDOUT logs from subprocess: %s", stdout_result)
-            if stderr_result:
-                stderr_result = stderr_result.strip().decode("utf-8")
-                LOGGER.info("STDERR logs from subprocess: %s", stderr_result)
-
-            last_line = stdout_result.split("\n")[-1]
-            # successful output should be just the result_id in a single line
-            match = re.match("(?P<result_id>[0-9a-fA-F]{24})", last_line)
-            if match:
-                result_id = match.group("result_id")
+            # the reader threads own the pipes; communicate() would race them for the same
+            # file descriptors (observed as OSError EBADF when a child dies mid-read), so
+            # only wait for the exit code here and let the readers drain the output
+            console_handle.wait(timeout=self._queue_config.QUEUE_SPAWNINGWORKER_CHILDREN_TIMEOUT)
         except subprocess.TimeoutExpired:
             LOGGER.error(f"Job {str(job.job_id)} running as child from SpawningWorker timed out during processing.")
             console_handle.kill()
@@ -120,32 +117,63 @@ class SpawningWorker(Worker):
                     if match:
                         result_id = match.group("result_id")
                         break
-        return result_id
+        return result_id, console_handle.returncode
 
     def _executeJob(self, job):
         if time.time() - self.t_last_cleanup >= self.queue.clean_interval:
-            self.queue.clean()
+            try:
+                self.queue.clean()
+            except pymongo.errors.PyMongoError:
+                # periodic housekeeping must not take the worker down with it; the next
+                # interval retries once the database is reachable again
+                LOGGER.error("Queue cleanup failed, deferring to next interval.", exc_info=True)
             self.t_last_cleanup = time.time()
         try:
             result_id = None
             with job as j:
                 LOGGER.info("Processing Remote Job: %s", job)
-                result_id = self._executeJobPayload(j["payload"], job)
+                result_id, child_returncode = self._executeJobPayload(j["payload"], job)
                 if result_id:
                     # result should have already been persisted by the child process, we repeat it here to close the job for the queue
                     job.result = result_id
                     LOGGER.info("Finished Remote Job with result_id: %s", result_id)
                 else:
-                    LOGGER.info("Failed Running Remote Job: %s", job)
+                    # raising routes the job through Job.__exit__'s error path, which returns
+                    # it to the queue with attempts_left decremented - falling through would
+                    # have __exit__ complete() it, reporting a dead child as a finished job
+                    raise RuntimeError(f"child worker exited (returncode {child_returncode}) without producing a result_id")
         except Exception:
+            # the failure may include the Job.__exit__ error() write itself (e.g. the
+            # database went away mid-job), in which case the job is still locked by us
+            # with its release lost - reconcile before the next claim
+            self._needs_lock_reconcile = True
             LOGGER.error("Error occurred while executing job: %s", job, exc_info=True)
 
     def run(self):
         self._alive = True
+        self._needs_lock_reconcile = False
+        backoff_seconds = 1
         while self._alive:
-            job = self.queue.next()
-            if job:
-                LOGGER.debug("Found job")
-                self._executeJob(job)
-            else:
-                time.sleep(0.1)
+            try:
+                if self._needs_lock_reconcile:
+                    # a previous failure may have left a job locked by this consumer with
+                    # its error() release lost; nothing else reclaims a live worker's locks
+                    # (orphan release only covers unregistered consumers), so release our
+                    # own before claiming anew. Runs BEFORE next() so it can never release
+                    # a job we just claimed. No-op when the release already landed.
+                    self.queue.release_all_jobs()
+                    self._needs_lock_reconcile = False
+                job = self.queue.next()
+                if job:
+                    LOGGER.debug("Found job")
+                    self._executeJob(job)
+                else:
+                    time.sleep(0.1)
+                backoff_seconds = 1
+            except pymongo.errors.PyMongoError:
+                # a transient database outage (e.g. mongod restart during maintenance) must
+                # suspend the worker, not kill it: pymongo re-establishes the connection on
+                # its own once the server is back, so keep polling with a capped backoff
+                LOGGER.error("Queue polling failed, retrying in %d s.", backoff_seconds, exc_info=True)
+                time.sleep(backoff_seconds)
+                backoff_seconds = min(backoff_seconds * 2, 30)

@@ -286,8 +286,10 @@ class MongoQueue:
         current_time = datetime.now()
         job = self._getCollection().find_one_and_update(
             filter={
+                # locked_by is the authoritative lock; locked_at is only its heartbeat
+                # timestamp. Requiring locked_at: None as well would starve any job left in
+                # a half-released state by the progressor/release race (#106 analysis).
                 "locked_by": None,
-                "locked_at": None,
                 "attempts_left": {"$gt": 0},
                 "finished_at": None,
                 "unfinished_dependencies": [],
@@ -303,7 +305,7 @@ class MongoQueue:
 
     def _jobs_to_do(self):
         return self._getCollection().find(
-            filter={"locked_by": None, "locked_at": None, "attempts_left": {"$gt": 0}, "finished_at": None},
+            filter={"locked_by": None, "attempts_left": {"$gt": 0}, "finished_at": None},
             sort=[("priority", pymongo.DESCENDING)],
         )
 
@@ -702,9 +704,19 @@ class Job:
 
     def progressor(self, count=0):
         """note progress on a long running task."""
-        return self._queue.collection.find_one_and_update(
-            filter={"_id": self.job_id}, update={"$set": {"progress": count, "locked_at": datetime.now()}}, return_document=ReturnDocument.AFTER
+        # refresh the lock heartbeat only while the job is actually held: an unconditional
+        # write can race a concurrent release and resurrect locked_at on a job whose
+        # locked_by was just cleared, leaving a half-locked document (observed while
+        # reproducing #106 - the job then starves, invisible to polling forever)
+        updated_job = self._queue.collection.find_one_and_update(
+            filter={"_id": self.job_id, "locked_by": {"$ne": None}},
+            update={"$set": {"progress": count, "locked_at": datetime.now()}},
+            return_document=ReturnDocument.AFTER,
         )
+        if updated_job is None:
+            # the job was released while we were working on it; still record the progress
+            updated_job = self._queue.collection.find_one_and_update(filter={"_id": self.job_id}, update={"$set": {"progress": count}}, return_document=ReturnDocument.AFTER)
+        return updated_job
 
     def release(self):
         """put the job back into_queue."""
