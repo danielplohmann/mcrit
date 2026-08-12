@@ -360,6 +360,45 @@ class MongoDbStorageTest(MemoryStorageTest):
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
 
+    def _createSecondStorage(self):
+        mcrit_config = McritConfig()
+        mcrit_config.STORAGE_CONFIG = self._storage_config
+        mcrit_config.MINHASH_CONFIG = MinHashConfig()
+        mcrit_config.SHINGLER_CONFIG = ShinglerConfig()
+        mcrit_config.QUEUE_CONFIG = QueueConfig()
+        return StorageFactory.getStorage(mcrit_config)
+
+    def testCounterInitIsIdempotent(self):
+        # constructing storage repeatedly against the same database must not add counter documents (#105)
+        self.storage.clearStorage()
+        second_storage = self._createSecondStorage()
+        second_storage._getDb()
+        counters = self.storage._getDb().counters
+        for name in ["query_samples", "query_functions"]:
+            self.assertEqual(1, counters.count_documents({"name": name}))
+
+    def testCounterDuplicateCleanupAndUniqueIndex(self):
+        self.storage.clearStorage()
+        counters = self.storage._getDb().counters
+        # recreate the pre-fix state: non-unique index, one real counter and several {value: 1} duplicates (#105)
+        counters.drop()
+        counters.create_index("name")
+        counters.insert_one({"name": "query_samples", "value": 242})
+        counters.insert_many([{"name": "query_samples", "value": 1} for _ in range(5)])
+        counters.insert_one({"name": "query_functions", "value": 77})
+        counters.insert_many([{"name": "query_functions", "value": 1} for _ in range(5)])
+        second_storage = self._createSecondStorage()
+        second_storage._getDb()
+        # only the highest-valued document survives per name and the index is unique afterwards
+        self.assertEqual(1, counters.count_documents({"name": "query_samples"}))
+        self.assertEqual(242, counters.find_one({"name": "query_samples"})["value"])
+        self.assertEqual(1, counters.count_documents({"name": "query_functions"}))
+        self.assertEqual(77, counters.find_one({"name": "query_functions"})["value"])
+        self.assertTrue(counters.index_information()["name_1"].get("unique", False))
+        # counter increments continue from the real value
+        self.assertEqual(242, self.storage._useCounter("query_samples"))
+        self.assertEqual(243, counters.find_one({"name": "query_samples"})["value"])
+
 
 if __name__ == "__main__":
     main()
