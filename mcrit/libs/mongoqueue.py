@@ -110,6 +110,15 @@ class MongoQueue:
         # should only be called, after self.collection has been initiated
         self.collection.create_index("payload.method")
         self.collection.create_index("payload.descriptor")
+        # serves the polling query in next() and _jobs_to_do(): equality on locked_by/finished_at, then the sort keys
+        self.collection.create_index(
+            [
+                ("locked_by", pymongo.ASCENDING),
+                ("finished_at", pymongo.ASCENDING),
+                ("priority", pymongo.DESCENDING),
+                ("created_at", pymongo.ASCENDING),
+            ]
+        )
         self.fs_files.create_index("metadata.sha256")
 
     def _identifyJobState(self, doc):
@@ -303,7 +312,7 @@ class MongoQueue:
             filter={
                 "locked_by": {"$ne": None},
                 "locked_at": {"$ne": None},
-                "attempts_left": {"gt": 0},
+                "attempts_left": {"$gt": 0},
                 "finished_at": None,
             },
             sort=[("priority", pymongo.DESCENDING)],

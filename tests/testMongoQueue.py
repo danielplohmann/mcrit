@@ -116,6 +116,24 @@ class MongoQueueTest(TestCase):
         stats = self.queue.stats()
         self.assertEqual({"available": 5, "total": 5, "locked": 0, "errors": 0}, stats)
 
+    def test_ensure_indices(self):
+        self.queue._getCollection()
+        index_information = self.queue.collection.index_information()
+        self.assertIn("locked_by_1_finished_at_1_priority_-1_created_at_1", index_information)
+        self.assertEqual(
+            [("locked_by", 1), ("finished_at", 1), ("priority", -1), ("created_at", 1)],
+            index_information["locked_by_1_finished_at_1_priority_-1_created_at_1"]["key"],
+        )
+
+    def test_jobs_in_progress(self):
+        self.queue.put({"method": "test_method", "name": "alice"})
+        self.queue.put({"method": "test_method", "name": "bob"})
+        self.assertEqual(0, len(list(self.queue._jobs_in_progress())))
+        job = self.queue.next()
+        jobs_in_progress = list(self.queue._jobs_in_progress())
+        self.assertEqual(1, len(jobs_in_progress))
+        self.assertEqual(job.job_id, jobs_in_progress[0]["_id"])
+
     def test_context_manager_error(self):
         self.queue.put({"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()})
         job = self.queue.next()
