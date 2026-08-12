@@ -2,6 +2,7 @@ import datetime
 import json
 import logging
 import re
+import threading
 import traceback
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -124,18 +125,28 @@ class MongoDbStorage(StorageInterface):
         super().__init__(config)  # sets config
         self.blockhasher = BlockHasher()
         self._database = None
+        # guards the lazy initialisation in _getDb(); a threading.Lock is per-process, which is
+        # what we want: forking servers (gunicorn) fork before the first request, so every child
+        # inherits an unlocked copy and synchronises its own threads independently
+        self._database_lock = threading.Lock()
 
     def _getDb(self):
         # because of gunicorn and forking workers, we want to delay creation of MongoClient until actual usage and avoid it within __init__()
         if self._database is None:
-            self._initDb(
-                self._storage_config.STORAGE_SERVER,
-                self._storage_config.STORAGE_PORT,
-                self._storage_config.STORAGE_MONGODB_DBNAME,
-                self._storage_config.STORAGE_MONGODB_USERNAME,
-                self._storage_config.STORAGE_MONGODB_PASSWORD,
-                self._storage_config.STORAGE_MONGODB_FLAGS,
-            )
+            # double-checked locking: the server shares one storage object across all request
+            # threads, and two threads arriving cold must not both construct a MongoClient (#109).
+            # _initDb assigns self._database before ensuring indexes, so its re-entrant _getDb
+            # calls take the fast path above and do not deadlock on this non-reentrant lock.
+            with self._database_lock:
+                if self._database is None:
+                    self._initDb(
+                        self._storage_config.STORAGE_SERVER,
+                        self._storage_config.STORAGE_PORT,
+                        self._storage_config.STORAGE_MONGODB_DBNAME,
+                        self._storage_config.STORAGE_MONGODB_USERNAME,
+                        self._storage_config.STORAGE_MONGODB_PASSWORD,
+                        self._storage_config.STORAGE_MONGODB_FLAGS,
+                    )
         return self._database
 
     def _initDb(self, server, port, db_name, username="", password="", flags=""):
@@ -179,9 +190,15 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["logs"].create_index("username")
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             self._getDb()["band_%d" % band_id].create_index("band_hash")
-        # Add Family "" if it is not already in storage
-        if self.getFamily(0) is None:
-            self.addFamily("")
+        # Add Family "" (family_id 0) if it is not already in storage. Two processes can bootstrap
+        # the same database concurrently (e.g. server and worker), so instead of check-then-addFamily
+        # (which would hand out two different family_ids for "") this uses a single upsert keyed on
+        # family_id. First push the families counter past 0 so addFamily can never hand out id 0.
+        self._getDb().counters.find_one_and_update(filter={"name": "families"}, update={"$max": {"value": 1}}, upsert=True)
+        unknown_family = FamilyEntry(family_name="", family_id=0)
+        upsert_result = self._getDb()["families"].update_one({"family_id": 0}, {"$setOnInsert": unknown_family.toDict()}, upsert=True)
+        if upsert_result.upserted_id is not None:
+            self._updateDbState()
         assert self.getFamily(0).family_name == ""
 
     def _removeCounterDuplicates(self) -> None:
