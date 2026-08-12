@@ -163,14 +163,20 @@ class MongoDbStorage(StorageInterface):
         if "settings" not in self._getDb().list_collection_names():
             self._getDb()["settings"].insert_one({"mcrit_db_id": str(uuid.uuid4()), "db_state": 0})
         self._getDb()["samples"].create_index("sample_id")
+        self._getDb()["samples"].create_index("sha256")
+        self._getDb()["samples"].create_index("family_id")
         self._getDb()["families"].create_index("family_id")
+        self._getDb()["families"].create_index("family_name")
         self._getDb()["functions"].create_index("function_id")
         self._getDb()["functions"].create_index("sample_id")
+        self._getDb()["functions"].create_index("family_id")
+        self._getDb()["functions"].create_index("function_name")
         self._getDb()["functions"].create_index("_pichash")
         self._getDb()["functions"].create_index("_picblockhashes.hash")
         self._getDb()["functions"].create_index("_picblockhashes.offset")
         # stored without guarantee of existence
         self._getDb()["query_samples"].create_index("sample_id")
+        self._getDb()["query_samples"].create_index("sha256")
         self._getDb()["query_functions"].create_index("function_id")
         self._getDb()["query_functions"].create_index("sample_id")
         # ensure that their counters are at least 1, so that they never contain items with sample_id/function_id 0

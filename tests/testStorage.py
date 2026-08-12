@@ -420,6 +420,18 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual(17, counters.find_one({"name": "job"})["value"])
         self.assertTrue(counters.index_information()["name_1"].get("unique", False))
 
+    def testStorageInitializationCreatesIndexes(self):
+        expected_indexed_fields = {
+            "samples": {"sample_id", "sha256", "family_id"},
+            "families": {"family_id", "family_name"},
+            "functions": {"function_id", "sample_id", "family_id", "function_name", "_pichash", "_picblockhashes.hash", "_picblockhashes.offset"},
+            "query_samples": {"sample_id", "sha256"},
+        }
+        for collection, expected_fields in expected_indexed_fields.items():
+            index_information = self.storage._getDb()[collection].index_information()
+            indexed_fields = set(key for index in index_information.values() for key, _direction in index["key"])
+            self.assertTrue(expected_fields.issubset(indexed_fields), f"missing indexes on {collection}: {expected_fields - indexed_fields}")
+
 
 if __name__ == "__main__":
     main()
