@@ -450,6 +450,28 @@ class MongoDbStorageTest(MemoryStorageTest):
         # the regular sample collection must remain unaffected
         self.assertEqual(None, self.storage.getSampleBySha256(smda_report.sha256))
 
+    def testRebuildMinhashBandIndexMatchesIncrementalBands(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        self.storage.addSmdaReport(smda_report)
+        # give a subset of the 10 functions minhashes, leave the others unhashed
+        minhashes = [MinHash(function_id=function_id, minhash_signature=[0x30 + function_id + index for index in range(10)], minhash_bits=8) for function_id in [0, 2, 3, 5, 7, 8]]
+        self.storage.addMinHashes(minhashes)
+        band_collections = ["band_%d" % band_id for band_id in range(self._storage_config.STORAGE_NUM_BANDS)]
+
+        def dumpBands():
+            return {
+                collection: sorted((document["band_hash"], sorted(document["function_ids"])) for document in self.storage._getDb()[collection].find({}, {"_id": 0}))
+                for collection in band_collections
+            }
+
+        bands_before = dumpBands()
+        # a batch size of 2 forces the rebuild through multiple keyset pages
+        self.storage._minhash_config.MINHASH_BAND_REBUILD_WORK_PACKAGE_SIZE = 2
+        rebuild_result = self.storage.rebuildMinhashBandIndex()
+        self.assertEqual(len(minhashes), rebuild_result["minhash_functions_indexed"])
+        self.assertEqual(bands_before, dumpBands())
+
 
 if __name__ == "__main__":
     main()

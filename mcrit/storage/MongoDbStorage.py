@@ -1381,9 +1381,16 @@ class MongoDbStorage(StorageInterface):
         batch_size = self._minhash_config.MINHASH_BAND_REBUILD_WORK_PACKAGE_SIZE
         if progress_reporter:
             progress_reporter.set_total((total_functions // batch_size) + 1)
-        for start_index in range(0, total_functions, batch_size):
+        # keyset paging on the indexed function_id, as skip() would walk and discard all skipped documents on every batch
+        last_function_id = None
+        while True:
+            batch_query = {} if last_function_id is None else {"function_id": {"$gt": last_function_id}}
+            function_documents = list(self._getDb().functions.find(batch_query, {"function_id": 1, "minhash": 1, "_id": 0}).sort("function_id", 1).limit(batch_size))
+            if not function_documents:
+                break
+            last_function_id = function_documents[-1]["function_id"]
             minhashes = []
-            for function_document in self._getDb().functions.find({}, {"function_id": 1, "minhash": 1, "_id": 0}).skip(start_index).limit(batch_size):
+            for function_document in function_documents:
                 if function_document["minhash"]:
                     function_id = function_document["function_id"]
                     minhash_bytes = bytes.fromhex(function_document["minhash"])
