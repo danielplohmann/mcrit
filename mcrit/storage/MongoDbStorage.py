@@ -163,11 +163,19 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["query_functions"].create_index("function_id")
         self._getDb()["query_functions"].create_index("sample_id")
         # ensure that their counters are at least 1, so that they never contain items with sample_id/function_id 0
-        self._getDb().counters.find_one_and_update(filter={"name": "query_samples", "value": 0}, update={"$inc": {"value": 1}}, upsert=True)
-        self._getDb().counters.find_one_and_update(filter={"name": "query_functions", "value": 0}, update={"$inc": {"value": 1}}, upsert=True)
+        # the name-only filter with $max is idempotent: it matches an existing counter instead of upserting a duplicate (#105)
+        self._getDb().counters.update_one({"name": "query_samples"}, {"$max": {"value": 1}}, upsert=True)
+        self._getDb().counters.update_one({"name": "query_functions"}, {"$max": {"value": 1}}, upsert=True)
         self._getDb()["matches"].create_index("match_id")
         self._getDb()["candidates"].create_index("function_id")
-        self._getDb()["counters"].create_index("name")
+        # duplicates must be removed before the unique index can be built on databases polluted by #105
+        self._removeCounterDuplicates()
+        # counters.name must be unique so that _useCounterBulk can never increment a stale duplicate and re-issue ids;
+        # older instances created this index without the constraint, in which case it has to be replaced
+        counter_indexes = self._getDb()["counters"].index_information()
+        if "name_1" in counter_indexes and not counter_indexes["name_1"].get("unique", False):
+            self._getDb()["counters"].drop_index("name_1")
+        self._getDb()["counters"].create_index("name", unique=True)
         self._getDb()["logs"].create_index("username")
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             self._getDb()["band_%d" % band_id].create_index("band_hash")
@@ -175,6 +183,17 @@ class MongoDbStorage(StorageInterface):
         if self.getFamily(0) is None:
             self.addFamily("")
         assert self.getFamily(0).family_name == ""
+
+    def _removeCounterDuplicates(self) -> None:
+        # one-off cleanup for #105: releases before 1.6.2 upserted a fresh {name, value: 1} document on every
+        # process start once the counter had advanced - only the highest-valued document per name is the real counter
+        for name in ["query_samples", "query_functions"]:
+            counter_documents = list(self._getDb().counters.find({"name": name}).sort("value", -1))
+            if len(counter_documents) <= 1:
+                continue
+            duplicate_ids = [document["_id"] for document in counter_documents[1:]]
+            delete_result = self._getDb().counters.delete_many({"_id": {"$in": duplicate_ids}})
+            LOGGER.info("Removed %d duplicate counter documents for '%s' (#105).", delete_result.deleted_count, name)
 
     ###############################################################################
     # Generic database functionality and logging
