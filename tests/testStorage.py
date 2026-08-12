@@ -178,6 +178,15 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(new_report_d.sample_id, 4)
         self.assertTrue(self.storage.isFunctionId(49))
 
+    def testGetSampleBySha256(self):
+        self.storage.clearStorage()
+        # an empty collection must yield None straight from the lookup, without a count-based emptiness guard
+        self.assertEqual(None, self.storage.getSampleBySha256(64 * "0"))
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        sample_entry = self.storage.addSmdaReport(smda_report)
+        self.assertEqual(sample_entry.sample_id, self.storage.getSampleBySha256(smda_report.sha256).sample_id)
+        self.assertEqual(None, self.storage.getSampleBySha256(64 * "0"))
+
     def testFunctionHandling(self):
         self.storage.clearStorage()
         # TODO use SmdaReport.fromFile
@@ -431,6 +440,15 @@ class MongoDbStorageTest(MemoryStorageTest):
             index_information = self.storage._getDb()[collection].index_information()
             indexed_fields = set(key for index in index_information.values() for key, _direction in index["key"])
             self.assertTrue(expected_fields.issubset(indexed_fields), f"missing indexes on {collection}: {expected_fields - indexed_fields}")
+
+    def testGetSampleBySha256ForQuerySamples(self):
+        self.storage.clearStorage()
+        self.assertEqual(None, self.storage.getSampleBySha256(64 * "0", is_query=True))
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        query_entry = self.storage.addSmdaReport(smda_report, isQuery=True)
+        self.assertEqual(query_entry.sample_id, self.storage.getSampleBySha256(smda_report.sha256, is_query=True).sample_id)
+        # the regular sample collection must remain unaffected
+        self.assertEqual(None, self.storage.getSampleBySha256(smda_report.sha256))
 
 
 if __name__ == "__main__":
