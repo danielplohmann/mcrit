@@ -649,15 +649,11 @@ class MongoDbStorage(StorageInterface):
     def getSampleBySha256(self, sha256: str, is_query=False) -> Optional["SampleEntry"]:
         target_sample = None
         if is_query:
-            if self._getDb().query_samples.count_documents(filter={}):
-                report_dict = self._getDb().query_samples.find_one({"sha256": sha256})
-                if report_dict:
-                    target_sample = SampleEntry.fromDict(report_dict)
+            report_dict = self._getDb().query_samples.find_one({"sha256": sha256})
         else:
-            if self._getDb().samples.count_documents(filter={}):
-                report_dict = self._getDb().samples.find_one({"sha256": sha256})
-                if report_dict:
-                    target_sample = SampleEntry.fromDict(report_dict)
+            report_dict = self._getDb().samples.find_one({"sha256": sha256})
+        if report_dict:
+            target_sample = SampleEntry.fromDict(report_dict)
         return target_sample
 
     def updateFunctionLabels(self, smda_report: "SmdaReport", username) -> Optional["SampleEntry"]:
