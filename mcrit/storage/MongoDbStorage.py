@@ -1285,8 +1285,10 @@ class MongoDbStorage(StorageInterface):
     def getStats(self, with_pichash=True) -> Dict:
         # we will have to work around using .aggregate(), as a collection with unique pic hashes will easily exceed 16M
         # https://stackoverflow.com/questions/20348093/mongodb-aggregation-how-to-get-total-records-count
-        num_unique_pichashes = 0
+        # None signals "not computed", so that consumers can distinguish it from an actual count of 0
+        num_unique_pichashes = None
         if with_pichash:
+            num_unique_pichashes = 0
             for result in self._getDb().functions.aggregate([{"$group": {"_id": "$_pichash"}}, {"$count": "Total"}]):
                 num_unique_pichashes = result["Total"]
         # use family statistics to derive relevant values
