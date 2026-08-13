@@ -106,12 +106,15 @@ class MongoSearchTranspiler(BaseVisitor):
             except Exception:
                 pass
         mongo_operator = operator_to_mongo[node.operator]
+        if node.field == "pichash" and mongo_operator in ("$lt", "$lte", "$gt", "$gte"):
+            # pichashes are stored as hex strings, on which range comparisons are not meaningful
+            raise ValueError("Range operators are not supported for the field 'pichash'.")
         if mongo_operator is None:
             condition = {node.field: value}
         else:
             condition = {node.field: {mongo_operator: value}}
-        # TODO: fix
-        MongoDbStorage._encodePichash(None, condition)
+        if node.field == "pichash":
+            MongoDbStorage._encodePichash(condition)
         return condition
 
 
@@ -321,21 +324,29 @@ class MongoDbStorage(StorageInterface):
     # Conversion
     ###############################################################################
 
-    def _encodeXcfg(self, function_dict: Dict, delete_old: bool = True) -> None:
+    @staticmethod
+    def _encodeXcfg(function_dict: Dict, delete_old: bool = True) -> None:
         if "xcfg" in function_dict:
             function_dict["_xcfg"] = json.dumps(function_dict["xcfg"])
             if delete_old:
                 del function_dict["xcfg"]
 
-    def _decodeXcfg(self, function_dict: Dict, delete_old: bool = True) -> None:
+    @staticmethod
+    def _decodeXcfg(function_dict: Dict, delete_old: bool = True) -> None:
         if "_xcfg" in function_dict:
             function_dict["xcfg"] = json.loads(function_dict["_xcfg"])
             if delete_old:
                 del function_dict["_xcfg"]
 
-    def _encodePichash(self, function_dict: Dict, delete_old: bool = True) -> None:
+    @staticmethod
+    def _encodePichash(function_dict: Dict, delete_old: bool = True) -> None:
         if "pichash" in function_dict:
-            function_dict["_pichash"] = hex(function_dict["pichash"])
+            value = function_dict["pichash"]
+            # search conditions wrap the value in an operator dict, e.g. {"$ne": 0x1234}
+            if isinstance(value, dict):
+                function_dict["_pichash"] = {k: hex(v) if isinstance(v, int) else v for k, v in value.items()}
+            else:
+                function_dict["_pichash"] = hex(value)
             if delete_old:
                 del function_dict["pichash"]
         if "picblockhashes" in function_dict:
@@ -350,9 +361,14 @@ class MongoDbStorage(StorageInterface):
             if delete_old:
                 del function_dict["picblockhashes"]
 
-    def _decodePichash(self, function_dict: Dict, delete_old: bool = True) -> None:
+    @staticmethod
+    def _decodePichash(function_dict: Dict, delete_old: bool = True) -> None:
         if "_pichash" in function_dict:
-            function_dict["pichash"] = int(function_dict["_pichash"], 16)
+            value = function_dict["_pichash"]
+            if isinstance(value, dict):
+                function_dict["pichash"] = {k: int(v, 16) if isinstance(v, str) else v for k, v in value.items()}
+            else:
+                function_dict["pichash"] = int(value, 16)
             if delete_old:
                 del function_dict["_pichash"]
         if "_picblockhashes" in function_dict:
@@ -367,13 +383,15 @@ class MongoDbStorage(StorageInterface):
             if delete_old:
                 del function_dict["_picblockhashes"]
 
-    def _encodeFunction(self, function_dict: Dict, delete_old: bool = True) -> None:
-        self._encodePichash(function_dict, delete_old=delete_old)
-        self._encodeXcfg(function_dict, delete_old=delete_old)
+    @staticmethod
+    def _encodeFunction(function_dict: Dict, delete_old: bool = True) -> None:
+        MongoDbStorage._encodePichash(function_dict, delete_old=delete_old)
+        MongoDbStorage._encodeXcfg(function_dict, delete_old=delete_old)
 
-    def _decodeFunction(self, function_dict: Dict, delete_old: bool = True) -> None:
-        self._decodePichash(function_dict, delete_old=delete_old)
-        self._decodeXcfg(function_dict, delete_old=delete_old)
+    @staticmethod
+    def _decodeFunction(function_dict: Dict, delete_old: bool = True) -> None:
+        MongoDbStorage._decodePichash(function_dict, delete_old=delete_old)
+        MongoDbStorage._decodeXcfg(function_dict, delete_old=delete_old)
 
     ###############################################################################
     # Interface
