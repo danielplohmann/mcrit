@@ -77,7 +77,7 @@ class SampleResource:
             return
         # sanitize sample information
         information_update = req.media
-        if "family_name" in information_update and not re.match("^(?=[a-zA-Z0-9._\-]{0,64}$)(?!.*[\-_.]{2})[^\-_.].*[^\-_.]$", information_update["family_name"]):
+        if "family_name" in information_update and not re.match(r"^(?=[a-zA-Z0-9._\-]{0,64}$)(?!.*[\-_.]{2})[^\-_.].*[^\-_.]$", information_update["family_name"]):
             resp.data = jsonify({"status": "failed", "data": {"message": "family_name may be 0-64 alphanumeric chars with single dots, dashes, underscores inbetween."}})
             db_log_msg(self.index, req, "SampleResource.on_put - failed - invalid family name.")
             return
