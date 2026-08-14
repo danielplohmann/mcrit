@@ -25,6 +25,96 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logging.disable(logging.CRITICAL)
 
 
+# MinHash values depend on how SMDA escapes instructions, so a new SMDA release can shift a
+# signature element and with it a match score, without any change in mcrit (measured: smda
+# 4.4.4 -> 4.4.5 moved exactly one of 64 elements on one fixture function, 65.625 -> 67.1875).
+# Freezing scores here therefore pins the test suite to an SMDA version. Instead, mark such
+# values MINHASH_SCORE and resolve them at assert time from the very minhashes that were
+# stored, so the expectation tracks SMDA while still pinning what this suite is about:
+# which functions match which, with what flags, and that the reported score is exactly the
+# score of that pair. Everything not derived from a minhash stays a literal.
+MINHASH_SCORE = "<score derived from the stored minhashes of the matched pair>"
+
+
+def score_from_minhashes(own_minhash, foreign_minhash, minhash_bits):
+    """Percentage of identical signature fields, computed independently of production code.
+
+    Deliberately does not call MinHash.calculateMinHashScore: deriving the expectation from
+    the very function under test would make this a mirror rather than a check.
+    """
+    field_width = 1 if minhash_bits <= 8 else minhash_bits // 8
+    own_fields = [own_minhash[index : index + field_width] for index in range(0, len(own_minhash), field_width)]
+    foreign_fields = [foreign_minhash[index : index + field_width] for index in range(0, len(foreign_minhash), field_width)]
+    assert len(own_fields) == len(foreign_fields)
+    matching_fields = sum(1 for own_field, foreign_field in zip(own_fields, foreign_fields) if own_field == foreign_field)
+    return 100.0 * matching_fields / len(own_fields)
+
+
+def resolve_expected_matches(expected_functions, storage, minhash_bits, extra_minhashes=None):
+    """Replace MINHASH_SCORE placeholders with the score of the matched pair.
+
+    `extra_minhashes` supplies minhashes the storage cannot answer for - query functions
+    live on the matcher, not in the database.
+    """
+    extra_minhashes = extra_minhashes or {}
+
+    def lookup(function_id):
+        minhash = extra_minhashes.get(function_id) or storage.getMinHashByFunctionId(function_id)
+        if not minhash:
+            raise AssertionError("no minhash available for function %d, cannot derive expected score" % function_id)
+        return minhash
+
+    resolved = deepcopy(expected_functions)
+    for function_data in resolved:
+        own_minhash = lookup(function_data["fid"])
+        rebuilt_matches = []
+        for match in function_data["matches"]:
+            family_id, sample_id, foreign_function_id, score, flags = match
+            if score is MINHASH_SCORE:
+                foreign_minhash = lookup(foreign_function_id)
+                score = score_from_minhashes(own_minhash, foreign_minhash, minhash_bits)
+            rebuilt_matches.append((family_id, sample_id, foreign_function_id, score, flags))
+        function_data["matches"] = rebuilt_matches
+    return resolved
+
+
+# Byte/percent aggregates that weight matched bytes by their match score inherit the same
+# SMDA sensitivity as the scores themselves (measured: one shifted signature element moved
+# frequency_weighted by 16.36 of 4486.94 bytes, i.e. 0.36%). Compare those with a small
+# relative tolerance and everything else - counts, unweighted bytes, ids, names - exactly,
+# so a weighting regression (which would be a factor, not a fraction of a percent) still
+# fails while SMDA drift does not.
+SCORE_DERIVED_KEYS = {
+    "score_weighted",
+    "frequency_weighted",
+    "nonlib_score_weighted",
+    "nonlib_frequency_weighted",
+}
+SCORE_DERIVED_TOLERANCE = 0.02
+
+
+def assert_sample_summaries_equal(test_case, actual_summaries, expected_summaries):
+    test_case.assertEqual(len(actual_summaries), len(expected_summaries))
+    for actual, expected in zip(actual_summaries, expected_summaries):
+        test_case.assertEqual(set(actual), set(expected))
+        for key, expected_value in expected.items():
+            if key != "matched":
+                test_case.assertEqual(actual[key], expected_value, "%s of sample %s" % (key, expected.get("sample_id")))
+                continue
+            for group, expected_group in expected_value.items():
+                for field, expected_field in expected_group.items():
+                    actual_field = actual["matched"][group][field]
+                    if field in SCORE_DERIVED_KEYS:
+                        test_case.assertAlmostEqual(
+                            actual_field,
+                            expected_field,
+                            delta=max(abs(expected_field) * SCORE_DERIVED_TOLERANCE, 1e-9),
+                            msg="matched.%s.%s of sample %s" % (group, field, expected.get("sample_id")),
+                        )
+                    else:
+                        test_case.assertEqual(actual_field, expected_field, "matched.%s.%s of sample %s" % (group, field, expected.get("sample_id")))
+
+
 class MatcherTestSuite(unittest.TestCase):
     """Run a full example on a memory dump"""
 
@@ -62,8 +152,8 @@ class MatcherTestSuite(unittest.TestCase):
             "fid": 9,
             "matches": [
                 (0, 2, 19, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
-                (1, 0, 0, 84.375, IS_MINHASH_FLAG),
-                (2, 3, 22, 84.375, IS_MINHASH_FLAG),
+                (1, 0, 0, MINHASH_SCORE, IS_MINHASH_FLAG),
+                (2, 3, 22, MINHASH_SCORE, IS_MINHASH_FLAG),
             ],
             "num_bytes": 354.0,
             "num_instructions": 120,
@@ -74,7 +164,7 @@ class MatcherTestSuite(unittest.TestCase):
             "fid": 11,
             "matches": [
                 (0, 2, 20, 100.0, IS_MINHASH_FLAG + IS_PICHASH_FLAG + IS_LIBRARY_FLAG),
-                (1, 0, 1, 92.1875, IS_MINHASH_FLAG),
+                (1, 0, 1, MINHASH_SCORE, IS_MINHASH_FLAG),
             ],
             "num_bytes": 638.0,
             "num_instructions": 207,
@@ -89,7 +179,7 @@ class MatcherTestSuite(unittest.TestCase):
         },
         {
             "fid": 13,
-            "matches": [(1, 0, 3, 67.1875, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 3, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 1047.0,
             "num_instructions": 365,
             "offset": 1172,
@@ -98,21 +188,21 @@ class MatcherTestSuite(unittest.TestCase):
         {"num_bytes": 524.0, "num_instructions": 159, "offset": 2256, "matches": [], "fid": 15},
         {
             "fid": 16,
-            "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 5, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 915.0,
             "num_instructions": 287,
             "offset": 2780,
         },
         {
             "fid": 17,
-            "matches": [(1, 0, 6, 98.4375, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 6, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 727.0,
             "num_instructions": 226,
             "offset": 3696,
         },
         {
             "fid": 18,
-            "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 7, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 1850.0,
             "num_instructions": 543,
             "offset": 4424,
@@ -123,7 +213,7 @@ class MatcherTestSuite(unittest.TestCase):
         {
             "fid": 9,
             "matches": [
-                (1, 0, 0, 84.375, IS_MINHASH_FLAG),
+                (1, 0, 0, MINHASH_SCORE, IS_MINHASH_FLAG),
             ],
             "num_bytes": 354.0,
             "num_instructions": 120,
@@ -133,7 +223,7 @@ class MatcherTestSuite(unittest.TestCase):
         {
             "fid": 11,
             "matches": [
-                (1, 0, 1, 92.1875, IS_MINHASH_FLAG),
+                (1, 0, 1, MINHASH_SCORE, IS_MINHASH_FLAG),
             ],
             "num_bytes": 638.0,
             "num_instructions": 207,
@@ -150,7 +240,7 @@ class MatcherTestSuite(unittest.TestCase):
         },
         {
             "fid": 13,
-            "matches": [(1, 0, 3, 67.1875, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 3, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 1047.0,
             "num_instructions": 365,
             "offset": 1172,
@@ -159,21 +249,21 @@ class MatcherTestSuite(unittest.TestCase):
         {"num_bytes": 524.0, "num_instructions": 159, "offset": 2256, "matches": [], "fid": 15},
         {
             "fid": 16,
-            "matches": [(1, 0, 5, 84.375, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 5, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 915.0,
             "num_instructions": 287,
             "offset": 2780,
         },
         {
             "fid": 17,
-            "matches": [(1, 0, 6, 98.4375, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 6, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 727.0,
             "num_instructions": 226,
             "offset": 3696,
         },
         {
             "fid": 18,
-            "matches": [(1, 0, 7, 67.1875, IS_MINHASH_FLAG)],
+            "matches": [(1, 0, 7, MINHASH_SCORE, IS_MINHASH_FLAG)],
             "num_bytes": 1850.0,
             "num_instructions": 543,
             "offset": 4424,
@@ -403,8 +493,11 @@ class MatcherTestSuite(unittest.TestCase):
 
         self.assertEqual(result["matches"]["aggregation"]["pichash"], self.pichash_aggregation_expected_vs)
         self.assertEqual(result["matches"]["aggregation"]["minhash"], self.minhash_aggregation_expected_vs)
-        self.assertEqual(result["matches"]["functions"], self.function_matches_expected_vs)
-        self.assertEqual(result["matches"]["samples"], [self.sample_summary_entry_expected_vs])
+        self.assertEqual(
+            result["matches"]["functions"],
+            resolve_expected_matches(self.function_matches_expected_vs, index._storage, config.MINHASH_CONFIG.MINHASH_SIGNATURE_BITS),
+        )
+        assert_sample_summaries_equal(self, result["matches"]["samples"], [self.sample_summary_entry_expected_vs])
 
     def testMatcherVsGroup(self):
         index = MinHashIndex(config=config)
@@ -447,12 +540,15 @@ class MatcherTestSuite(unittest.TestCase):
         for function_data in self.function_matches_expected_vs:
             if function_data["fid"] == 9:
                 matches = function_data["matches"]
-                matches.append((2, 3, 22, 84.375, 1))
+                matches.append((2, 3, 22, MINHASH_SCORE, 1))
                 function_data["matches"] = matches
                 function_matches_expected_vs_group.append(function_data)
             else:
                 function_matches_expected_vs_group.append(function_data)
-        self.assertEqual(result["matches"]["functions"], function_matches_expected_vs_group)
+        self.assertEqual(
+            result["matches"]["functions"],
+            resolve_expected_matches(function_matches_expected_vs_group, index._storage, config.MINHASH_CONFIG.MINHASH_SIGNATURE_BITS),
+        )
         sample_3_match_result = {
             "family": "test_family_b",
             "family_id": 2,
@@ -485,7 +581,7 @@ class MatcherTestSuite(unittest.TestCase):
             },
         }
         sample_summary_entry_expected_vs_group = [deepcopy(self.sample_summary_entry_expected_vs), sample_3_match_result]
-        self.assertEqual(result["matches"]["samples"], sample_summary_entry_expected_vs_group)
+        assert_sample_summaries_equal(self, result["matches"]["samples"], sample_summary_entry_expected_vs_group)
 
     def testMatcherSample(self):
         index = MinHashIndex(config=config)
@@ -526,9 +622,13 @@ class MatcherTestSuite(unittest.TestCase):
 
         self.assertEqual(result["matches"]["aggregation"]["minhash"], self.minhash_aggregation_expected)
         self.assertEqual(result["matches"]["aggregation"]["pichash"], self.pichash_aggregation_expected)
-        self.assertEqual(result["matches"]["functions"], self.function_matches_expected)
-        self.maxDiff = None
         self.assertEqual(
+            result["matches"]["functions"],
+            resolve_expected_matches(self.function_matches_expected, index._storage, config.MINHASH_CONFIG.MINHASH_SIGNATURE_BITS),
+        )
+        self.maxDiff = None
+        assert_sample_summaries_equal(
+            self,
             result["matches"]["samples"],
             [
                 self.sample_summary_lib_entry_expected,
@@ -589,9 +689,18 @@ class MatcherTestSuite(unittest.TestCase):
         json.dumps(sorted(result["matches"]["functions"], key=lambda x: x["fid"]), indent=1)
         self.assertEqual(
             sorted(result["matches"]["functions"], key=lambda x: x["fid"]),
-            sorted(function_matches_expected, key=lambda x: x["fid"]),
+            sorted(
+                resolve_expected_matches(
+                    function_matches_expected,
+                    index._storage,
+                    config.MINHASH_CONFIG.MINHASH_SIGNATURE_BITS,
+                    extra_minhashes={entry.function_id: entry.minhash for entry in matcher._function_entries},
+                ),
+                key=lambda x: x["fid"],
+            ),
         )
-        self.assertEqual(
+        assert_sample_summaries_equal(
+            self,
             result["matches"]["samples"],
             [
                 self.sample_summary_lib_entry_expected,
