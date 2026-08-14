@@ -212,9 +212,18 @@ class MongoQueue:
         """Clear out stale locks.
 
         Increments per job attempt counter.
+
+        NOTE: this currently has no callers. Before wiring it up, be aware that the
+        staleness threshold only means what it says for jobs that refresh their lock:
+        `locked_at` is only bumped by Job.progressor(), and a matcher running as a single
+        batch never steps its progress reporter, so a long job can look "stale" while it
+        is healthily running. Reclaiming it would decrement attempts_left underneath a
+        live worker.
         """
         self._getCollection().find_one_and_update(
-            filter={"locked_by": {"$ne": None}, "locked_at": {"$lt": datetime.now() - timedelta(self.timeout)}},
+            # timedelta()'s first positional argument is DAYS: the timeout, which is
+            # seconds everywhere else (QUEUE_TIMEOUT, default 300), has to be named
+            filter={"locked_by": {"$ne": None}, "locked_at": {"$lt": datetime.now() - timedelta(seconds=self.timeout)}},
             update={"$set": {"locked_by": None, "locked_at": None}, "$inc": {"attempts_left": -1}},
         )
 
