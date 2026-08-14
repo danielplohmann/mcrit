@@ -2,7 +2,7 @@ import logging
 import os
 import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest import TestCase
 
 import pymongo
@@ -60,6 +60,35 @@ class MongoQueueTest(TestCase):
         job = self.queue.next()
         job.complete()
         self.assertEqual(self.queue.size(), 0)
+
+    def test_repair_uses_seconds_not_days(self):
+        # timedelta()'s first positional argument is days, so the seconds-denominated
+        # timeout (QUEUE_TIMEOUT, default 300) used to describe 300 DAYS and repair()
+        # could never reclaim anything
+        data = {"method": "test_method", "context_id": "alpha", "data": [1]}
+        self.queue.put(data)
+        job = self.queue.next()
+        self.assertIsNotNone(job.job_id)
+        # age the lock past the timeout without touching anything else
+        stale_locked_at = datetime.now() - timedelta(seconds=self.queue.timeout + 60)
+        self.queue.collection.update_one({"_id": job.job_id}, {"$set": {"locked_at": stale_locked_at}})
+        self.queue.repair()
+        repaired = self.queue.collection.find_one({"_id": job.job_id})
+        self.assertIsNone(repaired["locked_by"])
+        self.assertIsNone(repaired["locked_at"])
+        self.assertEqual(repaired["attempts_left"], self.queue.max_attempts - 1)
+        # and the job is claimable again
+        self.assertIsNotNone(self.queue.next().job_id)
+
+    def test_repair_leaves_fresh_locks_alone(self):
+        data = {"method": "test_method", "context_id": "alpha", "data": [1]}
+        self.queue.put(data)
+        job = self.queue.next()
+        self.queue.repair()
+        untouched = self.queue.collection.find_one({"_id": job.job_id})
+        self.assertEqual(untouched["locked_by"], self.queue.consumer_id)
+        self.assertIsNotNone(untouched["locked_at"])
+        self.assertEqual(untouched["attempts_left"], self.queue.max_attempts)
 
     def test_release(self):
         data = {"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()}
