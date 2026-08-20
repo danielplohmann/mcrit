@@ -5,11 +5,13 @@ import logging
 import os
 import unittest
 from copy import deepcopy
+from types import SimpleNamespace
 
 from smda.common.SmdaReport import SmdaReport
 
 from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.matchers.MatcherFlags import IS_LIBRARY_FLAG, IS_MINHASH_FLAG, IS_PICHASH_FLAG
+from mcrit.matchers.MatcherInterface import MatcherInterface
 from mcrit.matchers.MatcherQuery import MatcherQuery
 from mcrit.matchers.MatcherSample import MatcherSample
 
@@ -751,6 +753,40 @@ class PairBudgetBatchingTestSuite(unittest.TestCase):
         self.assertEqual(legacy, legacy_small)
         self.assertEqual(legacy, budget_min)
         self.assertEqual(legacy, budget_default)
+
+    def testFunctionBatchSizeRemainsACeiling(self):
+        # a lowered MINHASH_MATCHING_FUNCTION_BATCH_SIZE must keep bounding how many query functions
+        # share a batch, or hosts sized per docs/TUNING.md would silently get batches packed to the
+        # (much larger) global pair budget instead
+        candidates_per_function = 100
+        num_functions = 5000
+
+        class StubReporter:
+            def set_total(self, total):
+                pass
+
+            def step(self):
+                pass
+
+        class StubMatcher:
+            def __init__(self, batch_size, max_pairs):
+                minhash_config = deepcopy(config.MINHASH_CONFIG)
+                minhash_config.MINHASH_MATCHING_FUNCTION_BATCH_SIZE = batch_size
+                minhash_config.MINHASH_MATCHING_MAX_PAIRS = max_pairs
+                self._worker = SimpleNamespace(config=SimpleNamespace(MINHASH_CONFIG=minhash_config))
+                self._function_entries = [None] * num_functions
+                self._progress_reporter = StubReporter()
+                self._num_batches = None
+
+            def _createMinHashCandidateGroups(self, start, end):
+                end = min(end, num_functions)
+                return {function_id: set(range(function_id * candidates_per_function, (function_id + 1) * candidates_per_function)) for function_id in range(start, end)}
+
+        for batch_size in (200, 500, 10000):
+            stub = StubMatcher(batch_size, max_pairs=50000000)
+            batches = [len(groups) for groups in MatcherInterface._iterCandidateGroupBatches(stub)]
+            self.assertEqual(num_functions, sum(batches))
+            self.assertLessEqual(max(batches), batch_size, f"batch size {batch_size} stopped bounding the batch")
 
 
 if __name__ == "__main__":
