@@ -195,8 +195,17 @@ class MatcherInterface:
             for function_id, candidates in chunk_groups.items():
                 pending_groups[function_id] = candidates
                 pending_pairs += len(candidates)
-                if pending_pairs >= max_pairs:
-                    LOGGER.info("Pair budget reached (%d pairs, %d query functions), flushing batch", pending_pairs, len(pending_groups))
+                # The configured function batch size stays an upper bound on how many query functions
+                # share a batch. The pair budget is the better memory bound and binds first on wide
+                # candidate sets, but it is a single global default: without this ceiling, a deployment
+                # that lowered MINHASH_MATCHING_FUNCTION_BATCH_SIZE to fit a small host would silently
+                # get batches packed all the way to the budget instead (measured: 5000 query functions
+                # at 100 candidates each and batch size 200 went from 25 batches of 20k pairs to one
+                # batch of 500k). Honouring both keeps the knob documented in docs/TUNING.md meaningful
+                # while the budget still guards the tail.
+                if pending_pairs >= max_pairs or len(pending_groups) >= batch_size:
+                    limit_reached = "pair budget" if pending_pairs >= max_pairs else "function batch size"
+                    LOGGER.info("Flushing batch, %s reached (%d pairs, %d query functions)", limit_reached, pending_pairs, len(pending_groups))
                     yield pending_groups
                     pending_groups = {}
                     pending_pairs = 0

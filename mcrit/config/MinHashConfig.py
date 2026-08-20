@@ -43,6 +43,9 @@ class MinHashConfig(ConfigInterface):
     # and needlessly small for the median. Packing batches to a pair budget caps matcher
     # memory by construction; a single query function whose candidate set alone exceeds the
     # budget is scored in a batch of its own, bounding the peak at the widest single group.
+    # Batches are also capped at MINHASH_MATCHING_FUNCTION_BATCH_SIZE query functions, so lowering
+    # that knob still lowers peak memory as documented in docs/TUNING.md; the budget bounds the tail
+    # that a function count cannot.
     # The default is a guard against runaway jobs (#69-class: hundreds of millions of pairs)
     # and leaves typical jobs in one or two batches (measured +2% wall / -6% peak on a
     # 53M-pair sample). Lower values buy memory with wall time - measured on that sample:
