@@ -399,6 +399,27 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual(242, self.storage._useCounter("query_samples"))
         self.assertEqual(243, counters.find_one({"name": "query_samples"})["value"])
 
+    def testCounterDuplicateCleanupCoversEveryName(self):
+        # the unique index is built over the whole collection, so the cleanup has to be too: duplicates under any
+        # other counter name (all of them are written by name-only upserts, and mongoqueue's "job" counter shares
+        # this collection) would otherwise fail the index build and take storage initialisation down with it (#105)
+        self.storage.clearStorage()
+        counters = self.storage._getDb().counters
+        counters.drop()
+        counters.create_index("name")
+        counters.insert_one({"name": "functions", "value": 500})
+        counters.insert_many([{"name": "functions", "value": 1} for _ in range(3)])
+        counters.insert_one({"name": "job", "value": 17})
+        counters.insert_one({"name": "job", "value": 1})
+        second_storage = self._createSecondStorage()
+        # initialisation has to succeed rather than raise DuplicateKeyError while building the unique index
+        second_storage._getDb()
+        self.assertEqual(1, counters.count_documents({"name": "functions"}))
+        self.assertEqual(500, counters.find_one({"name": "functions"})["value"])
+        self.assertEqual(1, counters.count_documents({"name": "job"}))
+        self.assertEqual(17, counters.find_one({"name": "job"})["value"])
+        self.assertTrue(counters.index_information()["name_1"].get("unique", False))
+
 
 if __name__ == "__main__":
     main()

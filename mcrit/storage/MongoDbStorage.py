@@ -186,8 +186,13 @@ class MongoDbStorage(StorageInterface):
 
     def _removeCounterDuplicates(self) -> None:
         # one-off cleanup for #105: releases before 1.6.2 upserted a fresh {name, value: 1} document on every
-        # process start once the counter had advanced - only the highest-valued document per name is the real counter
-        for name in ["query_samples", "query_functions"]:
+        # process start once the counter had advanced - only the highest-valued document per name is the real counter.
+        # Every name present is checked, not just the two that #105 duplicated: all counters are written by name-only
+        # upserts (samples/functions/families here, "job" from mongoqueue, which shares this collection whenever queue
+        # and storage use the same database - they do by default), so a concurrent first-touch can duplicate any of
+        # them. A single leftover duplicate under any name would fail the unique index build below and take startup
+        # down with it, so the cleanup has to cover the whole collection rather than a fixed list.
+        for name in self._getDb().counters.distinct("name"):
             counter_documents = list(self._getDb().counters.find({"name": name}).sort("value", -1))
             if len(counter_documents) <= 1:
                 continue
