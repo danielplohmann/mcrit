@@ -23,6 +23,12 @@ if TYPE_CHECKING:
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
+# Grace period for the stdout/stderr reader threads to drain their pipes after the child has
+# exited. They see EOF as soon as the last writer closes, so this only expires if something
+# still holds the inherited descriptors (e.g. a surviving grandchild of the job process) - in
+# which case the worker must give up on the output rather than block its poll loop forever.
+OUTPUT_READER_JOIN_TIMEOUT = 30
+
 
 class SpawningWorker(Worker):
     def __init__(self, queue=None, config=None, storage: Optional["StorageInterface"] = None, profiling=False):
@@ -106,8 +112,16 @@ class SpawningWorker(Worker):
             console_handle.kill()
             console_handle.wait()
 
-        t1.join()
-        t2.join()
+        t1.join(timeout=OUTPUT_READER_JOIN_TIMEOUT)
+        t2.join(timeout=OUTPUT_READER_JOIN_TIMEOUT)
+        if t1.is_alive() or t2.is_alive():
+            # proceeding with a possibly truncated stdout can cost us the result_id, which routes
+            # the job through the error path and retries it - the right trade against hanging here
+            LOGGER.error(
+                "Output readers for job %s did not finish within %d s after the child exited; continuing with the output collected so far.",
+                str(job.job_id),
+                OUTPUT_READER_JOIN_TIMEOUT,
+            )
 
         if stdout_lines:
             # Search backwards for result_id in case there are trailing empty lines or other output

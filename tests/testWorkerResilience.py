@@ -56,6 +56,55 @@ class WorkerResilienceTestSuite(unittest.TestCase):
         self.assertIsNotNone(exit_types[0], "a dead child must route the job through the error path, not complete()")
         self.assertTrue(issubclass(exit_types[0], RuntimeError))
 
+    def testStuckOutputReadersDoNotBlockTheWorker(self):
+        # the reader threads own the pipes and see EOF when the last writer closes them, but a
+        # surviving grandchild of the job process keeps the inherited descriptors open - joining
+        # them unbounded would hang the poll loop, so the join is capped and the worker moves on
+        worker, _queue = self._makeWorker()
+        job = MagicMock()
+        release_readers = threading.Event()
+
+        class BlockingPipe:
+            def readline(self):
+                # blocks like a pipe with no writer closing it, until the test releases it
+                release_readers.wait()
+                return b""
+
+            def close(self):
+                pass
+
+        class ExitedChildWithLivePipes:
+            returncode = 0
+
+            def __init__(self):
+                self.stdout = BlockingPipe()
+                self.stderr = BlockingPipe()
+
+            def wait(self, timeout=None):
+                return self.returncode
+
+            def kill(self):
+                pass
+
+        result = {}
+
+        def call():
+            result["returned"] = worker._executeJobPayload({}, job)
+
+        with (
+            patch("mcrit.SpawningWorker.subprocess.Popen", return_value=ExitedChildWithLivePipes()),
+            patch("mcrit.SpawningWorker.OUTPUT_READER_JOIN_TIMEOUT", 0.2),
+        ):
+            call_thread = threading.Thread(target=call)
+            call_thread.start()
+            call_thread.join(timeout=15)
+            still_running = call_thread.is_alive()
+            release_readers.set()
+            call_thread.join(timeout=15)
+        self.assertFalse(still_running, "_executeJobPayload must not block on readers that cannot finish")
+        # no result_id could be parsed, so the caller fails the job and the queue retries it
+        self.assertEqual((None, 0), result["returned"])
+
     def testSuccessfulChildStillCompletes(self):
         worker, queue = self._makeWorker()
         worker.t_last_cleanup = 10**12
