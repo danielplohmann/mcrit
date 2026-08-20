@@ -473,5 +473,85 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual(bands_before, dumpBands())
 
 
+@pytest.mark.mongo
+class MongoDbXcfgSplitTest(TestCase):
+    """The disassembly split (#137): `_xcfg` lives in its own collection keyed by function id,
+    and every reader that carried it before must still hand callers the same shape."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.example_file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "example_report.smda")
+
+    def setUp(self):
+        config = McritConfig()
+        config.STORAGE_CONFIG = StorageConfig(STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB, STORAGE_MONGODB_DBNAME="test_xcfg_split_mcrit")
+        config.MINHASH_CONFIG = MinHashConfig()
+        config.SHINGLER_CONFIG = ShinglerConfig()
+        self.storage = StorageFactory.getStorage(config)
+        self.storage.clearStorage()
+        report = SmdaReport.fromFile(self.example_file_path)
+        report.family = "xcfg_split"
+        self.sample_entry = self.storage.addSmdaReport(report)
+
+    def testBlobsLiveOutsideTheFunctionDocuments(self):
+        db = self.storage._getDb()
+        self.assertEqual(db.functions.count_documents({}), db.xcfg.count_documents({}))
+        for function_document in db.functions.find({}, {"_id": 0}):
+            self.assertNotIn("_xcfg", function_document)
+        # keyed by function id, so no secondary index is needed for the lookup
+        self.assertEqual(
+            sorted(document["_id"] for document in db.xcfg.find({}, {"_id": 1})),
+            sorted(document["function_id"] for document in db.functions.find({}, {"function_id": 1, "_id": 0})),
+        )
+
+    def testReadersThatCarriedTheBlobStillDo(self):
+        functions = self.storage.getFunctionsBySampleId(self.sample_entry.sample_id)
+        self.assertTrue(functions)
+        # feeds Worker.calculateMinHashes and the code-reference extraction in match reports
+        self.assertTrue(all(entry.xcfg for entry in functions))
+        unhashed = self.storage.getUnhashedFunctions()
+        self.assertTrue(unhashed)
+        self.assertTrue(all(entry.xcfg for entry in unhashed))
+        paged = self.storage.getFunctions(0, 5)
+        self.assertTrue(paged)
+        self.assertTrue(all(entry.xcfg for entry in paged))
+
+    def testWithXcfgFlagStillGatesTheBlob(self):
+        function_id = self.storage.getFunctionsBySampleId(self.sample_entry.sample_id)[0].function_id
+        self.assertIsNone(self.storage.getFunctionById(function_id).xcfg)
+        self.assertNotEqual({}, self.storage.getFunctionById(function_id, with_xcfg=True).xcfg)
+
+    def testDroppedDisassemblyReadsAsEmptyDictNotNone(self):
+        # None means "not requested", {} means "dropped" - the distinction the pre-split code
+        # preserved by blanking the field in place instead of removing it
+        function_id = self.storage.getFunctionsBySampleId(self.sample_entry.sample_id)[0].function_id
+        self.storage.deleteXcfgForSampleId(self.sample_entry.sample_id)
+        self.assertEqual(0, self.storage._getDb().xcfg.count_documents({}))
+        self.assertEqual({}, self.storage.getFunctionById(function_id, with_xcfg=True).xcfg)
+
+    def testDeleteXcfgDataDropsTheCollection(self):
+        self.assertGreater(self.storage._getDb().xcfg.count_documents({}), 0)
+        self.storage.deleteXcfgData()
+        self.assertEqual(0, self.storage._getDb().xcfg.count_documents({}))
+
+    def testDeleteSampleTakesItsBlobsWithIt(self):
+        self.assertGreater(self.storage._getDb().xcfg.count_documents({}), 0)
+        self.storage.deleteSample(self.sample_entry.sample_id)
+        self.assertEqual(0, self.storage._getDb().functions.count_documents({}))
+        self.assertEqual(0, self.storage._getDb().xcfg.count_documents({}))
+
+    def testQueryFunctionsUseTheirOwnBlobCollection(self):
+        report = SmdaReport.fromFile(self.example_file_path)
+        report.sha256 = 64 * "e"
+        query_entry = self.storage.addSmdaReport(report, isQuery=True)
+        db = self.storage._getDb()
+        self.assertGreater(db.query_xcfg.count_documents({}), 0)
+        self.assertTrue(all(document["_id"] < 0 for document in db.query_xcfg.find({}, {"_id": 1})))
+        query_function_id = self.storage.getFunctionsBySampleId(query_entry.sample_id)[0].function_id
+        self.assertNotEqual({}, self.storage.getFunctionById(query_function_id, with_xcfg=True).xcfg)
+        self.storage.deleteSample(query_entry.sample_id)
+        self.assertEqual(0, db.query_xcfg.count_documents({}))
+
+
 if __name__ == "__main__":
     main()

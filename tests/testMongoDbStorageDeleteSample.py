@@ -49,7 +49,10 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         )
         samples = FakeCollection()
         families = FakeCollection()
-        self.storage._database = FakeDb(functions=functions, samples=samples, families=families)
+        # deleting a sample also removes the disassembly split out of the function documents (#137)
+        xcfg = FakeCollection()
+        query_xcfg = FakeCollection()
+        self.storage._database = FakeDb(functions=functions, samples=samples, families=families, xcfg=xcfg, query_xcfg=query_xcfg)
         self.storage.getSampleById = MethodType(
             lambda _self, sample_id: SimpleNamespace(
                 family_id=1,
