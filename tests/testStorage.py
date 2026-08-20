@@ -473,10 +473,7 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual(bands_before, dumpBands())
 
 
-if __name__ == "__main__":
-    main()
-
-
+@pytest.mark.mongo
 class MongoDbXcfgSplitTest(TestCase):
     """The disassembly split (#137): `_xcfg` lives in its own collection keyed by function id,
     and every reader that carried it before must still hand callers the same shape."""
@@ -554,3 +551,7 @@ class MongoDbXcfgSplitTest(TestCase):
         self.assertNotEqual({}, self.storage.getFunctionById(query_function_id, with_xcfg=True).xcfg)
         self.storage.deleteSample(query_entry.sample_id)
         self.assertEqual(0, db.query_xcfg.count_documents({}))
+
+
+if __name__ == "__main__":
+    main()
