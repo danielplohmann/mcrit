@@ -360,6 +360,7 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
             # database went away mid-job), in which case the job is still locked by us
             # with its release lost - reconcile before the next claim
             self._needs_lock_reconcile = True
+            LOGGER.error("Error occurred while executing job: %s", job, exc_info=True)
 
     def run(self):
         self._alive = True
