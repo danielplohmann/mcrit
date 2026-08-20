@@ -380,6 +380,64 @@ class MongoDbStorage(StorageInterface):
             if delete_old:
                 del function_dict["_xcfg"]
 
+    def _xcfgCollectionFor(self, function_id: int) -> str:
+        """Disassembly lives beside the function collection it belongs to, not mixed into one
+        collection keyed by sign (#137). Query functions carry negative ids."""
+        return "query_xcfg" if function_id < 0 else "xcfg"
+
+    def _extractXcfgDocuments(self, function_dicts: List[Dict]) -> Dict[str, List[Dict]]:
+        """Move `_xcfg` out of function documents into standalone documents, keyed by
+        collection name (#137).
+
+        `_id` IS the function id: no secondary index is needed, the lookup is the primary key,
+        and per-document overhead stays minimal. The function documents are mutated in place so
+        the caller inserts them without the blob.
+        """
+        extracted = {}
+        for function_dict in function_dicts:
+            blob = function_dict.pop("_xcfg", None)
+            if not blob:
+                continue
+            collection = self._xcfgCollectionFor(function_dict["function_id"])
+            extracted.setdefault(collection, []).append({"_id": function_dict["function_id"], "_xcfg": blob})
+        return extracted
+
+    def _insertXcfgDocuments(self, function_dicts: List[Dict]) -> None:
+        for collection, documents in self._extractXcfgDocuments(function_dicts).items():
+            self._dbInsertMany(collection, documents)
+
+    def _fetchXcfgBlobs(self, function_ids: List[int]) -> Dict[int, str]:
+        """One `$in` per collection for a whole batch of ids - never one query per function,
+        which is the N+1 shape #111 removed elsewhere."""
+        blobs = {}
+        for collection in ("xcfg", "query_xcfg"):
+            ids = [function_id for function_id in function_ids if self._xcfgCollectionFor(function_id) == collection]
+            if not ids:
+                continue
+            for document in self._getDb()[collection].find({"_id": {"$in": ids}}):
+                blobs[document["_id"]] = document["_xcfg"]
+        return blobs
+
+    def _attachXcfgBlobs(self, function_documents: List[Dict]) -> None:
+        """Put the split-out disassembly back onto function documents, one query per batch.
+
+        Used by the readers that carried `_xcfg` before the split, so their callers keep seeing
+        the same shape: minhash computation (Worker.calculateMinHashes) and the code-reference
+        extraction in match reports both read FunctionEntry.xcfg. Missing blobs decode to `{}`,
+        never None - see getFunctionById for why that distinction matters.
+        """
+        if not function_documents:
+            return
+        blobs = self._fetchXcfgBlobs([document["function_id"] for document in function_documents])
+        for function_document in function_documents:
+            function_document["_xcfg"] = blobs.get(function_document["function_id"], "{}")
+
+    def _deleteXcfgForFunctionIds(self, function_ids: List[int]) -> None:
+        for collection in ("xcfg", "query_xcfg"):
+            ids = [function_id for function_id in function_ids if self._xcfgCollectionFor(function_id) == collection]
+            if ids:
+                self._getDb()[collection].delete_many({"_id": {"$in": ids}})
+
     def _encodePichash(self, function_dict: Dict, delete_old: bool = True) -> None:
         if "pichash" in function_dict:
             function_dict["_pichash"] = hex(function_dict["pichash"])
@@ -474,6 +532,8 @@ class MongoDbStorage(StorageInterface):
             return False
         if sample_id < 0:
             # remove functions
+            query_function_ids = [document["function_id"] for document in self._getDb().query_functions.find({"sample_id": sample_id}, {"function_id": 1, "_id": 0})]
+            self._deleteXcfgForFunctionIds(query_function_ids)
             self._getDb().query_functions.delete_many({"sample_id": sample_id})
             # remove sample
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
@@ -498,6 +558,7 @@ class MongoDbStorage(StorageInterface):
         # update family stats
         self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove functions
+        self._deleteXcfgForFunctionIds([function_minhash["function_id"] for function_minhash in function_minhashes])
         self._getDb().functions.delete_many({"sample_id": sample_id})
         # remove sample
         self._getDb().samples.delete_one({"sample_id": sample_id})
@@ -639,7 +700,9 @@ class MongoDbStorage(StorageInterface):
         return sample_entries
 
     def clearStorage(self) -> None:
-        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions"]
+        # "xcfg"/"query_xcfg" hold the disassembly split out of the function documents (#137);
+        # leaving them behind while the counters reset would collide on _id at the next insert
+        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions", "xcfg", "query_xcfg"]
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
@@ -697,6 +760,7 @@ class MongoDbStorage(StorageInterface):
             function_dicts = []
             for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
                 function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, -1 * function_id))
+            self._insertXcfgDocuments(function_dicts)
             self._dbInsertMany("query_functions", function_dicts)
         else:
             if not self.getSampleBySha256(smda_report.sha256):
@@ -707,6 +771,7 @@ class MongoDbStorage(StorageInterface):
                 function_dicts = []
                 for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
                     function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, function_id))
+                self._insertXcfgDocuments(function_dicts)
                 self._dbInsertMany("functions", function_dicts)
                 self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
                 self._updateDbState()
@@ -733,6 +798,7 @@ class MongoDbStorage(StorageInterface):
         # add function to regular storage
         function_dict = function_entry.toDict()
         self._encodeFunction(function_dict)
+        self._insertXcfgDocuments([function_dict])
         self._dbInsert("functions", function_dict)
         return function_entry
 
@@ -748,6 +814,7 @@ class MongoDbStorage(StorageInterface):
             function_dict = function_entry.toDict()
             self._encodeFunction(function_dict)
             functions_as_dicts.append(function_dict)
+        self._insertXcfgDocuments(functions_as_dicts)
         self._dbInsertMany("functions", functions_as_dicts)
         return function_entries
 
@@ -759,6 +826,7 @@ class MongoDbStorage(StorageInterface):
         else:
             function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0}))
         functions = []
+        self._attachXcfgBlobs(function_dicts)
         for f in function_dicts:
             self._decodeFunction(f)
             functions.append(FunctionEntry.fromDict(f))
@@ -795,7 +863,9 @@ class MongoDbStorage(StorageInterface):
 
     def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
         functions = []
-        for function_document in self._getDb().functions.find().skip(start_index).limit(limit):
+        function_documents = list(self._getDb().functions.find().skip(start_index).limit(limit))
+        self._attachXcfgBlobs(function_documents)
+        for function_document in function_documents:
             self._decodeFunction(function_document)
             functions.append(FunctionEntry.fromDict(function_document))
         return functions
@@ -1107,10 +1177,13 @@ class MongoDbStorage(StorageInterface):
         ]
 
     def deleteXcfgForSampleId(self, sample_id: int) -> None:
-        self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"_xcfg": "{}"}})
+        function_ids = [document["function_id"] for document in self._getDb().functions.find({"sample_id": sample_id}, {"function_id": 1, "_id": 0})]
+        self._deleteXcfgForFunctionIds(function_ids)
 
     def deleteXcfgData(self) -> None:
-        self._getDb().functions.update_many({}, {"$set": {"_xcfg": "{}"}})
+        # dropping the collection reclaims the space, where blanking the field in place did not:
+        # STORAGE_DROP_DISASSEMBLY now genuinely shrinks the instance (#137)
+        self._getDb()["xcfg"].drop()
 
     # TODO move to storage interface, remove this from memory storage?
     def getLibraryInfoForSampleId(self, sample_id: int) -> Optional[Dict[str, str]]:
@@ -1287,14 +1360,20 @@ class MongoDbStorage(StorageInterface):
 
     def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional["FunctionEntry"]:
         field_selection = {"_id": 0}
-        if not with_xcfg:
-            field_selection["_xcfg"] = 0
         if function_id < 0:
             function_document = self._getDb().query_functions.find_one({"function_id": function_id}, field_selection)
         else:
             function_document = self._getDb().functions.find_one({"function_id": function_id}, field_selection)
         if not function_document:
             return None
+        if with_xcfg:
+            # the blob lives in its own collection now (#137); inject it so _decodeFunction
+            # and FunctionEntry see exactly the shape they saw before the split
+            # "{}" when no blob is stored, so the caller still gets an empty dict rather than
+            # None: xcfg is None means "not requested", {} means "disassembly dropped". Before
+            # the split that distinction came from the field being blanked in place instead of
+            # removed, and it is part of the contract (tests/testStorage.py).
+            function_document["_xcfg"] = self._fetchXcfgBlobs([function_id]).get(function_id) or "{}"
         self._decodeFunction(function_document)
         return FunctionEntry.fromDict(function_document)
 
@@ -1357,13 +1436,19 @@ class MongoDbStorage(StorageInterface):
         search_query = {}
         if function_ids is not None:
             search_query = {"function_id": {"$in": list(function_ids)}}
+        pending_documents = []
         for function_document in self._getDb().functions.find(search_query, {"_id": 0}):
-            if function_document["minhash"] == "":
-                if only_function_ids:
-                    unhashed_functions.append(function_document["function_id"])
-                else:
-                    self._decodeFunction(function_document)
-                    unhashed_functions.append(FunctionEntry.fromDict(function_document))
+            if function_document["minhash"] != "":
+                continue
+            if only_function_ids:
+                unhashed_functions.append(function_document["function_id"])
+            else:
+                pending_documents.append(function_document)
+        # this feeds minhash computation, which needs the disassembly
+        self._attachXcfgBlobs(pending_documents)
+        for function_document in pending_documents:
+            self._decodeFunction(function_document)
+            unhashed_functions.append(FunctionEntry.fromDict(function_document))
         return unhashed_functions
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):
@@ -1443,7 +1528,11 @@ class MongoDbStorage(StorageInterface):
         xcfg_missing = 0
         for sample_id, sample_info in samples_to_be_updated.items():
             pic_hash_updates = []
-            for function_document in self._getDb().functions.find({"sample_id": sample_id}, {"function_id": 1, "_pichash": 1, "_picblockhashes": 1, "_xcfg": 1, "_id": 0}):
+            sample_function_documents = list(self._getDb().functions.find({"sample_id": sample_id}, {"function_id": 1, "_pichash": 1, "_picblockhashes": 1, "_id": 0}))
+            # one $in for the whole sample rather than a lookup per function (#137)
+            sample_xcfg_blobs = self._fetchXcfgBlobs([document["function_id"] for document in sample_function_documents])
+            for function_document in sample_function_documents:
+                function_document["_xcfg"] = sample_xcfg_blobs.get(function_document["function_id"], "")
                 update_document = {}
                 functions_updatable += 1
                 # create all relevant objects
@@ -1574,8 +1663,11 @@ class MongoDbStorage(StorageInterface):
             if entry["function_id"] not in function_id_to_block_offsets:
                 function_id_to_block_offsets[entry["function_id"]] = []
             function_id_to_block_offsets[entry["function_id"]].append((entry["offset"], picblockhash))
-        for entry in self._getDb().functions.find({"function_id": {"$in": list(function_id_to_block_offsets.keys())}}, {"function_id": 1, "_xcfg": 1, "_id": 0}):
+        block_function_ids = list(function_id_to_block_offsets.keys())
+        block_xcfg_blobs = self._fetchXcfgBlobs(block_function_ids)
+        for entry in self._getDb().functions.find({"function_id": {"$in": block_function_ids}}, {"function_id": 1, "_id": 0}):
             function_id = entry["function_id"]
+            entry["_xcfg"] = block_xcfg_blobs.get(function_id, "{}")
             self._decodeXcfg(entry)
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 candidate_picblockhashes[picblockhash]["instructions"] = entry["xcfg"]["blocks"][str(block_offset)]
@@ -1637,7 +1729,7 @@ class MongoDbStorage(StorageInterface):
         search_fields = ["function_name"]
         query = self._get_search_query(search_fields, search_tree, cursor)
         sort_list = self._get_sort_list_from_cursor(cursor)
-        for function_document in self._getDb().functions.find(query, {"_id": 0, "_xcfg": 0}, sort=sort_list, limit=max_num_results):
+        for function_document in self._getDb().functions.find(query, {"_id": 0}, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
             entry = FunctionEntry.fromDict(function_document)
             result_dict[entry.function_id] = entry
