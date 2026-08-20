@@ -101,7 +101,11 @@ def assert_sample_summaries_equal(test_case, actual_summaries, expected_summarie
             if key != "matched":
                 test_case.assertEqual(actual[key], expected_value, "%s of sample %s" % (key, expected.get("sample_id")))
                 continue
+            # compare the nested key sets too, so a field added to or removed from a summary group
+            # still fails here the way a whole-dict assertEqual would have
+            test_case.assertEqual(set(actual["matched"]), set(expected_value), "matched groups of sample %s" % expected.get("sample_id"))
             for group, expected_group in expected_value.items():
+                test_case.assertEqual(set(actual["matched"][group]), set(expected_group), "matched.%s fields of sample %s" % (group, expected.get("sample_id")))
                 for field, expected_field in expected_group.items():
                     actual_field = actual["matched"][group][field]
                     if field in SCORE_DERIVED_KEYS:
