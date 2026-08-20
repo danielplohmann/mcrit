@@ -17,6 +17,13 @@ For the full methodology (PicHash/MinHash, LSH banding, case studies) see [`READ
 - `examples/`, `experiments/`, `diagnosis/` — auxiliary scripts.
 - `setup.py`, `requirements.txt`, `ruff.toml`, `pytest.ini` — build/config.
 
+`docs/TUNING.md` is mirrored verbatim into the [docker-mcrit](https://github.com/danielplohmann/docker-mcrit)
+deployment repository. This repository holds the canonical copy, because the document describes the
+defaults in `MinHashConfig` and `StorageConfig`: changing one of those defaults, or adding a knob,
+should update `docs/TUNING.md` in the same commit, then be copied downstream. Never edit the
+docker-mcrit copy directly - it silently diverged that way once already, and a release shipped tuning
+advice that had stopped being true.
+
 ## Development setup
 
 Requires **Python 3.11 or 3.12**.
