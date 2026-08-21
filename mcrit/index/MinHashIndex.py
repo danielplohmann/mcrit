@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 
 from smda.common.SmdaReport import SmdaReport
+from smda.SmdaConfig import SmdaConfig
 
 import mcrit.matchers.MatcherFlags as MatcherFlags
 from mcrit.config.McritConfig import McritConfig
@@ -16,6 +17,7 @@ from mcrit.index.SearchCursor import FullSearchCursor, MinimalSearchCursor
 from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import compress_encode, decompress_decode
 from mcrit.matchers.MatcherQueryFunction import MatcherQueryFunction
+from mcrit.minhash.EscaperFingerprint import FINGERPRINT_UNAVAILABLE, getEscaperFingerprint
 from mcrit.minhash.MinHash import MinHash
 from mcrit.minhash.MinHasher import MinHasher
 from mcrit.queue.QueueFactory import QueueFactory
@@ -29,6 +31,10 @@ from mcrit.Worker import Worker
 
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
+
+# the smda that this process will escape with; recorded alongside the escaper fingerprint so an
+# export or a status response says which smda produced the minhashes it describes
+SMDA_VERSION = SmdaConfig().VERSION
 
 
 #### Helper methods for nested sort_by in search
@@ -145,6 +151,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 "version": self.config.VERSION,
                 "shingler": self._shingler_config.getConfigHash(),
                 "minhash": self._minhash_config.getConfigHash(),
+                # minhashes derive from smda's escaped instructions, so the escaper is an input
+                # just like the seeds above - see mcrit/minhash/EscaperFingerprint.py
+                "escaper": getEscaperFingerprint(),
+                "smda_version": SMDA_VERSION,
             },
             # family mapping is needed for function_entries as they only contain family_ids
             "family_mapping": {},
@@ -192,6 +202,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "num_functions_skipped": 0,
             "num_families_imported": 0,
             "num_families_skipped": 0,
+            "escaper_mismatch": False,
         }
         # TODO adjust minimum required MCRIT version if we ever extend in a way that objects become incompatible
         # TODO do not compare version as string
@@ -204,6 +215,22 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         if export_data["config"]["minhash"] != self._minhash_config.getConfigHash():
             LOGGER.error("Cannot import data, MinHash configuration hash is incompatible.")
             return
+        # An escaper mismatch does not make the data unusable - most functions are unaffected by a
+        # given escaper change - so this warns instead of refusing. The imported minhashes were
+        # computed from a different escaped representation than this instance produces, so matching
+        # between imported and locally indexed functions will under-report for the affected share.
+        exported_escaper = export_data["config"].get("escaper")
+        local_escaper = getEscaperFingerprint()
+        if exported_escaper is not None and FINGERPRINT_UNAVAILABLE not in (exported_escaper, local_escaper) and exported_escaper != local_escaper:
+            import_report["escaper_mismatch"] = True
+            LOGGER.warning(
+                "Importing data escaped by a different smda: export fingerprint %s (smda %s), this instance %s (smda %s). "
+                "Imported minhashes are not fully comparable to locally computed ones; consider recalculating minhashes.",
+                exported_escaper,
+                export_data["config"].get("smda_version", "unknown"),
+                local_escaper,
+                SMDA_VERSION,
+            )
         is_compressed = export_data["content"]["is_compressed"]
         # create a dictionary for pointing family_ids as contained in the export to family_ids as used in this instance
         family_id_remapping = {}
@@ -436,6 +463,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 "num_families": storage_stats["num_families"],
                 "num_functions": storage_stats["num_functions"],
                 "num_pichashes": storage_stats["num_pichashes"],
+                # minhashes are only comparable across functions escaped by the same smda; see
+                # mcrit/minhash/EscaperFingerprint.py for why this is worth surfacing
+                "smda_version": SMDA_VERSION,
+                "escaper_fingerprint": getEscaperFingerprint(),
             }
         }
         # operator signal for a half-migrated instance (#137): the inline fallback keeps serving
