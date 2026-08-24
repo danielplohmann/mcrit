@@ -41,7 +41,9 @@ class EscaperProvenanceTestSuite(unittest.TestCase):
     def testExportRecordsEscaperProvenance(self):
         index = MinHashIndex(config)
         export_config = index.getExportData()["config"]
-        self.assertEqual(getEscaperFingerprint(), export_config["escaper"])
+        # persisted per architecture, so widening the probe later cannot invalidate exports
+        # that are already in the wild (mcrit/minhash/EscaperFingerprint.py)
+        self.assertEqual({"intel": getEscaperFingerprint()}, export_config["escaper"])
         self.assertIn("smda_version", export_config)
 
     def _minimalExport(self, index, **config_overrides):
@@ -56,7 +58,7 @@ class EscaperProvenanceTestSuite(unittest.TestCase):
 
     def testImportOfDifferingEscaperIsFlaggedButAccepted(self):
         index = MinHashIndex(config)
-        report = index.addImportData(self._minimalExport(index, escaper="0000000000000000"))
+        report = index.addImportData(self._minimalExport(index, escaper={"intel": "0000000000000000"}))
         # the data is still imported: a given escaper change affects only a share of functions
         self.assertIsNotNone(report)
         self.assertTrue(report["escaper_mismatch"])
@@ -67,6 +69,27 @@ class EscaperProvenanceTestSuite(unittest.TestCase):
         export_data = index.getExportData()
         del export_data["config"]["escaper"]
         report = index.addImportData(export_data)
+        self.assertFalse(report["escaper_mismatch"])
+
+    def testImportComparingOnlySharedArchitectures(self):
+        """An export carrying an architecture this instance does not probe must not flip the
+        flag for the architecture it does carry - intersection semantics, not equality."""
+        index = MinHashIndex(config)
+        export_data = self._minimalExport(index, escaper={"intel": getEscaperFingerprint(), "aarch64": "deadbeefdeadbeef"})
+        report = index.addImportData(export_data)
+        self.assertFalse(report["escaper_mismatch"])
+
+    def testImportOfPartiallyDifferingEscaperFlagsOnlyTheMismatch(self):
+        index = MinHashIndex(config)
+        export_data = self._minimalExport(index, escaper={"intel": "0000000000000000", "aarch64": getEscaperFingerprint()})
+        report = index.addImportData(export_data)
+        self.assertIsNotNone(report)
+        self.assertTrue(report["escaper_mismatch"])
+
+    def testImportWithNoComparableArchitectureIsNotFlagged(self):
+        """Nothing shared means nothing comparable - a skip with a warning, not a mismatch."""
+        index = MinHashIndex(config)
+        report = index.addImportData(self._minimalExport(index, escaper={"aarch64": "deadbeefdeadbeef"}))
         self.assertFalse(report["escaper_mismatch"])
 
 
