@@ -56,6 +56,19 @@ Full/integration tests (requires a running MongoDB at `127.0.0.1:27017`):
 python -m pytest
 ```
 
+If that MongoDB runs in a container, raise its open-file limit:
+
+```bash
+docker run -d --rm --name mcrit-mongo --ulimit nofile=200000:200000 -p 27017:27017 mongo:5.0
+```
+
+The suite creates and drops the band collections repeatedly, which opens enough WiredTiger files
+to exceed docker's default `nofile`. mongod then hits EMFILE, panics and aborts mid-run, and every
+test after that fails on a connection error - so the run looks like a dozen broken tests rather
+than a dead database. The container log is the only place that says otherwise (`WT_PANIC`,
+`Too many open files`). Drop the test databases between runs too: leftover collections from an
+aborted run make the next one fail on state that no test created.
+
 Run the backend (separate shells):
 
 ```bash
