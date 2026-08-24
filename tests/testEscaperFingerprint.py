@@ -4,6 +4,7 @@ import logging
 import unittest
 
 from smda.common.SmdaFunction import SmdaFunction
+from smda.common.SmdaInstruction import SmdaInstruction
 
 from mcrit.minhash.EscaperFingerprint import (
     ESCAPER_PROBE_INSTRUCTIONS,
@@ -74,6 +75,18 @@ class EscaperFingerprintTestSuite(unittest.TestCase):
         self.assertTrue(segment_memory, "probe lost its segment-qualified memory operands")
         far_pointer = [operand for operand in operands if ":" in operand and "[" not in operand]
         self.assertTrue(far_pointer, "probe lost its far-pointer operand")
+
+    def testEveryProbeInstructionEscapesIndividually(self):
+        """A single malformed entry would degrade the WHOLE fingerprint to "unavailable" (the
+        module degrades loudly on purpose), so rot in the probe table must be attributable to a
+        specific instruction rather than surfacing as a blanket loss of provenance."""
+        escaper = SmdaFunction.getInstructionEscaper("intel")
+        for instruction_list in ESCAPER_PROBE_INSTRUCTIONS["intel"]:
+            instruction = SmdaInstruction(instruction_list)
+            group = instruction.getMnemonicGroup(escaper)
+            self.assertTrue(group, "probe instruction lost its mnemonic group: %r" % (instruction_list,))
+            # exercising getEscapedOperands per entry too, so an exception names its culprit here
+            instruction.getEscapedOperands(escaper)
 
 
 if __name__ == "__main__":
