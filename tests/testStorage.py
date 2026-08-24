@@ -58,6 +58,18 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(10, stats_without_pichash["num_functions"])
         self.assertIsNone(stats_without_pichash["num_pichashes"])
 
+    def testStatusAnswersInlineXcfgOnMemoryStorage(self):
+        # the interface default is None ("not applicable"), so /status must keep working on
+        # backends without the pre-split shape - a raise here broke every memory-backed call.
+        # Any definitive answer is fine; what must not happen is an exception.
+        self.assertIn(self.storage.hasInlineXcfgRemaining(), (True, False, None))
+        # this index is memory-backed regardless of the suite it runs in, so it exercises the
+        # interface default specifically: answered, and omitted from /status rather than False
+        from .context import config as memory_index_config
+
+        status = MinHashIndex(memory_index_config).getStatus(with_pichash=False)["status"]
+        self.assertNotIn("inline_xcfg_remaining", status)
+
     def testFamilyHandling(self):
         self.storage.clearStorage()
         self.storage.addFamily("family_1")
