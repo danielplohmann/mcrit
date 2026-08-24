@@ -352,6 +352,30 @@ class MemoryStorageTest(TestCase):
             self.assertEqual(query_function.minhash, cache.getMinHashByFunctionId(query_function_id))
             self.assertEqual(set([query_function_id]), set(cache.getFunctionIdsBySampleId(query_sample.sample_id)))
 
+    def testMinHashesForQueryFunctionsAreNotBanded(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        query_sample = self.storage.addSmdaReport(smda_report, isQuery=True)
+        assert query_sample is not None
+        query_function_ids = sorted(self.storage.getFunctionIdsBySampleId(query_sample.sample_id))
+        # query functions live in their own collection, keyed by a negative function id
+        self.assertTrue(all(function_id < 0 for function_id in query_function_ids))
+
+        single = MinHash(function_id=query_function_ids[0], minhash_signature=[0x30 + index for index in range(10)], minhash_bits=8)
+        self.assertTrue(self.storage.addMinHash(single))
+        self.assertEqual(single.getMinHash(), self.storage.getMinHashByFunctionId(single.function_id))
+        # they are only ever query input, so they must not become candidates for anyone
+        self.assertEqual(set(), self.storage.getCandidatesForMinHash(single))
+
+        # the same holds for the bulk path, which additionally skips functions that do not exist
+        bulk = MinHash(function_id=query_function_ids[1], minhash_signature=[0x40 + index for index in range(10)], minhash_bits=8)
+        unknown = MinHash(function_id=-9999, minhash_signature=[0x50 + index for index in range(10)], minhash_bits=8)
+        self.storage.addMinHashes([bulk, unknown])
+        self.assertEqual(bulk.getMinHash(), self.storage.getMinHashByFunctionId(bulk.function_id))
+        self.assertEqual(set(), self.storage.getCandidatesForMinHash(bulk))
+        self.assertIsNone(self.storage.getMinHashByFunctionId(unknown.function_id))
+        self.assertFalse(self.storage.addMinHash(unknown))
+
 
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):

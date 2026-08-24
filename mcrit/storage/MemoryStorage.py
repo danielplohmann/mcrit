@@ -478,6 +478,7 @@ class MemoryStorage(StorageInterface):
         is_query_function = minhash.function_id < 0
         functions = self._query_functions if is_query_function else self._functions
         if minhash.function_id not in functions:
+            LOGGER.warning("addMinHash() - no function with id %d, skipping its minhash.", minhash.function_id)
             return False
         functions[minhash.function_id].minhash = minhash.getMinHash()
         functions[minhash.function_id].minhash_shingle_composition = minhash.getComposition()
