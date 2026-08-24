@@ -17,7 +17,7 @@ from mcrit.index.SearchCursor import FullSearchCursor, MinimalSearchCursor
 from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import compress_encode, decompress_decode
 from mcrit.matchers.MatcherQueryFunction import MatcherQueryFunction
-from mcrit.minhash.EscaperFingerprint import FINGERPRINT_UNAVAILABLE, getEscaperFingerprint
+from mcrit.minhash.EscaperFingerprint import FINGERPRINT_UNAVAILABLE, getEscaperFingerprint, getEscaperFingerprints
 from mcrit.minhash.MinHash import MinHash
 from mcrit.minhash.MinHasher import MinHasher
 from mcrit.queue.QueueFactory import QueueFactory
@@ -152,8 +152,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 "shingler": self._shingler_config.getConfigHash(),
                 "minhash": self._minhash_config.getConfigHash(),
                 # minhashes derive from smda's escaped instructions, so the escaper is an input
-                # just like the seeds above - see mcrit/minhash/EscaperFingerprint.py
-                "escaper": getEscaperFingerprint(),
+                # just like the seeds above - see mcrit/minhash/EscaperFingerprint.py. Persisted
+                # per architecture, so widening the probe later cannot invalidate exports that
+                # are already in the wild.
+                "escaper": getEscaperFingerprints(),
                 "smda_version": SMDA_VERSION,
             },
             # family mapping is needed for function_entries as they only contain family_ids
@@ -219,29 +221,55 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         # given escaper change - so this warns instead of refusing. The imported minhashes were
         # computed from a different escaped representation than this instance produces, so matching
         # between imported and locally indexed functions will under-report for the affected share.
-        exported_escaper = export_data["config"].get("escaper")
-        local_escaper = getEscaperFingerprint()
-        if exported_escaper is None:
+        # The escaper field is a per-architecture mapping (see mcrit/minhash/EscaperFingerprint.py);
+        # comparing the intersection of keys means adding probe architectures later cannot make
+        # older exports mismatch on architectures they do not carry.
+        exported_escapers = export_data["config"].get("escaper")
+        local_escapers = getEscaperFingerprints()
+        if exported_escapers is None:
             # legacy exports carry no escaper field at all - nothing to compare
             pass
-        elif FINGERPRINT_UNAVAILABLE in (exported_escaper, local_escaper):
-            # different from a legacy export: provenance is knowable in principle but not
-            # here, so say why the comparison was skipped rather than passing silently
+        elif not isinstance(exported_escapers, dict):
             LOGGER.warning(
-                "Cannot compare escaper provenance: export fingerprint %s, this instance %s. Imported minhashes may or may not share this instance's escaping behaviour.",
-                exported_escaper,
-                local_escaper,
+                "Unexpected escaper provenance format in export (%r), cannot compare. Imported minhashes may or may not share this instance's escaping behaviour.",
+                exported_escapers,
             )
-        elif exported_escaper != local_escaper:
-            import_report["escaper_mismatch"] = True
-            LOGGER.warning(
-                "Importing data escaped by a different smda: export fingerprint %s (smda %s), this instance %s (smda %s). "
-                "Imported minhashes are not fully comparable to locally computed ones; consider recalculating minhashes.",
-                exported_escaper,
-                export_data["config"].get("smda_version", "unknown"),
-                local_escaper,
-                SMDA_VERSION,
-            )
+        else:
+            shared_architectures = sorted(set(exported_escapers).intersection(local_escapers))
+            if not shared_architectures:
+                LOGGER.warning(
+                    "Export carries no escaper probe this instance can compare (export: %s, local: %s). Imported minhashes may or may not share this instance's escaping behaviour.",
+                    sorted(exported_escapers),
+                    sorted(local_escapers),
+                )
+            else:
+                incomparable = [architecture for architecture in shared_architectures if FINGERPRINT_UNAVAILABLE in (exported_escapers[architecture], local_escapers[architecture])]
+                if incomparable:
+                    # different from a legacy export: provenance is knowable in principle but not
+                    # here, so say why the comparison was skipped rather than passing silently
+                    LOGGER.warning(
+                        "Cannot compare escaper provenance for %s: fingerprint unavailable on export or locally.",
+                        incomparable,
+                    )
+                mismatched = [
+                    architecture
+                    for architecture in shared_architectures
+                    if FINGERPRINT_UNAVAILABLE not in (exported_escapers[architecture], local_escapers[architecture])
+                    and exported_escapers[architecture] != local_escapers[architecture]
+                ]
+                if mismatched:
+                    import_report["escaper_mismatch"] = True
+                    unchanged = [architecture for architecture in shared_architectures if architecture not in mismatched]
+                    LOGGER.warning(
+                        "Importing data escaped by a different smda for %s: export %s (smda %s), this instance %s (smda %s). "
+                        "Imported minhashes are not fully comparable to locally computed ones%s; consider recalculating minhashes.",
+                        mismatched,
+                        {architecture: exported_escapers[architecture] for architecture in mismatched},
+                        export_data["config"].get("smda_version", "unknown"),
+                        {architecture: local_escapers[architecture] for architecture in mismatched},
+                        SMDA_VERSION,
+                        "" if not unchanged else " (unchanged for %s)" % unchanged,
+                    )
         is_compressed = export_data["content"]["is_compressed"]
         # create a dictionary for pointing family_ids as contained in the export to family_ids as used in this instance
         family_id_remapping = {}

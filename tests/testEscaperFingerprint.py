@@ -11,6 +11,7 @@ from mcrit.minhash.EscaperFingerprint import (
     FINGERPRINT_UNAVAILABLE,
     getEscapedProbe,
     getEscaperFingerprint,
+    getEscaperFingerprints,
 )
 
 LOG = logging.getLogger(__name__)
@@ -34,6 +35,11 @@ class EscaperFingerprintTestSuite(unittest.TestCase):
         fingerprint = getEscaperFingerprint()
         self.assertEqual(16, len(fingerprint))
         int(fingerprint, 16)
+
+    def testPerArchitectureMappingAgreesWithTheScalar(self):
+        """For the single architecture MCRIT ships today, mapping and scalar must agree - the
+        export stores the mapping while status reports the scalar."""
+        self.assertEqual({"intel": getEscaperFingerprint()}, getEscaperFingerprints())
 
     def testProbeCoversEveryInstruction(self):
         escaped = getEscapedProbe("intel")

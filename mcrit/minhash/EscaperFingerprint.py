@@ -117,20 +117,49 @@ def getEscapedProbe(architecture: str = "intel") -> List[str]:
     return escaped
 
 
+def getEscaperFingerprints(architectures: Sequence[str] = ("intel",)) -> Dict[str, str]:
+    """Per-architecture fingerprints - the shape that gets persisted in exports and status.
+
+    A mapping rather than a combined hash, and deliberately so: the value is *stored*, so a
+    later widening of the default probe (adding an aarch64 entry, say) must not change what is
+    recorded for the architectures already covered. A combined hash would flip for everyone the
+    moment the tuple grows, making every export produced before that point mismatch on import
+    even though intel escaping never changed - and false positives are the one failure mode a
+    diagnostic cannot afford, because they teach operators to ignore it.
+    """
+    fingerprints = {}
+    for architecture in architectures:
+        hasher = hashlib.sha256()
+        try:
+            hasher.update(("[%s]\n" % architecture).encode("utf-8"))
+            for line in getEscapedProbe(architecture):
+                hasher.update((line + "\n").encode("utf-8"))
+        except Exception as exc:
+            LOGGER.warning("Could not compute escaper fingerprint for %s (smda too old or API changed): %s", architecture, exc)
+            fingerprints[architecture] = FINGERPRINT_UNAVAILABLE
+        else:
+            fingerprints[architecture] = hasher.hexdigest()[:16]
+    return fingerprints
+
+
 def getEscaperFingerprint(architectures: Sequence[str] = ("intel",)) -> str:
     """A short, stable hash of how the running smda escapes the probe.
 
     Any change to mnemonic grouping or operand escaping that touches the probe changes this value.
     It says nothing about *how* escaping changed, only that stored minhashes computed under a
     different fingerprint are no longer comparable to freshly computed ones.
+
+    Convenience form over getEscaperFingerprints; for a single architecture both agree, which is
+    what MCRIT ships today. Persistence should prefer the per-architecture mapping.
     """
-    hasher = hashlib.sha256()
-    try:
-        for architecture in sorted(architectures):
-            hasher.update(("[%s]\n" % architecture).encode("utf-8"))
-            for line in getEscapedProbe(architecture):
-                hasher.update((line + "\n").encode("utf-8"))
-    except Exception as exc:
-        LOGGER.warning("Could not compute escaper fingerprint (smda too old or API changed): %s", exc)
+    fingerprints = getEscaperFingerprints(architectures)
+    if FINGERPRINT_UNAVAILABLE in fingerprints.values():
         return FINGERPRINT_UNAVAILABLE
+    return fingerprints[sorted(fingerprints)[0]] if len(fingerprints) == 1 else _combineFingerprints(fingerprints)
+
+
+def _combineFingerprints(fingerprints: Dict[str, str]) -> str:
+    hasher = hashlib.sha256()
+    for architecture in sorted(fingerprints):
+        hasher.update(("%s:%s\n" % (architecture, fingerprints[architecture])).encode("utf-8"))
     return hasher.hexdigest()[:16]
