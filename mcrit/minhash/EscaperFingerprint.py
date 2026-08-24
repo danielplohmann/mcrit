@@ -41,6 +41,9 @@ FINGERPRINT_UNAVAILABLE = "unavailable"
 # Probe instructions as [offset, bytes, mnemonic, operands], the same four-field form used in
 # serialized SMDA functions. Chosen to cover the classes escaping distinguishes; the byte fields
 # are realistic so that byte-level escaping (jump/call targets, ptr refs, immediates) also runs.
+# Only "intel" is probed for now - MCRIT corpora are x86-dominated and the 4.4.5 regression was
+# x86-only. An escaper change touching other architectures would go unnoticed here; extend this
+# mapping deliberately if non-x86 corpora start mattering.
 # Adding entries changes the fingerprint, so only extend this at a deliberate version boundary.
 ESCAPER_PROBE_INSTRUCTIONS: Dict[str, List[List]] = {
     "intel": [

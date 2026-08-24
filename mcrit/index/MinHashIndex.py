@@ -221,7 +221,18 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         # between imported and locally indexed functions will under-report for the affected share.
         exported_escaper = export_data["config"].get("escaper")
         local_escaper = getEscaperFingerprint()
-        if exported_escaper is not None and FINGERPRINT_UNAVAILABLE not in (exported_escaper, local_escaper) and exported_escaper != local_escaper:
+        if exported_escaper is None:
+            # legacy exports carry no escaper field at all - nothing to compare
+            pass
+        elif FINGERPRINT_UNAVAILABLE in (exported_escaper, local_escaper):
+            # different from a legacy export: provenance is knowable in principle but not
+            # here, so say why the comparison was skipped rather than passing silently
+            LOGGER.warning(
+                "Cannot compare escaper provenance: export fingerprint %s, this instance %s. Imported minhashes may or may not share this instance's escaping behaviour.",
+                exported_escaper,
+                local_escaper,
+            )
+        elif exported_escaper != local_escaper:
             import_report["escaper_mismatch"] = True
             LOGGER.warning(
                 "Importing data escaped by a different smda: export fingerprint %s (smda %s), this instance %s (smda %s). "
