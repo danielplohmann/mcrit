@@ -628,10 +628,13 @@ class StorageInterface:
         this on a per-job path: the MongoDB implementation's check is a COLLSCAN whose healthy
         answer requires scanning the whole collection.
 
+        The default answers None: backends without the pre-split shape (or that cannot decide
+        cheaply) simply omit the field rather than break every /status call.
+
         Returns:
             True if inline blobs remain, False if the split is complete, None otherwise
         """
-        raise NotImplementedError
+        return None
 
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
         """Given a list of function_ids, return all FunctionEntry objects corresponding to these IDs if they do not have a minhash yet.

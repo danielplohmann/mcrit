@@ -440,11 +440,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         }
         # operator signal for a half-migrated instance (#137): the inline fallback keeps serving
         # correct, but the split's space reclamation only happens once migrate_xcfg_split ran.
-        # Omitted rather than False when a backend cannot determine it cheaply.
-        inline_xcfg_remaining = None
-        storage_inline_check = getattr(storage, "hasInlineXcfgRemaining", None)
-        if callable(storage_inline_check):
-            inline_xcfg_remaining = storage_inline_check()
+        # Every storage answers this - the interface default is None ("not applicable") - so the
+        # field is simply omitted when a backend cannot determine it.
+        inline_xcfg_remaining = storage.hasInlineXcfgRemaining()
         if inline_xcfg_remaining is not None:
             status["status"]["inline_xcfg_remaining"] = inline_xcfg_remaining
         return status
