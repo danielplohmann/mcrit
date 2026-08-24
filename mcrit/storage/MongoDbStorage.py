@@ -45,6 +45,9 @@ from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
 
 LOGGER = logging.getLogger(__name__)
+
+# one inline-`_xcfg` remnant probe per process (see _warnOnInlineXcfgRemaining)
+_INLINE_XCFG_CHECKED = False
 if MongoClient is None:
     LOGGER.warning("pymongo package import failed - MongoDB backend will not be available.")
 
@@ -159,7 +162,28 @@ class MongoDbStorage(StorageInterface):
         self._database = MongoClient(mongo_uri, connect=False)[db_name]
         self._ensureIndexAndUnknownFamily()
 
+    def _warnOnInlineXcfgRemaining(self) -> None:
+        """Announce an instance whose functions collection still carries inline disassembly (#137).
+
+        The split readers fall back to an inline `_xcfg`, so serving is correct before
+        migrate_xcfg_split has run - but leftover inline blobs also mean the migration has not
+        completed, and that is worth saying loudly rather than leaving the instance quietly on
+        the pre-split shape. Runs once per process: cheap while inline blobs exist (the probe
+        stops at the first hit), a single collection scan once everything is migrated.
+        """
+        global _INLINE_XCFG_CHECKED
+        if _INLINE_XCFG_CHECKED:
+            return
+        _INLINE_XCFG_CHECKED = True
+        if self._getDb().functions.find_one({"_xcfg": {"$exists": True}}, {"_id": 1}):
+            LOGGER.warning(
+                "The functions collection still carries inline _xcfg documents - mcrit.migrations.migrate_xcfg_split "
+                "has not run (or not finished). Serving falls back to the inline disassembly, but the #137 "
+                "split (and its space reclamation) only takes effect once the migration has completed."
+            )
+
     def _ensureIndexAndUnknownFamily(self) -> None:
+        self._warnOnInlineXcfgRemaining()
         if "settings" not in self._getDb().list_collection_names():
             self._getDb()["settings"].insert_one({"mcrit_db_id": str(uuid.uuid4()), "db_state": 0})
         self._getDb()["samples"].create_index("sample_id")
@@ -425,12 +449,17 @@ class MongoDbStorage(StorageInterface):
         the same shape: minhash computation (Worker.calculateMinHashes) and the code-reference
         extraction in match reports both read FunctionEntry.xcfg. Missing blobs decode to `{}`,
         never None - see getFunctionById for why that distinction matters.
+
+        An inline `_xcfg` is a fallback, not something to discard: this code ships before
+        migrate_xcfg_split has run, so an un-migrated or half-migrated instance still carries
+        blobs inside function documents. Overwriting those with `{}` would silently serve empty
+        disassembly to minhash computation and match reports.
         """
         if not function_documents:
             return
         blobs = self._fetchXcfgBlobs([document["function_id"] for document in function_documents])
         for function_document in function_documents:
-            function_document["_xcfg"] = blobs.get(function_document["function_id"], "{}")
+            function_document["_xcfg"] = blobs.get(function_document["function_id"]) or function_document.get("_xcfg") or "{}"
 
     def _deleteXcfgForFunctionIds(self, function_ids: List[int]) -> None:
         for collection in ("xcfg", "query_xcfg"):
@@ -1368,12 +1397,14 @@ class MongoDbStorage(StorageInterface):
             return None
         if with_xcfg:
             # the blob lives in its own collection now (#137); inject it so _decodeFunction
-            # and FunctionEntry see exactly the shape they saw before the split
+            # and FunctionEntry see exactly the shape they saw before the split. An inline
+            # `_xcfg` (pre-migration document, see _attachXcfgBlobs) is a fallback, not
+            # something to overwrite with an empty dict.
             # "{}" when no blob is stored, so the caller still gets an empty dict rather than
             # None: xcfg is None means "not requested", {} means "disassembly dropped". Before
             # the split that distinction came from the field being blanked in place instead of
             # removed, and it is part of the contract (tests/testStorage.py).
-            function_document["_xcfg"] = self._fetchXcfgBlobs([function_id]).get(function_id) or "{}"
+            function_document["_xcfg"] = self._fetchXcfgBlobs([function_id]).get(function_id) or function_document.get("_xcfg") or "{}"
         self._decodeFunction(function_document)
         return FunctionEntry.fromDict(function_document)
 
@@ -1528,11 +1559,12 @@ class MongoDbStorage(StorageInterface):
         xcfg_missing = 0
         for sample_id, sample_info in samples_to_be_updated.items():
             pic_hash_updates = []
-            sample_function_documents = list(self._getDb().functions.find({"sample_id": sample_id}, {"function_id": 1, "_pichash": 1, "_picblockhashes": 1, "_id": 0}))
-            # one $in for the whole sample rather than a lookup per function (#137)
+            sample_function_documents = list(self._getDb().functions.find({"sample_id": sample_id}, {"function_id": 1, "_pichash": 1, "_picblockhashes": 1, "_xcfg": 1, "_id": 0}))
+            # one $in for the whole sample rather than a lookup per function (#137); inline
+            # `_xcfg` is the fallback for pre-migration documents (see _attachXcfgBlobs)
             sample_xcfg_blobs = self._fetchXcfgBlobs([document["function_id"] for document in sample_function_documents])
             for function_document in sample_function_documents:
-                function_document["_xcfg"] = sample_xcfg_blobs.get(function_document["function_id"], "")
+                function_document["_xcfg"] = sample_xcfg_blobs.get(function_document["function_id"]) or function_document.get("_xcfg") or ""
                 update_document = {}
                 functions_updatable += 1
                 # create all relevant objects
@@ -1665,9 +1697,10 @@ class MongoDbStorage(StorageInterface):
             function_id_to_block_offsets[entry["function_id"]].append((entry["offset"], picblockhash))
         block_function_ids = list(function_id_to_block_offsets.keys())
         block_xcfg_blobs = self._fetchXcfgBlobs(block_function_ids)
-        for entry in self._getDb().functions.find({"function_id": {"$in": block_function_ids}}, {"function_id": 1, "_id": 0}):
+        for entry in self._getDb().functions.find({"function_id": {"$in": block_function_ids}}, {"function_id": 1, "_xcfg": 1, "_id": 0}):
             function_id = entry["function_id"]
-            entry["_xcfg"] = block_xcfg_blobs.get(function_id, "{}")
+            # inline `_xcfg` is the fallback for pre-migration documents (see _attachXcfgBlobs)
+            entry["_xcfg"] = block_xcfg_blobs.get(function_id) or entry.get("_xcfg") or "{}"
             self._decodeXcfg(entry)
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 candidate_picblockhashes[picblockhash]["instructions"] = entry["xcfg"]["blocks"][str(block_offset)]
