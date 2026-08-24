@@ -635,14 +635,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         except Exception:
             pass
 
-        assert sort_by in (
+        if sort_by not in (
             None,
             "family_id",
             "family_name",
             "num_samples",
             "num_library_samples",
             "num_functions",
-        )
+        ):
+            raise ValueError(f"Sorting family search results by the field '{sort_by}' is not supported.")
 
         sort_data = self._get_sort_data("family_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(
@@ -672,7 +673,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         except Exception:
             pass
 
-        assert sort_by in (
+        if sort_by not in (
             None,
             "function_id",
             "sample_id",
@@ -682,7 +683,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "offset",
             "num_instructions",
             "num_blocks",
-        )
+        ):
+            raise ValueError(f"Sorting function search results by the field '{sort_by}' is not supported.")
 
         sort_data = self._get_sort_data("function_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(
@@ -718,7 +720,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         else:
             sha_match = None
 
-        assert sort_by in (
+        if sort_by not in (
             None,
             "filename",
             "function_id",
@@ -736,7 +738,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             "timestamp",
             "version",
             "statistics.num_functions",
-        )
+        ):
+            raise ValueError(f"Sorting sample search results by the field '{sort_by}' is not supported.")
 
         sort_data = self._get_sort_data("sample_id", sort_by, is_ascending)
         result = self._getSearchResultTemplate(

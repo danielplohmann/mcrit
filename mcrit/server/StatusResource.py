@@ -122,20 +122,28 @@ class StatusResource:
             pass
         return result
 
+    def _respond_search(self, req, resp, search_method, endpoint):
+        args = self._get_search_args(req.params)
+        try:
+            search_results = search_method(**args)
+        except ValueError as unsupported_search:
+            # a field/operator combination the backend cannot serve (e.g. a range comparison on
+            # pichash) is a client error - it used to leave the responder as a 500 with a traceback
+            resp.data = jsonify({"status": "failed", "data": {"message": str(unsupported_search)}})
+            resp.status = falcon.HTTP_400
+            db_log_msg(self.index, req, f"StatusResource.{endpoint} - failed - {unsupported_search}")
+            return
+        resp.data = jsonify({"status": "successful", "data": search_results})
+        db_log_msg(self.index, req, f"StatusResource.{endpoint} - success.")
+
     @timing
     def on_get_search_families(self, req, resp):
-        args = self._get_search_args(req.params)
-        resp.data = jsonify({"status": "successful", "data": self.index.getFamilySearchResults(**args)})
-        db_log_msg(self.index, req, "StatusResource.on_get_search_families - success.")
+        self._respond_search(req, resp, self.index.getFamilySearchResults, "on_get_search_families")
 
     @timing
     def on_get_search_samples(self, req, resp):
-        args = self._get_search_args(req.params)
-        resp.data = jsonify({"status": "successful", "data": self.index.getSampleSearchResults(**args)})
-        db_log_msg(self.index, req, "StatusResource.on_get_search_samples - success.")
+        self._respond_search(req, resp, self.index.getSampleSearchResults, "on_get_search_samples")
 
     @timing
     def on_get_search_functions(self, req, resp):
-        args = self._get_search_args(req.params)
-        resp.data = jsonify({"status": "successful", "data": self.index.getFunctionSearchResults(**args)})
-        db_log_msg(self.index, req, "StatusResource.on_get_search_functions - success.")
+        self._respond_search(req, resp, self.index.getFunctionSearchResults, "on_get_search_functions")
