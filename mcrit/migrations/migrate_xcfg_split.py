@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import UTC, datetime
 
-from pymongo import ASCENDING, MongoClient, UpdateOne
+from pymongo import ASCENDING, MongoClient, ReplaceOne, UpdateOne
 
 from mcrit.config.McritConfig import McritConfig
 
@@ -52,10 +52,29 @@ def put_state(target_db, state):
     target_db[STATE_COLLECTION].replace_one({"_id": state["_id"]}, state, upsert=True)
 
 
+def recreate_indexes(source_db, target_db, collection_name):
+    """Rebuild every secondary index, carrying over its options.
+
+    Only key order and `unique` would survive a hand-rolled copy; TTL, sparse,
+    partialFilterExpression and friends live in the spec alongside them and are lost if
+    not forwarded - so forward everything the server reports except the fields
+    `create_index` derives itself.
+    """
+    for index in source_db[collection_name].list_indexes():
+        keys = list(index["key"].items())
+        if keys == [("_id", 1)]:
+            continue
+        options = {key: value for key, value in index.items() if key not in ("key", "v", "name", "ns")}
+        target_db[collection_name].create_index(keys, **options)
+        log("  recreated index %s %s" % (keys, options or ""))
+
+
 def copy_verbatim(source_db, target_db, batch_size):
     names = [n for n in source_db.list_collection_names() if n in VERBATIM_COLLECTIONS or n.startswith(VERBATIM_PREFIXES)]
     for name in sorted(names):
-        if target_db[name].estimated_document_count() >= source_db[name].estimated_document_count():
+        # exact counts, not estimated_document_count(): the estimate reads cached collection
+        # metadata and can misread a partially copied target as "already present"
+        if target_db[name].count_documents({}) >= source_db[name].count_documents({}):
             log("verbatim %s already present, skipping" % name)
             continue
         target_db[name].drop()
@@ -70,12 +89,7 @@ def copy_verbatim(source_db, target_db, batch_size):
         if batch:
             target_db[name].insert_many(batch, ordered=False)
             copied += len(batch)
-        # recreate the indexes the matching path relies on
-        for index in source_db[name].list_indexes():
-            keys = list(index["key"].items())
-            if keys == [("_id", 1)]:
-                continue
-            target_db[name].create_index(keys, unique=index.get("unique", False))
+        recreate_indexes(source_db, target_db, name)
         log("verbatim %s: %d documents" % (name, copied))
 
 
@@ -115,7 +129,10 @@ def migrate_functions(source_db, target_db, mode, batch_size, limit, source_coll
             # copy the function documents themselves, minus the blob
             function_documents = list(source_db[source_collection].find({"function_id": {"$in": function_ids_done}}, {"_xcfg": 0}))
             if function_documents:
-                target_db[source_collection].insert_many(function_documents, ordered=False)
+                # upserts, not insert_many: a resume can re-enter the batch whose inserts
+                # landed before the state save was killed - plain inserts would die on
+                # duplicate _id there and make copy mode unresumable
+                target_db[source_collection].bulk_write([ReplaceOne({"_id": document["_id"]}, document, upsert=True) for document in function_documents], ordered=False)
         elif mode == "inplace":
             # only now that the xcfg documents are durable, drop the blobs. Restricted to
             # ids we just wrote, so a crash can never unset an xcfg that was not saved.
@@ -139,12 +156,7 @@ def migrate_functions(source_db, target_db, mode, batch_size, limit, source_coll
         # without these the target is not a like-for-like copy and any benchmark against it
         # measures missing indexes rather than the schema change
         index_started = time.perf_counter()
-        for index in source_db[source_collection].list_indexes():
-            keys = list(index["key"].items())
-            if keys == [("_id", 1)]:
-                continue
-            target_db[source_collection].create_index(keys, unique=index.get("unique", False))
-            log("  recreated index %s" % keys)
+        recreate_indexes(source_db, target_db, source_collection)
         log("indexes rebuilt in %.1f s" % (time.perf_counter() - index_started))
 
     elapsed = time.perf_counter() - started
@@ -243,17 +255,25 @@ def verify(source_db, target_db, sample_size, source_collection, xcfg_collection
     # After an inplace migration the source no longer holds blobs, so content comparison is
     # impossible - saying "problems: []" then would be a silent pass. Check coverage instead and
     # label what was actually established.
-    coverage_gaps = []
+    gap_function_ids = []
     if checked == 0 and empty_source:
-        blob_ids = {document["_id"] for document in target_db[xcfg_collection].find({}, {"_id": 1})}
-        function_filter = dict(range_filter)
-        for document in source_db[source_collection].find(function_filter, {"function_id": 1, "_id": 0}).limit(200000):
-            if document["function_id"] not in blob_ids:
-                coverage_gaps.append(document["function_id"])
-                if len(coverage_gaps) >= 20:
-                    break
-        if coverage_gaps:
-            problems.append("no blob document for function ids %s%s" % (coverage_gaps[:5], " (and more)" if len(coverage_gaps) >= 20 else ""))
+        # probe the sampled function ids against the blob collection in batches instead of
+        # materializing every blob _id: at production scale that set alone would not fit memory
+        function_ids = [document["function_id"] for document in source_db[source_collection].find(range_filter, {"function_id": 1, "_id": 0}).limit(200000)]
+        covered_ids = set()
+        for start in range(0, len(function_ids), 10000):
+            chunk = function_ids[start : start + 10000]
+            covered_ids.update(document["_id"] for document in target_db[xcfg_collection].find({"_id": {"$in": chunk}}, {"_id": 1}))
+        gap_function_ids = [function_id for function_id in function_ids if function_id not in covered_ids]
+        if gap_function_ids:
+            problems.append(
+                "no blob document for %d of %d sampled function ids, e.g. %s"
+                % (
+                    len(gap_function_ids),
+                    len(function_ids),
+                    gap_function_ids[:5],
+                )
+            )
     return {
         "checked": checked,
         "established": (
@@ -261,7 +281,7 @@ def verify(source_db, target_db, sample_size, source_collection, xcfg_collection
             if checked
             else "coverage only - the source no longer holds blobs, so contents could not be compared (take a dump before an inplace run)"
         ),
-        "coverage_gaps_sampled": len(coverage_gaps),
+        "coverage_gaps_sampled": len(gap_function_ids),
         "verified_range_max_function_id": max_function_id,
         "empty_source": empty_source,
         "source_functions": source_count,
