@@ -115,7 +115,12 @@ class MongoSearchTranspiler(BaseVisitor):
         else:
             condition = {node.field: {mongo_operator: value}}
         if node.field == "pichash":
-            MongoDbStorage._encodePichash(condition)
+            if node.operator.endswith("?"):
+                # a substring search is a regex, which cannot be hex-encoded - it is matched against
+                # the stored representation instead, so only the field has to be renamed
+                condition = {"_pichash": condition.pop("pichash")}
+            else:
+                MongoDbStorage._encodePichash(condition)
         return condition
 
 
@@ -1006,6 +1011,7 @@ class MongoDbStorage(StorageInterface):
         collection = self._getDb().query_functions if is_query_function else self._getDb().functions
         set_command = {"$set": {"minhash": minhash.getMinHash().hex(), "minhash_shingle_composition": minhash.getComposition()}}
         if collection.find_one_and_update({"function_id": minhash.function_id}, set_command) is None:
+            LOGGER.warning("addMinHash() - no function with id %d, skipping its minhash.", minhash.function_id)
             return False
         # query functions are not indexed into bands, they are only ever used as query input
         if not is_query_function:
@@ -1743,8 +1749,22 @@ class MongoDbStorage(StorageInterface):
 
     ##### helpers for search ######
 
+    # pichashes are stored hex-encoded, in a differently named field ("_pichash") and with a
+    # variable width, so sorting on them would neither order numerically nor let the search cursor
+    # page - its tree compares the sort field with a range operator, which the transpiler rejects.
+    _UNSORTABLE_FIELDS = ("pichash",)
+
+    @staticmethod
+    def _assert_sortable_fields(full_cursor: Optional[FullSearchCursor]) -> None:
+        if full_cursor is None:
+            return
+        for field in full_cursor.sort_fields:
+            if field in MongoDbStorage._UNSORTABLE_FIELDS:
+                raise ValueError(f"Sorting by the field '{field}' is not supported by the MongoDB backend.")
+
     @staticmethod
     def _get_sort_list_from_cursor(full_cursor: Optional[FullSearchCursor]):
+        MongoDbStorage._assert_sortable_fields(full_cursor)
         if full_cursor is None:
             return None
         is_backward_search = not full_cursor.is_forward_search
@@ -1752,6 +1772,10 @@ class MongoDbStorage(StorageInterface):
         return sort_list
 
     def _get_search_query(self, search_fields: List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None):
+        # checked here as well as when the sort list is built, because this runs first: paging by an
+        # unsortable field would otherwise fail in the transpiler, blaming the range operator that
+        # the cursor tree happens to use instead of naming the field that cannot be sorted by
+        self._assert_sortable_fields(cursor)
         if cursor is not None:
             full_tree = AndNode([search_tree, cursor.toTree()])
         else:
