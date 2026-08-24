@@ -521,6 +521,40 @@ class MongoDbXcfgSplitTest(TestCase):
         self.assertIsNone(self.storage.getFunctionById(function_id).xcfg)
         self.assertNotEqual({}, self.storage.getFunctionById(function_id, with_xcfg=True).xcfg)
 
+    def _revertToInlineBlobs(self):
+        """Rewind a sample into the pre-split shape: blobs back inside the function documents,
+        blob collection gone. This is exactly what an instance looks like between deploying the
+        split code and finishing migrate_xcfg_split."""
+        db = self.storage._getDb()
+        for blob_document in db.xcfg.find({}):
+            db.functions.update_one({"function_id": blob_document["_id"]}, {"$set": {"_xcfg": blob_document["_xcfg"]}})
+        db.xcfg.drop()
+
+    def testReadersFallBackToInlineBlobsBeforeMigration(self):
+        """This code ships before the migration runs, so readers must serve inline `_xcfg`
+        instead of reporting empty disassembly - calculateMinHashes and match reports would
+        otherwise silently compute from nothing on an un-migrated instance."""
+        self._revertToInlineBlobs()
+        db = self.storage._getDb()
+        self.assertGreater(db.functions.count_documents({"_xcfg": {"$exists": True}}), 0)
+        functions = self.storage.getFunctionsBySampleId(self.sample_entry.sample_id)
+        self.assertTrue(all(entry.xcfg for entry in functions))
+        function_id = functions[0].function_id
+        self.assertNotEqual({}, self.storage.getFunctionById(function_id, with_xcfg=True).xcfg)
+        unhashed = self.storage.getUnhashedFunctions()
+        self.assertTrue(unhashed)
+        self.assertTrue(all(entry.xcfg for entry in unhashed))
+
+    def testBlobWinsOverStaleInlineCopy(self):
+        """Once a blob exists it is the source of truth; a leftover inline copy (e.g. after a
+        rollback to the pre-$unset state) must not shadow it."""
+        db = self.storage._getDb()
+        function_id = self.storage.getFunctionsBySampleId(self.sample_entry.sample_id)[0].function_id
+        fresh = self.storage.getFunctionById(function_id, with_xcfg=True).xcfg
+        db.functions.update_one({"function_id": function_id}, {"$set": {"_xcfg": "{}"}})
+        served = self.storage.getFunctionById(function_id, with_xcfg=True).xcfg
+        self.assertEqual(fresh, served)
+
     def testDroppedDisassemblyReadsAsEmptyDictNotNone(self):
         # None means "not requested", {} means "dropped" - the distinction the pre-split code
         # preserved by blanking the field in place instead of removing it
