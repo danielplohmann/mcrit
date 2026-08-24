@@ -11,6 +11,7 @@ from mcrit.config.MinHashConfig import MinHashConfig
 from mcrit.config.QueueConfig import QueueConfig
 from mcrit.config.ShinglerConfig import ShinglerConfig
 from mcrit.config.StorageConfig import StorageConfig
+from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
@@ -520,6 +521,22 @@ class MongoDbXcfgSplitTest(TestCase):
         function_id = self.storage.getFunctionsBySampleId(self.sample_entry.sample_id)[0].function_id
         self.assertIsNone(self.storage.getFunctionById(function_id).xcfg)
         self.assertNotEqual({}, self.storage.getFunctionById(function_id, with_xcfg=True).xcfg)
+
+    def testHasInlineXcfgRemainingTracksTheSplitState(self):
+        # False on the split shape, True once blobs sit inline again - this is the /status
+        # signal for a half-migrated instance, so both transitions must be reported
+        self.assertFalse(self.storage.hasInlineXcfgRemaining())
+        self._revertToInlineBlobs()
+        self.assertTrue(self.storage.hasInlineXcfgRemaining())
+
+    def testStatusSurfacesTheInlineXcfgSignal(self):
+        mcrit_config = McritConfig()
+        mcrit_config.STORAGE_CONFIG = StorageConfig(STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB, STORAGE_MONGODB_DBNAME="test_xcfg_split_mcrit")
+        status = MinHashIndex(mcrit_config).getStatus(with_pichash=False)["status"]
+        self.assertFalse(status["inline_xcfg_remaining"])
+        self._revertToInlineBlobs()
+        status = MinHashIndex(mcrit_config).getStatus(with_pichash=False)["status"]
+        self.assertTrue(status["inline_xcfg_remaining"])
 
     def _revertToInlineBlobs(self):
         """Rewind a sample into the pre-split shape: blobs back inside the function documents,

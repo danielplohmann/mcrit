@@ -424,7 +424,8 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         return infos
 
     def getStatus(self, with_pichash=True):
-        storage_stats = self.getStorage().getStats(with_pichash=with_pichash)
+        storage = self.getStorage()
+        storage_stats = storage.getStats(with_pichash=with_pichash)
         status = {
             "status": {
                 "db_state": storage_stats["db_state"],
@@ -437,6 +438,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 "num_pichashes": storage_stats["num_pichashes"],
             }
         }
+        # operator signal for a half-migrated instance (#137): the inline fallback keeps serving
+        # correct, but the split's space reclamation only happens once migrate_xcfg_split ran.
+        # Omitted rather than False when a backend cannot determine it cheaply.
+        inline_xcfg_remaining = None
+        storage_inline_check = getattr(storage, "hasInlineXcfgRemaining", None)
+        if callable(storage_inline_check):
+            inline_xcfg_remaining = storage_inline_check()
+        if inline_xcfg_remaining is not None:
+            status["status"]["inline_xcfg_remaining"] = inline_xcfg_remaining
         return status
 
     def getVersion(self):

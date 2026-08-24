@@ -45,9 +45,6 @@ from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageInterface import StorageInterface
 
 LOGGER = logging.getLogger(__name__)
-
-# one inline-`_xcfg` remnant probe per process (see _warnOnInlineXcfgRemaining)
-_INLINE_XCFG_CHECKED = False
 if MongoClient is None:
     LOGGER.warning("pymongo package import failed - MongoDB backend will not be available.")
 
@@ -162,28 +159,23 @@ class MongoDbStorage(StorageInterface):
         self._database = MongoClient(mongo_uri, connect=False)[db_name]
         self._ensureIndexAndUnknownFamily()
 
-    def _warnOnInlineXcfgRemaining(self) -> None:
-        """Announce an instance whose functions collection still carries inline disassembly (#137).
+    def hasInlineXcfgRemaining(self) -> Optional[bool]:
+        """Whether the functions collection still carries inline disassembly (#137).
 
-        The split readers fall back to an inline `_xcfg`, so serving is correct before
-        migrate_xcfg_split has run - but leftover inline blobs also mean the migration has not
-        completed, and that is worth saying loudly rather than leaving the instance quietly on
-        the pre-split shape. Runs once per process: cheap while inline blobs exist (the probe
-        stops at the first hit), a single collection scan once everything is migrated.
+        True = pre-split shape (migrate_xcfg_split not run or not finished), False = migrated,
+        None = could not be determined within the time budget. Surfaced through /status rather
+        than probed in a constructor: the probe is a COLLSCAN that exits early exactly when
+        things are broken and scans the whole collection when healthy, so it must never sit on
+        the job path - SpawningWorker runs each job as a fresh process, which would pay the scan
+        (and the WiredTiger cache churn of walking the collection) once per job.
         """
-        global _INLINE_XCFG_CHECKED
-        if _INLINE_XCFG_CHECKED:
-            return
-        _INLINE_XCFG_CHECKED = True
-        if self._getDb().functions.find_one({"_xcfg": {"$exists": True}}, {"_id": 1}):
-            LOGGER.warning(
-                "The functions collection still carries inline _xcfg documents - mcrit.migrations.migrate_xcfg_split "
-                "has not run (or not finished). Serving falls back to the inline disassembly, but the #137 "
-                "split (and its space reclamation) only takes effect once the migration has completed."
-            )
+        try:
+            return self._getDb().functions.find_one({"_xcfg": {"$exists": True}}, {"_id": 1}, max_time_ms=5000) is not None
+        except Exception:
+            LOGGER.warning("Could not determine whether inline _xcfg remains (probe did not finish within 5000 ms).")
+            return None
 
     def _ensureIndexAndUnknownFamily(self) -> None:
-        self._warnOnInlineXcfgRemaining()
         if "settings" not in self._getDb().list_collection_names():
             self._getDb()["settings"].insert_one({"mcrit_db_id": str(uuid.uuid4()), "db_state": 0})
         self._getDb()["samples"].create_index("sample_id")

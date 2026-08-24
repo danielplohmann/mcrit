@@ -620,6 +620,19 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def hasInlineXcfgRemaining(self) -> Optional[bool]:
+        """Whether function documents still carry inline disassembly (pre-#137 shape).
+
+        True = migrate_xcfg_split has not finished, False = migrated, None = not applicable or
+        could not be determined cheaply. An operator signal, surfaced via /status - never probe
+        this on a per-job path: the MongoDB implementation's check is a COLLSCAN whose healthy
+        answer requires scanning the whole collection.
+
+        Returns:
+            True if inline blobs remain, False if the split is complete, None otherwise
+        """
+        raise NotImplementedError
+
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
         """Given a list of function_ids, return all FunctionEntry objects corresponding to these IDs if they do not have a minhash yet.
         Otherwise, return all FunctionEntry objects that do not have a minhash.
