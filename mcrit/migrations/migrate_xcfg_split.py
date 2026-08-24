@@ -104,6 +104,7 @@ def migrate_functions(source_db, target_db, mode, batch_size, limit, source_coll
     started = time.perf_counter()
     log("migrating %s (mode=%s) from function_id > %s" % (source_collection, mode, last_function_id))
 
+    finished = True
     while True:
         query = {} if last_function_id is None else {"function_id": {"$gt": last_function_id}}
         # keyset paging on the indexed function_id: skip() would re-walk the collection
@@ -150,6 +151,7 @@ def migrate_functions(source_db, target_db, mode, batch_size, limit, source_coll
             log("  %d migrated, %.0f docs/s, %.1f GB of xcfg moved" % (migrated, migrated / max(elapsed, 1e-9), xcfg_bytes / 1073741824))
         if limit and migrated >= limit:
             log("stopping at --limit %d" % limit)
+            finished = False
             break
 
     if mode == "copy":
@@ -158,6 +160,16 @@ def migrate_functions(source_db, target_db, mode, batch_size, limit, source_coll
         index_started = time.perf_counter()
         recreate_indexes(source_db, target_db, source_collection)
         log("indexes rebuilt in %.1f s" % (time.perf_counter() - index_started))
+
+    if finished:
+        # terminal marker, read by MongoDbStorage.hasInlineXcfgRemaining: an inplace phase that
+        # drained guarantees no inline `_xcfg` remains (the $unset only runs after the blob write),
+        # so storage can report the migrated state O(1) instead of COLLSCAN-ing functions to prove
+        # a negative. A --limit run deliberately writes none. unsplit deletes state documents, so
+        # a rollback also removes the marker.
+        state["finished_at"] = datetime.now(UTC).isoformat()
+        put_state(target_db, state)
+        log("phase finished, terminal marker written")
 
     elapsed = time.perf_counter() - started
     log("done: %d documents, %.1f GB xcfg, %.1f s (%.0f docs/s)" % (migrated, xcfg_bytes / 1073741824, elapsed, migrated / max(elapsed, 1e-9)))

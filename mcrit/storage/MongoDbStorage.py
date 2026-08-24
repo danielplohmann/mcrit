@@ -168,7 +168,21 @@ class MongoDbStorage(StorageInterface):
         things are broken and scans the whole collection when healthy, so it must never sit on
         the job path - SpawningWorker runs each job as a fresh process, which would pay the scan
         (and the WiredTiger cache churn of walking the collection) once per job.
+
+        Decision order:
+        1. the terminal marker migrate_xcfg_split writes when an inplace phase drains is O(1)
+           and definitive for "migrated" - without it, the only honest answer to the healthy
+           case would be a full scan (~33s post-split), which no /status poll should pay
+        2. otherwise the bounded probe decides; it exits at the first hit in milliseconds
+           precisely in the un-migrated case, where the answer is needed
+
+        Only an inplace completion counts: copy mode migrating into a rehearsal target says
+        nothing about this instance. Instances migrated by a script version older than the
+        marker have no marker and fall through to the probe returning None (field omitted).
         """
+        completed_marker = self._getDb()["c1_migration_state"].find_one({"_id": "inplace:functions:xcfg", "finished_at": {"$exists": True}}, {"_id": 1})
+        if completed_marker:
+            return False
         try:
             return self._getDb().functions.find_one({"_xcfg": {"$exists": True}}, {"_id": 1}, max_time_ms=5000) is not None
         except Exception:

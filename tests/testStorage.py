@@ -529,6 +529,28 @@ class MongoDbXcfgSplitTest(TestCase):
         self._revertToInlineBlobs()
         self.assertTrue(self.storage.hasInlineXcfgRemaining())
 
+    def testFinishedInplaceMarkerDecidesWithoutScanning(self):
+        # the terminal marker migrate_xcfg_split writes on completion is authoritative for
+        # "migrated" and must win over the bounded probe (which could not prove a negative here)
+        db = self.storage._getDb()
+        self._revertToInlineBlobs()
+        db.c1_migration_state.insert_one({"_id": "inplace:functions:xcfg", "finished_at": "2026-08-24T00:00:00+00:00"})
+        try:
+            self.assertFalse(self.storage.hasInlineXcfgRemaining())
+        finally:
+            db.c1_migration_state.drop()
+
+    def testCopyModeMarkerDoesNotDecide(self):
+        # a rehearsal copy completing says nothing about this instance's functions collection -
+        # only an inplace completion is authoritative for "no inline blobs remain"
+        db = self.storage._getDb()
+        self._revertToInlineBlobs()
+        db.c1_migration_state.insert_one({"_id": "copy:functions:xcfg", "finished_at": "2026-08-24T00:00:00+00:00"})
+        try:
+            self.assertTrue(self.storage.hasInlineXcfgRemaining())
+        finally:
+            db.c1_migration_state.drop()
+
     def testStatusSurfacesTheInlineXcfgSignal(self):
         mcrit_config = McritConfig()
         mcrit_config.STORAGE_CONFIG = StorageConfig(STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB, STORAGE_MONGODB_DBNAME="test_xcfg_split_mcrit")
