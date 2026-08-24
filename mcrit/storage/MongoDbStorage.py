@@ -1752,6 +1752,7 @@ class MongoDbStorage(StorageInterface):
     # pichashes are stored hex-encoded, in a differently named field ("_pichash") and with a
     # variable width, so sorting on them would neither order numerically nor let the search cursor
     # page - its tree compares the sort field with a range operator, which the transpiler rejects.
+    # Zero-padding the stored value would lift this and the range rejection alike (#145).
     _UNSORTABLE_FIELDS = ("pichash",)
 
     @staticmethod
