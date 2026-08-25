@@ -741,21 +741,34 @@ class McritClient:
     ### Unique Blocks
     ###########################################
 
-    def requestUniqueBlocksForSamples(self, sample_ids: List[int]) -> Dict:
+    @staticmethod
+    def _getUniqueBlocksParams(covers_required=None, min_instructions=None):
+        # covers_required is the k of the k-of-n block cover, min_instructions drops shorter blocks
+        # before it is chosen; omitted parameters leave the server defaults (10 and 0) in place
+        params = {}
+        if covers_required is not None:
+            params["covers_required"] = covers_required
+        if min_instructions is not None:
+            params["min_instructions"] = min_instructions
+        return params
+
+    def requestUniqueBlocksForSamples(self, sample_ids: List[int], covers_required=None, min_instructions=None) -> Dict:
         if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
             sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
-            response = requests.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}", headers=self.headers)
+            params = self._getUniqueBlocksParams(covers_required, min_instructions)
+            response = requests.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}", headers=self.headers, params=params)
             result_data = handle_response(response)
         else:
             raise ValueError("sample_ids must be a list of int.")
         return result_data
 
-    def requestUniqueBlocksForFamily(self, family_id: int) -> Dict:
+    def requestUniqueBlocksForFamily(self, family_id: int, covers_required=None, min_instructions=None) -> Dict:
         if isinstance(family_id, int):
-            response = requests.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}", headers=self.headers)
+            params = self._getUniqueBlocksParams(covers_required, min_instructions)
+            response = requests.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}", headers=self.headers, params=params)
             result_data = handle_response(response)
         else:
-            raise ValueError("sample_ids must be a list of int.")
+            raise ValueError("family_id must be an int.")
         return result_data
 
     ###########################################

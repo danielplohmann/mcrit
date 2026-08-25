@@ -1,7 +1,7 @@
 import re
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, jsonify, timing
+from mcrit.server.utils import db_log_msg, getUniqueBlocksParams, jsonify, timing
 
 
 class BlocksResource:
@@ -11,17 +11,19 @@ class BlocksResource:
     @timing
     def on_get_unique_blocks_for_family(self, req, resp, family_id: int):
         db_log_msg(self.index, req, "BlocksResource.on_get_unique_blocks_for_family")
+        parameters = getUniqueBlocksParams(req.params)
         blocks_result = {}
         samples = self.index.getSamplesByFamilyId(family_id)
         target_sample_ids = [sample.sample_id for sample in samples]
-        blocks_result = self.index.getUniqueBlocks(target_sample_ids, family_id=family_id)
+        blocks_result = self.index.getUniqueBlocks(target_sample_ids, family_id=family_id, **parameters)
         resp.data = jsonify({"status": "successful", "data": blocks_result})
 
     @timing
     def on_get_unique_blocks_for_samples(self, req, resp, comma_separated_sample_ids=None):
         db_log_msg(self.index, req, "BlocksResource.on_get_unique_blocks")
+        parameters = getUniqueBlocksParams(req.params)
         blocks_result = {}
         if comma_separated_sample_ids is not None and re.match(r"^\d+(?:[\s]*,[\s]*\d+)*$", comma_separated_sample_ids):
             target_sample_ids = [int(sample_id) for sample_id in comma_separated_sample_ids.split(",")]
-            blocks_result = self.index.getUniqueBlocks(target_sample_ids)
+            blocks_result = self.index.getUniqueBlocks(target_sample_ids, **parameters)
         resp.data = jsonify({"status": "successful", "data": blocks_result})

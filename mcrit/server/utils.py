@@ -42,6 +42,21 @@ def getMatchingParams(req_params):
     return parameters
 
 
+def getUniqueBlocksParams(req_params):
+    parameters = {}
+    for key, value in req_params.items():
+        try:
+            if key == "covers_required":
+                # k of the k-of-n cover: every sample must be reached by this many selected blocks
+                parameters["covers_required"] = max(1, int(value))
+            if key == "min_instructions":
+                # blocks shorter than this are dropped before the cover is chosen
+                parameters["min_instructions"] = max(0, int(value))
+        except (AttributeError, TypeError, ValueError):
+            LOGGER.warning(f"Failed to handle request parameter: {key}: {value}")
+    return parameters
+
+
 def jsonify(content, debug_print=False):
     if debug_print:
         print(content)

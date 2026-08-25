@@ -85,6 +85,50 @@ class UniqueBlocksCoverTestSuite(unittest.TestCase):
         self.assertEqual(10, statistics["yara_covers"])
         self.assertEqual(len(result["yara_rule"]), statistics["yara_covers"])
 
+    def testCoversRequiredShapesTheRule(self):
+        index = MinHashIndex(config)
+        worker = index.queue._worker
+        report = SmdaReport.fromFile(EXAMPLE_REPORT)
+        assert report is not None
+        sample_entry = index._storage.addSmdaReport(report)
+        assert sample_entry is not None
+
+        # k of the k-of-n cover: with one sample in storage, every selected block covers it once,
+        # so the rule is exactly k blocks long and the achieved cover equals what was asked for
+        for covers_required in (1, 3, 10):
+            with self.subTest(covers_required=covers_required):
+                result = worker.getUniqueBlocks([sample_entry.sample_id], covers_required=covers_required)
+                self.assertEqual(covers_required, result["statistics"]["covers_required"])
+                self.assertEqual(covers_required, result["statistics"]["yara_covers"])
+                self.assertEqual(covers_required, len(result["yara_rule"]))
+                self.assertTrue(result["statistics"]["has_complete_yara_rule"])
+
+    def testMinInstructionsFiltersBeforeTheCoverIsChosen(self):
+        index = MinHashIndex(config)
+        worker = index.queue._worker
+        report = SmdaReport.fromFile(EXAMPLE_REPORT)
+        assert report is not None
+        sample_entry = index._storage.addSmdaReport(report)
+        assert sample_entry is not None
+
+        unfiltered = worker.getUniqueBlocks([sample_entry.sample_id])
+        self.assertEqual(0, unfiltered["statistics"]["min_instructions"])
+        self.assertEqual(len(unfiltered["unique_blocks"]), unfiltered["statistics"]["blocks_considered"])
+
+        min_instructions = 5
+        filtered = worker.getUniqueBlocks([sample_entry.sample_id], min_instructions=min_instructions)
+        self.assertEqual(min_instructions, filtered["statistics"]["min_instructions"])
+        # the short blocks are gone from the result, not merely skipped by the selection
+        self.assertLess(len(filtered["unique_blocks"]), len(unfiltered["unique_blocks"]))
+        self.assertEqual(len(filtered["unique_blocks"]), filtered["statistics"]["blocks_considered"])
+        for block in filtered["unique_blocks"].values():
+            self.assertGreaterEqual(block["length"], min_instructions)
+        # and the cover is chosen from the survivors only
+        for block_hash in filtered["yara_rule"]:
+            self.assertIn(block_hash, filtered["unique_blocks"])
+        # the counts from the storage layer still describe everything that was found
+        self.assertEqual(unfiltered["statistics"]["unique_blocks_overall"], filtered["statistics"]["unique_blocks_overall"])
+
     def testYaraCoversStaysZeroWithoutASample(self):
         index = MinHashIndex(config)
         worker = index.queue._worker

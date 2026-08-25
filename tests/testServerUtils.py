@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from mcrit.server.utils import getMatchingParams
+from mcrit.server.utils import getMatchingParams, getUniqueBlocksParams
 
 
 class TestServerUtils(unittest.TestCase):
@@ -54,3 +54,25 @@ class TestServerUtils(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUniqueBlocksParams(unittest.TestCase):
+    def test_valid(self):
+        self.assertEqual({"covers_required": 3, "min_instructions": 5}, getUniqueBlocksParams({"covers_required": "3", "min_instructions": "5"}))
+
+    def test_defaults_are_left_to_the_worker(self):
+        # an omitted parameter must not appear, so Worker.getUniqueBlocks keeps its own default
+        self.assertEqual({}, getUniqueBlocksParams({}))
+        self.assertEqual({"min_instructions": 7}, getUniqueBlocksParams({"min_instructions": "7"}))
+
+    def test_out_of_bounds_is_clamped(self):
+        # a cover of 0 blocks per sample is not a cover, and a negative length is meaningless
+        self.assertEqual({"covers_required": 1, "min_instructions": 0}, getUniqueBlocksParams({"covers_required": "0", "min_instructions": "-4"}))
+
+    @patch("mcrit.server.utils.LOGGER")
+    def test_garbage_is_warned_about_and_dropped(self, mock_logger):
+        self.assertEqual({}, getUniqueBlocksParams({"covers_required": "many", "min_instructions": None}))
+        self.assertEqual(2, mock_logger.warning.call_count)
+
+    def test_unrelated_parameters_are_ignored(self):
+        self.assertEqual({"covers_required": 2}, getUniqueBlocksParams({"covers_required": "2", "compress": "true"}))

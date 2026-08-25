@@ -324,27 +324,43 @@ class Worker(QueueRemoteCallee):
 
     # Reports PROGRESS
     @Remote(progress=True)
-    def getUniqueBlocks(self, sample_ids, family_id=None, progress_reporter=NoProgressReporter()):
+    def getUniqueBlocks(self, sample_ids, family_id=None, covers_required=10, min_instructions=0, progress_reporter=NoProgressReporter()):
         """Collect the blocks unique to <sample_ids> and greedily pick a multi-set cover of them.
+
+        The cover is a k-of-n construction: <covers_required> is that k, i.e. how many selected
+        blocks every sample must be reached by. Lower values yield a smaller rule on weaker
+        evidence. <min_instructions> drops shorter blocks before the selection runs, so the cover is
+        chosen from blocks a caller would keep rather than from ones it discards afterwards - a
+        two-instruction block is not worth a YARA string. Both are clamped to sane values.
 
         NOTE: result["yara_rule"] is the cover's selection as a list of picblockhash strings, not
         YARA source - the byte patterns live per block in unique_blocks[hash]["escaped_sequence"].
 
         statistics reports how far the cover got: "num_samples_covered" counts the samples reached
-        by at least covers_required (10) selected blocks, and "yara_covers" is the number of selected
-        blocks covering the least covered sample, i.e. the k the cover actually achieved.
+        by at least covers_required selected blocks, and "yara_covers" is the number of selected
+        blocks covering the least covered sample, i.e. the k the cover actually achieved. It also
+        echoes the two parameters, so a result says what shaped it, and "blocks_considered" records
+        how many blocks survived min_instructions while the counts above describe everything found.
         """
         # TODO we could propagate this progress reporter into the storage function for more fine grained progress tracking
         progress_reporter.set_total(1)
+        covers_required = max(1, int(covers_required))
+        min_instructions = max(0, int(min_instructions))
         blocks_result_dict = self._storage.getUniqueBlocks(sample_ids, progress_reporter=progress_reporter)
         blocks_result_dict["statistics"]["has_yara_rule"] = False
         blocks_result_dict["statistics"]["yara_covers"] = 0
         blocks_result_dict["statistics"]["has_complete_yara_rule"] = False
+        if min_instructions:
+            blocks_result_dict["unique_blocks"] = {
+                block_hash: entry for block_hash, entry in blocks_result_dict["unique_blocks"].items() if entry["length"] >= min_instructions
+            }
         unique_blocks = blocks_result_dict["unique_blocks"]
+        blocks_result_dict["statistics"]["covers_required"] = covers_required
+        blocks_result_dict["statistics"]["min_instructions"] = min_instructions
+        blocks_result_dict["statistics"]["blocks_considered"] = len(unique_blocks)
         # greedily produce a multi set cover of picblockhashes for sample_ids, i.e. a YARA rule :)
         yara_rule = []
         sample_coverage = {sample_id: 0 for sample_id in sample_ids}
-        covers_required = 10
         samples_covered = set()
         while True:
             # calculate block_scores as how much benefit they bring, i.e. how many uncovered samples they can cover at once
