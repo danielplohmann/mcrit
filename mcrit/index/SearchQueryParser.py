@@ -68,6 +68,7 @@ from pyparsing import (
     Group,
     Keyword,
     OneOrMore,
+    ParseBaseException,
     QuotedString,
     StringEnd,
     Suppress,
@@ -155,7 +156,13 @@ class SearchQueryParser:
     def parse(self, string: str) -> NodeType:
         if string.strip(whitespace) == "":
             return AndNode([])
-        raw_result = self._parser.parse_string(string)
+        try:
+            raw_result = self._parser.parse_string(string)
+        except ParseBaseException as parse_error:
+            # an unbalanced parenthesis or a dangling operator is bad input, not a server fault -
+            # report it as a ValueError, which is what the REST layer already answers with a 400.
+            # pyparsing's message names the offending character and its offset, so it is worth keeping.
+            raise ValueError(f"Could not parse search query: {parse_error}") from parse_error
         assert len(raw_result) == 1
         result = self._build_tree(raw_result[0])
         return result

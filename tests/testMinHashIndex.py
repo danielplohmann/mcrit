@@ -4,6 +4,7 @@ import logging
 import unittest
 
 from mcrit.index.MinHashIndex import MinHashIndex
+from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import generate_unique_pairs
 from mcrit.minhash.EscaperFingerprint import getEscaperFingerprint
 
@@ -25,6 +26,38 @@ class MinHashIndexTestSuite(unittest.TestCase):
         for data in test_data:
             generated_all_candidates = [pair for pair in generate_unique_pairs(data[0])]
             self.assertEqual(data[1], generated_all_candidates)
+
+
+MALFORMED_QUERIES = ["foo)", "(foo", "a AND", "family:(foo"]
+
+
+class MalformedSearchQueryTestSuite(unittest.TestCase):
+    """A query the parser cannot read is bad input, not a server fault (#146)"""
+
+    def testParserReportsMalformedQueryAsValueError(self):
+        parser = SearchQueryParser()
+        for query in MALFORMED_QUERIES:
+            with self.subTest(query=query):
+                with self.assertRaises(ValueError) as context:
+                    parser.parse(query)
+                # pyparsing names the offending position, which is worth passing on to the user
+                self.assertIn("char", str(context.exception))
+
+    def testSearchResultsRejectMalformedQuery(self):
+        index = MinHashIndex(config)
+        searches = [index.getFamilySearchResults, index.getSampleSearchResults, index.getFunctionSearchResults]
+        for search in searches:
+            for query in MALFORMED_QUERIES:
+                with self.subTest(search=search.__name__, query=query):
+                    # ValueError is what StatusResource._respond_search answers with a 400
+                    with self.assertRaises(ValueError):
+                        search(query)
+
+    def testWellFormedQueryStillSearches(self):
+        index = MinHashIndex(config)
+        self.assertIn("search_results", index.getFamilySearchResults("foo"))
+        self.assertIn("search_results", index.getSampleSearchResults("family:foo"))
+        self.assertIn("search_results", index.getFunctionSearchResults("offset:>0x100"))
 
 
 class EscaperProvenanceTestSuite(unittest.TestCase):
