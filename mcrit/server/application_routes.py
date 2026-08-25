@@ -25,6 +25,12 @@ LOGGER = logging.getLogger(__name__)
 
 # https://falcon.readthedocs.io/en/stable/user/quickstart.html#a-more-complex-example
 class AuthMiddleware:
+    def __init__(self):
+        # warn here rather than in McritConfig, which is also constructed by every worker
+        # process - an unprotected API is only a fact where the API is actually served
+        if McritConfig.AUTH_TOKEN in [None, ""]:
+            LOGGER.warning("No AUTH_TOKEN configured (MCRIT_AUTH_TOKEN is unset) - the API is not protected against unauthenticated access.")
+
     def process_request(self, req, resp):
         if McritConfig.AUTH_TOKEN in [None, ""]:
             return
@@ -49,7 +55,10 @@ class AuthMiddleware:
     def _token_is_valid(self, token):
         if McritConfig.AUTH_TOKEN in [None, ""]:
             return True
-        return secrets.compare_digest(token, McritConfig.AUTH_TOKEN)
+        # compare_digest refuses str inputs that are not pure ASCII, and WSGI hands header values
+        # over latin-1 decoded - so a single high byte in the header would raise here and turn an
+        # unauthorized request into a 500. Comparing bytes keeps it a plain mismatch.
+        return secrets.compare_digest(token.encode("utf-8", "surrogateescape"), McritConfig.AUTH_TOKEN.encode("utf-8", "surrogateescape"))
 
 
 def create_index():

@@ -33,5 +33,3 @@ class McritConfig:
     def __init__(self, log_level=logging.INFO):
         if not logging.root.handlers:
             logging.basicConfig(level=log_level, format=self.LOG_FORMAT)
-        if self.AUTH_TOKEN in (None, ""):
-            logging.getLogger(__name__).warning("No AUTH_TOKEN configured (MCRIT_AUTH_TOKEN is unset) - the API is not protected against unauthenticated access.")
