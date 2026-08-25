@@ -14,8 +14,9 @@ class McritConfig:
     CONFIG_FILE_PATH = str(os.path.abspath(__file__))
     PROJECT_ROOT = str(os.path.abspath(os.sep.join([CONFIG_FILE_PATH, "..", ".."])))
 
-    # Authentication token, which can be optionally used to lock down communication with the API
-    AUTH_TOKEN = ""
+    # Authentication token, which can be optionally used to lock down communication with the API.
+    # It can be supplied via the environment, so that it does not have to be stored in a config file.
+    AUTH_TOKEN = os.getenv("MCRIT_AUTH_TOKEN", "")
 
     ### global logging-config setup
     # Only do basicConfig if no handlers have been configured
@@ -32,3 +33,5 @@ class McritConfig:
     def __init__(self, log_level=logging.INFO):
         if not logging.root.handlers:
             logging.basicConfig(level=log_level, format=self.LOG_FORMAT)
+        if self.AUTH_TOKEN in (None, ""):
+            logging.getLogger(__name__).warning("No AUTH_TOKEN configured (MCRIT_AUTH_TOKEN is unset) - the API is not protected against unauthenticated access.")

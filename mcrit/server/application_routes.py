@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import secrets
 
 import falcon
 
@@ -48,7 +49,7 @@ class AuthMiddleware:
     def _token_is_valid(self, token):
         if McritConfig.AUTH_TOKEN in [None, ""]:
             return True
-        return token == McritConfig.AUTH_TOKEN
+        return secrets.compare_digest(token, McritConfig.AUTH_TOKEN)
 
 
 def create_index():
