@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, List, Optional
 
 import mcrit.matchers.MatcherFlags as MatcherFlags
 
@@ -16,13 +16,13 @@ class MatchedFunctionEntry:
     num_bytes: int
     offset: int
     matched_family_id: int
-    matched_family: str
+    matched_family: Optional[str]
     matched_sample_id: int
     matched_function_id: int
     matched_score: float
     matched_link_score: float
-    matched_unique: bool
-    matched_offset: int
+    matched_unique: Optional[bool]
+    matched_offset: Optional[int]
     match_is_minhash: bool
     match_is_pichash: bool
     match_is_library: bool

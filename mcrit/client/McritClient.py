@@ -3,7 +3,7 @@ import functools
 import logging
 import time
 import urllib.parse
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from smda.common.SmdaReport import SmdaReport
@@ -15,7 +15,7 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
 
 # Only do basicConfig if no handlers have been configured
-if len(logging._handlerList) == 0:
+if not logging.root.handlers:
     logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 LOGGER = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ def isJobFinishedTerminatedOrFailed(job):
     return isJobTerminated(job) or (job.result is not None) or isJobFailed(job)
 
 
-def handle_response(response):
+def handle_response(response) -> Any:
     data = None
     if response.status_code in [500, 501]:
         LOGGER.warning("McritClient received status code 500 from MCRIT.")
@@ -117,7 +117,7 @@ class McritClient:
             return response
         return handle_response(response)
 
-    def addReport(self, smda_report: SmdaReport) -> Tuple[SampleEntry, Optional[str]]:
+    def addReport(self, smda_report: SmdaReport) -> Any:
         smda_json = smda_report.toDict()
         response = requests.post(f"{self.mcrit_server}/samples", json=smda_json, headers=self.headers)
         if self.raw:
@@ -163,7 +163,7 @@ class McritClient:
         response = requests.put(f"{self.mcrit_server}/families/{family_id}", update_dict, headers=self.headers)
         return handle_response(response)
 
-    def getFamily(self, family_id: int, with_samples=True) -> Optional[FamilyEntry]:
+    def getFamily(self, family_id: int, with_samples=True) -> Any:
         """
         Get a FamilyEntry by its <family_id>
         Supported by mcritweb API pass-through
@@ -177,7 +177,7 @@ class McritClient:
             return FamilyEntry.fromDict(data)
         return None
 
-    def getFamilies(self) -> Optional[Dict[int, FamilyEntry]]:
+    def getFamilies(self) -> Any:
         """
         Get all FamilyEntry objects in a dict, with <family_id> as key
         Supported by mcritweb API pass-through
@@ -190,7 +190,7 @@ class McritClient:
             return {i: FamilyEntry.fromDict(entry) for i, entry in data.items()}
         return None
 
-    def isFamilyId(self, family_id) -> bool:
+    def isFamilyId(self, family_id) -> Any:
         """
         Check if a <family_id> is valid in MCRIT
         Supported by mcritweb API pass-through
@@ -335,7 +335,7 @@ class McritClient:
             return True
         return False
 
-    def getFunctionById(self, function_id: int, with_xcfg=False) -> Optional[FunctionEntry]:
+    def getFunctionById(self, function_id: int, with_xcfg=False) -> Any:
         """
         Get a FunctionEntry by its <function_id>
         Supported by mcritweb API pass-through
@@ -359,7 +359,7 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
-    ) -> str:
+    ) -> Any:
         smda_json = smda_report.toDict()
         params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
         response = requests.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params)
@@ -376,7 +376,7 @@ class McritClient:
         band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
-    ) -> str:
+    ) -> Any:
         if disassemble_locally:
             disassembler = Disassembler()
             smda_report = disassembler.disassembleBuffer(binary, base_address)
@@ -404,7 +404,7 @@ class McritClient:
         band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
-    ) -> str:
+    ) -> Any:
         if disassemble_locally:
             disassembler = Disassembler()
             smda_report = disassembler.disassembleUnmappedBuffer(binary)
@@ -432,7 +432,7 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
-    ) -> None:
+    ) -> Any:
         params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params)
         if self.raw:
@@ -447,7 +447,7 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
-    ) -> str:
+    ) -> Any:
         params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}", headers=self.headers, params=params)
         if self.raw:
@@ -462,14 +462,14 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
-    ) -> None:
+    ) -> Any:
         params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, sample_group_only=sample_group_only)
         response = requests.get(f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params)
         if self.raw:
             return response
         return handle_response(response)
 
-    def getMatchFunctionVs(self, function_id_a: int, function_id_b: int) -> None:
+    def getMatchFunctionVs(self, function_id_a: int, function_id_b: int) -> Any:
         response = requests.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}", headers=self.headers)
         if self.raw:
             return response

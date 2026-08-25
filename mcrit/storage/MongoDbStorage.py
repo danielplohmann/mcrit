@@ -8,18 +8,12 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from itertools import zip_longest
 from operator import itemgetter
-from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
 from packaging import version
-
-try:
-    from pymongo import MongoClient, UpdateOne
-except ImportError:
-    MongoClient = None
-    UpdateOne = None
-
 from picblocks.blockhasher import BlockHasher
+from pymongo import MongoClient, UpdateOne
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
 from smda.SmdaConfig import SmdaConfig
@@ -53,7 +47,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaFunction import SmdaFunction
     from smda.common.SmdaReport import SmdaReport
 
-    from mcrit.config.StorageConfig import StorageConfig
+    from mcrit.config.McritConfig import McritConfig
 
 
 class MongoSearchTranspiler(BaseVisitor):
@@ -127,9 +121,9 @@ class MongoSearchTranspiler(BaseVisitor):
 class MongoDbStorage(StorageInterface):
     _DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
-    _database: "Database"
+    _database: Optional["Database"]
 
-    def __init__(self, config: "StorageConfig") -> None:
+    def __init__(self, config: "McritConfig") -> None:
         super().__init__(config)  # sets config
         self.blockhasher = BlockHasher()
         self._database = None
@@ -243,7 +237,8 @@ class MongoDbStorage(StorageInterface):
         upsert_result = self._getDb()["families"].update_one({"family_id": 0}, {"$setOnInsert": unknown_family.toDict()}, upsert=True)
         if upsert_result.upserted_id is not None:
             self._updateDbState()
-        assert self.getFamily(0).family_name == ""
+        stored_unknown_family = self.getFamily(0)
+        assert stored_unknown_family is not None and stored_unknown_family.family_name == ""
 
     def _removeCounterDuplicates(self) -> None:
         # one-off cleanup for #105: releases before 1.6.2 upserted a fresh {name, value: 1} document on every
@@ -595,7 +590,7 @@ class MongoDbStorage(StorageInterface):
             self._getDb().query_functions.delete_many({"sample_id": sample_id})
             # remove sample
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
-            return
+            return True
         function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
 
         # collect all band entries that need updating and pull all function_ids at once.
@@ -622,6 +617,7 @@ class MongoDbStorage(StorageInterface):
         self._getDb().samples.delete_one({"sample_id": sample_id})
         # delete family if empty
         family_info = self.getFamily(sample_entry.family_id)
+        assert family_info is not None
         if family_info.num_samples == 0 and family_info.family_id != 0:
             self._getDb().families.delete_one({"family_id": family_info.family_id})
         self._updateDbState()
@@ -643,18 +639,21 @@ class MongoDbStorage(StorageInterface):
         if not self.isSampleId(sample_id):
             return False
         sample_entry = self.getSampleById(sample_id)
+        assert sample_entry is not None
         if "is_library" in update_information:
             is_library_info_changed = sample_entry.is_library != update_information["is_library"]
             self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": update_information["is_library"]}})
             family_entry = self.getFamily(sample_entry.family_id)
+            assert family_entry is not None
             if is_library_info_changed:
                 new_value = family_entry.num_library_samples + (1 if update_information["is_library"] else -1)
                 self._getDb().families.update_one({"family_id": sample_entry.family_id}, {"$set": {"num_library_samples": new_value}})
         if "family_name" in update_information:
             old_family_entry = self.getFamily(sample_entry.family_id)
+            new_family_entry = self.getFamily(self.addFamily(update_information["family_name"]))
+            assert old_family_entry is not None and new_family_entry is not None
             family_name = update_information["family_name"]
-            family_id = self.addFamily(family_name)
-            new_family_entry = self.getFamily(family_id)
+            family_id = new_family_entry.family_id
             # update sample_entry and function_entries with new family information
             self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
             self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}})
@@ -680,6 +679,7 @@ class MongoDbStorage(StorageInterface):
                 },
             )
             old_family_entry = self.getFamily(sample_entry.family_id)
+            assert old_family_entry is not None
             # delete family if empty
             if old_family_entry.num_samples == 0 and old_family_entry.family_id != 0:
                 self._getDb().families.delete_one({"family_id": old_family_entry.family_id})
@@ -694,6 +694,7 @@ class MongoDbStorage(StorageInterface):
         if not self.isFamilyId(family_id):
             return False
         old_family_info = self.getFamily(family_id)
+        assert old_family_info is not None
         if "is_library" in update_information:
             self._getDb().samples.update_many({"family_id": family_id}, {"$set": {"is_library": update_information["is_library"]}})
             updated_count = old_family_info.num_samples if update_information["is_library"] else 0
@@ -704,6 +705,7 @@ class MongoDbStorage(StorageInterface):
             family_name = update_information["family_name"]
             new_family_id = self.addFamily(family_name)
             new_family_info = self.getFamily(new_family_id)
+            assert old_family_info is not None and new_family_info is not None
             new_num_samples = new_family_info.num_samples + old_family_info.num_samples
             new_num_functions = new_family_info.num_functions + old_family_info.num_functions
             new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
@@ -721,11 +723,11 @@ class MongoDbStorage(StorageInterface):
             self._updateDbState()
         return True
 
-    def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
+    def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         family_entry = self.getFamily(family_id)
         if family_entry is None:
             return False
-        sample_entries = self.getSamplesByFamilyId(family_id)
+        sample_entries = self.getSamplesByFamilyId(family_id) or []
         if keep_samples:
             self._getDb().samples.update_many({"family_id": family_id}, {"$set": {"family_id": 0, "family": ""}})
             self._getDb().functions.update_many({"family_id": family_id}, {"$set": {"family_id": 0}})
@@ -747,7 +749,7 @@ class MongoDbStorage(StorageInterface):
         samples = self._getDb().samples.find({"family_id": family_id}, {"_id": 0})
         return [SampleEntry.fromDict(sample_document) for sample_document in samples]
 
-    def getSamples(self, start_index: int, limit: int, is_query=False) -> Optional["SampleEntry"]:
+    def getSamples(self, start_index: int, limit: int, is_query=False) -> List["SampleEntry"]:
         sample_entries = []
         if is_query:
             for sample_document in self._getDb().query_samples.find().skip(start_index).limit(limit):
@@ -778,9 +780,10 @@ class MongoDbStorage(StorageInterface):
         return target_sample
 
     def updateFunctionLabels(self, smda_report: "SmdaReport", username) -> Optional["SampleEntry"]:
+        assert smda_report.sha256 is not None
         sample_entry = self.getSampleBySha256(smda_report.sha256)
         if not sample_entry:
-            return False
+            return None
         # check which functions in the SmdaReport have suitable function_names
         submitted_labels = {}
         for smda_function in smda_report.getFunctions():
@@ -790,7 +793,7 @@ class MongoDbStorage(StorageInterface):
                 offset = encode_two_complement(smda_function.offset)
                 submitted_labels[offset] = function_name
         # get the respective FunctionEntries and check if the label is novel
-        sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id)}
+        sample_function_entries = {entry.offset: entry for entry in self.getFunctionsBySampleId(sample_entry.sample_id) or []}
         label_updates = []
         for label_offset, extracted_label in submitted_labels.items():
             is_new_label = False
@@ -810,6 +813,7 @@ class MongoDbStorage(StorageInterface):
             self._getDb().functions.bulk_write(label_updates, ordered=False)
 
     def addSmdaReport(self, smda_report: "SmdaReport", isQuery=False) -> Optional["SampleEntry"]:
+        assert smda_report.sha256 is not None
         sample_entry = None
         if isQuery:
             sample_entry = SampleEntry(smda_report, sample_id=-1 * self._useCounter("query_samples"), family_id=0)
@@ -822,7 +826,7 @@ class MongoDbStorage(StorageInterface):
             self._dbInsertMany("query_functions", function_dicts)
         else:
             if not self.getSampleBySha256(smda_report.sha256):
-                family_id = self.addFamily(smda_report.family)
+                family_id = self.addFamily(smda_report.family or "")
                 sample_entry = SampleEntry(smda_report, sample_id=self._useCounter("samples"), family_id=family_id)
                 self._dbInsert("samples", sample_entry.toDict())
                 function_ids = self._useCounterBulk("functions", smda_report.num_functions)
@@ -906,7 +910,7 @@ class MongoDbStorage(StorageInterface):
             minhash_bits=self._minhash_config.MINHASH_SIGNATURE_BITS,
         )
 
-    def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
+    def getFunctionIdsBySampleId(self, sample_id: int) -> Optional[List["int"]]:
         function_ids = None
         if not self.isSampleId(sample_id):
             return function_ids
@@ -919,7 +923,7 @@ class MongoDbStorage(StorageInterface):
             function_ids.append(f["function_id"])
         return function_ids
 
-    def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
+    def getFunctions(self, start_index: int, limit: int) -> List["FunctionEntry"]:
         functions = []
         function_documents = list(self._getDb().functions.find().skip(start_index).limit(limit))
         self._attachXcfgBlobs(function_documents)
@@ -939,7 +943,7 @@ class MongoDbStorage(StorageInterface):
             is_sample_id = bool(self._getDb().samples.find_one({"sample_id": sample_id}))
         return is_sample_id
 
-    def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
+    def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
         if not self.isSampleId(sample_id):
             return None
         function_ids = list(
@@ -1057,19 +1061,19 @@ class MongoDbStorage(StorageInterface):
                     band_hashes[band_number][band_hash].append(minhash.function_id)
         self._updateBands(band_hashes)
 
-    def _updateBands(self, band_hashes: Dict[int, Dict[int, List[int]]], method="push") -> None:
+    def _updateBands(self, band_hashes: Dict[int, Dict[int, List[int]]], method="push") -> int:
         if method not in ["push", "pull"]:
             raise ValueError(f"MongoDbStorage._updateBands() can only do 'push' and 'pull', not '{method}'.")
         num_band_updates = 0
         for band_number, band_data in band_hashes.items():
             band_updates = []
             for band_hash, function_ids in band_data.items():
-                update_command = None
-                if len(function_ids) >= 1:
-                    if method == "push":
-                        update_command = {"$push": {"function_ids": {"$each": function_ids}}}
-                    else:
-                        update_command = {"$pull": {"function_ids": {"$in": function_ids}}}
+                if len(function_ids) < 1:
+                    continue
+                if method == "push":
+                    update_command = {"$push": {"function_ids": {"$each": function_ids}}}
+                else:
+                    update_command = {"$pull": {"function_ids": {"$in": function_ids}}}
                 band_updates.append(UpdateOne({"band_hash": band_hash}, update_command, upsert=True))
             if band_updates:
                 self._getDb()["band_%d" % band_number].bulk_write(band_updates, ordered=False)
@@ -1157,7 +1161,7 @@ class MongoDbStorage(StorageInterface):
 
     def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
         if not minhash.hasMinHash():
-            return
+            return set()
         candidates = {}
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
@@ -1502,7 +1506,7 @@ class MongoDbStorage(StorageInterface):
             stats["num_functions"] += family_document["num_functions"]
         return stats
 
-    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
+    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
         unhashed_functions = []
         search_query = {}
         if function_ids is not None:
@@ -1577,7 +1581,7 @@ class MongoDbStorage(StorageInterface):
         smda_version = smda_config.VERSION
         smda_downward_compatibility = getattr(smda_config, "ESCAPER_DOWNWARD_COMPATIBILITY", None)
         if smda_downward_compatibility is None:
-            LOGGER.warn("SMDA downward compatibility version unknown, using current SMDA version as threshold...")
+            LOGGER.warning("SMDA downward compatibility version unknown, using current SMDA version as threshold...")
             smda_downward_compatibility = smda_version
         compatibility_threshold = version.parse(smda_downward_compatibility)
         # get samples where recalculation is necessary
@@ -1656,7 +1660,7 @@ class MongoDbStorage(StorageInterface):
             f"Found {total_samples} outdated samples, {functions_updated}/{functions_updatable} PicHashes and {picblockhashes_updated}/{picblockhashes_updatable} PicBlockHashes were updated."
         )
         if xcfg_missing:
-            LOGGER.warn(f"{xcfg_missing} functions could not be updated as there was not CFG available.")
+            LOGGER.warning(f"{xcfg_missing} functions could not be updated as there was not CFG available.")
         return {
             "outdated_samples": total_samples,
             "functions_updatable": functions_updatable,
@@ -1666,14 +1670,14 @@ class MongoDbStorage(StorageInterface):
             "xcfg_missing": xcfg_missing,
         }
 
-    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
+    def getUniqueBlocks(self, sample_ids: List[int], progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
-        block_statistics = {
+        block_statistics: Dict[str, Any] = {
             "by_sample_id": {sample_id: {"sample_id": sample_id, "total_blocks": 0, "characteristic_blocks": 0, "unique_blocks": 0} for sample_id in sample_ids},
             "unique_blocks_overall": 0,
             "num_samples": len(sample_ids),
         }
-        candidate_picblockhashes = {}
+        candidate_picblockhashes: Dict[int, Dict[str, Any]] = {}
         for entry in self._getDb().functions.find(
             {"sample_id": {"$in": sample_ids}, "_picblockhashes": {"$exists": True, "$ne": []}}, {"function_id": 1, "sample_id": 1, "_picblockhashes": 1, "_id": 0}
         ):

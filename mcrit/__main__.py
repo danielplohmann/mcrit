@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+from typing import Any
 
 
 def runWorker(profiling=False):
@@ -32,26 +33,38 @@ def runServer(profiling=False, uses_gunicorn=False):
     from mcrit.config.GunicornConfig import GunicornConfig
     from mcrit.server.wsgi import app
 
+    # gunicorn is not installed on every platform (e.g. Windows), so the server class
+    # below can only be defined when the import succeeded.
+    BaseApplication: Any = None
     try:
-        import gunicorn
-        from gunicorn.app.base import BaseApplication
+        from gunicorn.app.base import BaseApplication as _GunicornBaseApplication
+
+        BaseApplication = _GunicornBaseApplication
     except Exception:
-        gunicorn = None
+        pass
 
-    class gunicornServer(BaseApplication):
-        def __init__(self, app):
-            self.app = app
-            super().__init__()
+    def buildGunicornServer(wsgi_app):
+        assert BaseApplication is not None
+        gunicorn_base: Any = BaseApplication
 
-        def load_config(self):
-            for key, value in GunicornConfig().toDict().items():
-                try:
-                    self.cfg.set(key.lower(), value)
-                except AttributeError:
-                    continue
+        class gunicornServer(gunicorn_base):
+            def __init__(self, app):
+                self.app = app
+                super().__init__()
 
-        def load(self):
-            return self.app
+            def load_config(self):
+                if self.cfg is None:
+                    return
+                for key, value in GunicornConfig().toDict().items():
+                    try:
+                        self.cfg.set(key.lower(), value)
+                    except AttributeError:
+                        continue
+
+            def load(self):
+                return self.app
+
+        return gunicornServer(wsgi_app)
 
     wrapped_app = app
     if profiling:
@@ -67,12 +80,12 @@ def runServer(profiling=False, uses_gunicorn=False):
             filename_format="{method}-{path}-{time:.0f}-{elapsed:.0f}ms.prof",
         )
 
-    platform = platform.system().lower()
-    if platform == "linux" and gunicorn is not None and (GunicornConfig().USE_GUNICORN or uses_gunicorn):
+    platform_name = platform.system().lower()
+    if platform_name == "linux" and BaseApplication is not None and (GunicornConfig().USE_GUNICORN or uses_gunicorn):
         print("[!] Detected linux platform and gunicorn availability. Using gunicorn deployment.")
-        gunicornServer(wrapped_app).run()
+        buildGunicornServer(wrapped_app).run()
         sys.exit()
-    elif platform == "windows":
+    elif platform_name == "windows":
         print("[!] Detected windows platform. Using waitress deployment.")
     else:
         print("[!] Could not determine platform, gunicorn not available or activated. Defaulting to waitress deployment.")

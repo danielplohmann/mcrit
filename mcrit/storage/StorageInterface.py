@@ -2,13 +2,15 @@ import datetime
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
+from mcrit.index.SearchCursor import FullSearchCursor
+from mcrit.index.SearchQueryTree import NodeType
 from mcrit.minhash.MinHash import MinHash
 
 if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaReport import SmdaReport
 
     from mcrit.config.McritConfig import McritConfig
-    from mcrit.config.StorageConfig import StorageConfig
+    from mcrit.storage.FamilyEntry import FamilyEntry
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.SampleEntry import SampleEntry
@@ -25,8 +27,8 @@ Sha256 = str
 
 
 class StorageInterface:
-    _config: "StorageConfig"
-    _band_projection: None
+    _config: "McritConfig"
+    _band_projection: Optional[Dict[int, List[int]]]
 
     def __init__(self, config: "McritConfig") -> None:
         """Set the StorageConfig, sets up an empty Storage or loads existing data, ensures indexing,
@@ -287,7 +289,7 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getSamples(self, start_index: int, limit: int, is_query=False) -> Optional["SampleEntry"]:
+    def getSamples(self, start_index: int, limit: int, is_query=False) -> List["SampleEntry"]:
         """Iterate the sample collection and provide a slice (regardless of sample_id),
         covering up to <limit> items, starting from start_index
 
@@ -349,7 +351,7 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getFunctions(self, start_index: int, limit: int) -> Optional["FunctionEntry"]:
+    def getFunctions(self, start_index: int, limit: int) -> List["FunctionEntry"]:
         """Iterate the function collection and provide a slice (regardless of function_id),
         covering up to <limit> items, starting from start_index
 
@@ -467,8 +469,7 @@ class StorageInterface:
         raise NotImplementedError
 
     # TODO dict of what?
-    def getContent(self, sample_ids: Optional[List[int]] = None) -> Dict[str, Any]:
-        # filter sample_ids erlauben
+    def getContent(self) -> Dict[str, Any]:
         raise NotImplementedError
 
     # TODO dict of what?
@@ -491,7 +492,7 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def deleteFamily(self, family_id: int, keep_samples: Optional[str] = False) -> bool:
+    def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         """Delete family if known and return boolean success state
 
         Args:
@@ -522,8 +523,8 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getFamily(self, family_id: int) -> Optional[str]:
-        """Get the Family Name corresponding to a family id. Returns None, if family_id is not in storage.
+    def getFamily(self, family_id: int) -> Optional["FamilyEntry"]:
+        """Get the FamilyEntry corresponding to a family id. Returns None, if family_id is not in storage.
 
         Args:
             family_id: the id of the family to look up
@@ -550,7 +551,7 @@ class StorageInterface:
     # TODO can this happen, that the Function has no pichash?
     # TODO Maybe remove this function, or restore original behavior?
     # -> Dict[pichash, Set[Tuple[sample_id, function_id]]]
-    def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
+    def getPicHashMatchesByFunctionId(self, function_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
         """Get the PicHash for a given function_id and also return all other sample_id/function_id pairs having the same PicHash
 
         Args:
@@ -561,7 +562,7 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getPicHashMatchesByFunctionIds(self, function_ids: List[int]) -> Dict[int, Set[Tuple[int, int]]]:
+    def getPicHashMatchesByFunctionIds(self, function_ids: List[int]) -> Dict[int, Set[Tuple[int, int, int]]]:
         """Get the PicHashes for given function_ids and also return all other sample_id/function_id pairs having the same PicHashes
         Nonexisting function ids or functions without pichashes will be ignored.
 
@@ -573,7 +574,7 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int]]]]:
+    def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
         """Get the PicHashes for a given sample_id's function_ids and also return all other sample_id/function_id pairs having the same PicHashes.
         Functions without pichashes will be ignored.
         If sample_id is not in storage, None will be returned
@@ -636,7 +637,7 @@ class StorageInterface:
         """
         return None
 
-    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List["FunctionEntry"]:
+    def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
         """Given a list of function_ids, return all FunctionEntry objects corresponding to these IDs if they do not have a minhash yet.
         Otherwise, return all FunctionEntry objects that do not have a minhash.
 
@@ -649,11 +650,11 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getUniqueBlocks(self, sample_ids: Optional[List[int]] = None, progress_reporter=None) -> Dict:
+    def getUniqueBlocks(self, sample_ids: List[int], progress_reporter=None) -> Dict:
         """Given a list of sample_ids, return all basic blocks that are only found in any of these samples (and no other samples in the storage)
 
         Args:
-            sample_ids: (optional) a list of sample_ids
+            sample_ids: a list of sample_ids
             progress_reporter: (optional) might be passed by worker to inquiry progress of this DB only operation
 
         Returns:
@@ -661,11 +662,12 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def findFamilyByString(self, needle: str, max_num_results: int = 100) -> Dict[int, str]:
-        """Given a needle, return all families that contain the term we are searching.
+    def findFamilyByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FamilyEntry"]:
+        """Given a parsed search tree, return all families that match the terms we are searching.
 
         Args:
-            needle: a search string
+            search_tree: a parsed SearchQueryTree
+            cursor: (optional) a FullSearchCursor for keyset pagination
             max_num_results: (optional) maximum number of results to return, default 100
 
         Returns:
@@ -673,11 +675,12 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def findSampleByString(self, needle: str, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
-        """Given a needle, return all SampleEntry objects that contain the term we are searching.
+    def findSampleByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "SampleEntry"]:
+        """Given a parsed search tree, return all SampleEntry objects that match the terms we are searching.
 
         Args:
-            needle: a search string
+            search_tree: a parsed SearchQueryTree
+            cursor: (optional) a FullSearchCursor for keyset pagination
             max_num_results: (optional) maximum number of results to return, default 100
 
         Returns:
@@ -685,11 +688,12 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def findFunctionByString(self, needle: str, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
-        """Given a needle, return all FunctionEntry objects that contain the term we are searching.
+    def findFunctionByString(self, search_tree: NodeType, cursor: Optional[FullSearchCursor] = None, max_num_results: int = 100) -> Dict[int, "FunctionEntry"]:
+        """Given a parsed search tree, return all FunctionEntry objects that match the terms we are searching.
 
         Args:
-            needle: a search string
+            search_tree: a parsed SearchQueryTree
+            cursor: (optional) a FullSearchCursor for keyset pagination
             max_num_results: (optional) maximum number of results to return, default 100
 
         Returns:
@@ -697,14 +701,16 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def rebuildMinhashBandIndex(self) -> int:
+    def rebuildMinhashBandIndex(self, progress_reporter=None) -> int:
         """Drop the current band index and rebuild it from scratch
+        Args:
+            progress_reporter: optional callable invoked with progress updates
         Returns:
             the number of minhashes indexed
         """
         raise NotImplementedError
 
-    def recalculateAllPicHashes(self) -> int:
+    def recalculateAllPicHashes(self, progress_reporter=None) -> int:
         """Iterate across all SampleEntries and check if the SMDA version is older than the one currently available
             If yes, process all FunctionEntries and use this SMDA version to recalculate and update the PicHash
             In the end, rebuild the PicHashIndex
@@ -713,8 +719,10 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def deleteAllMinHashes(self) -> int:
+    def deleteAllMinHashes(self, progress_reporter=None) -> int:
         """drop every minhash in all function_entries as a preparation for a full rebuild
+        Args:
+            progress_reporter: optional callable invoked with progress updates
         Returns:
             the number of minhashes dropped
         """

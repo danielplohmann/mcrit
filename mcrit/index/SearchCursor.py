@@ -2,7 +2,7 @@ import base64
 import json
 from typing import Any, List, Optional
 
-from mcrit.index.SearchQueryTree import AndNode, OrNode, SearchConditionNode
+from mcrit.index.SearchQueryTree import AndNode, NodeType, OrNode, SearchConditionNode
 
 
 class MinimalSearchCursor:
@@ -97,7 +97,7 @@ class FullSearchCursor:
         # condition has form (a > a0) or (a = a0 and b>b0) or (a=a0 and b=b0 and c>c0)...
         conditions = []
         for inner_condition_length in range(1, len(self.sort_fields) + 1):
-            inner_condition = []
+            inner_condition: List[NodeType] = []
             for i in range(inner_condition_length):
                 if i != inner_condition_length - 1:
                     operator = "="

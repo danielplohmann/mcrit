@@ -71,9 +71,12 @@ class MongoQueueTest(TestCase):
         self.assertIsNotNone(job.job_id)
         # age the lock past the timeout without touching anything else
         stale_locked_at = datetime.now() - timedelta(seconds=self.queue.timeout + 60)
-        self.queue.collection.update_one({"_id": job.job_id}, {"$set": {"locked_at": stale_locked_at}})
+        collection = self.queue._getCollection()
+        assert collection is not None
+        collection.update_one({"_id": job.job_id}, {"$set": {"locked_at": stale_locked_at}})
         self.queue.repair()
-        repaired = self.queue.collection.find_one({"_id": job.job_id})
+        repaired = collection.find_one({"_id": job.job_id})
+        assert repaired is not None
         self.assertIsNone(repaired["locked_by"])
         self.assertIsNone(repaired["locked_at"])
         self.assertEqual(repaired["attempts_left"], self.queue.max_attempts - 1)
@@ -85,7 +88,10 @@ class MongoQueueTest(TestCase):
         self.queue.put(data)
         job = self.queue.next()
         self.queue.repair()
-        untouched = self.queue.collection.find_one({"_id": job.job_id})
+        collection = self.queue._getCollection()
+        assert collection is not None
+        untouched = collection.find_one({"_id": job.job_id})
+        assert untouched is not None
         self.assertEqual(untouched["locked_by"], self.queue.consumer_id)
         self.assertIsNotNone(untouched["locked_at"])
         self.assertEqual(untouched["attempts_left"], self.queue.max_attempts)
@@ -100,7 +106,10 @@ class MongoQueueTest(TestCase):
         job = self.queue.next()
         job.release()
         job.progressor(count=0.5)
-        document = self.queue.collection.find_one({"_id": job.job_id})
+        collection = self.queue._getCollection()
+        assert collection is not None
+        document = collection.find_one({"_id": job.job_id})
+        assert document is not None
         self.assertIsNone(document["locked_by"])
         self.assertEqual(document["progress"], 0.5)
         reclaimed = self.queue.next()
@@ -112,7 +121,9 @@ class MongoQueueTest(TestCase):
         data = {"method": "test_method", "context_id": "alpha", "data": [1]}
         self.queue.put(data)
         job = self.queue.next()
-        self.queue.collection.update_one({"_id": job.job_id}, {"$set": {"locked_by": None}})
+        collection = self.queue._getCollection()
+        assert collection is not None
+        collection.update_one({"_id": job.job_id}, {"$set": {"locked_by": None}})
         reclaimed = self.queue.next()
         self.assertIsNotNone(reclaimed.job_id)
         self.assertEqual(reclaimed.job_id, job.job_id)
@@ -144,8 +155,9 @@ class MongoQueueTest(TestCase):
         self.assertEqual({"available": 5, "total": 5, "locked": 0, "errors": 0}, stats)
 
     def test_ensure_indices(self):
-        self.queue._getCollection()
-        index_information = self.queue.collection.index_information()
+        collection = self.queue._getCollection()
+        assert collection is not None
+        index_information = collection.index_information()
         self.assertIn("locked_by_1_finished_at_1_priority_-1_created_at_1", index_information)
         self.assertEqual(
             [("locked_by", 1), ("finished_at", 1), ("priority", -1), ("created_at", 1)],

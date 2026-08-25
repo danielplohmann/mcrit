@@ -29,6 +29,8 @@ class MinHashingTestSuite(unittest.TestCase):
             smda_json = json.load(fjson)
 
         smda_report = SmdaReport.fromDict(smda_json)
+
+        assert smda_report is not None
         sample_entry = SampleEntry(smda_report, sample_id=0, family_id=0)
         minhash = MinHash(function_id=1, minhash_signature=[0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39])
         for smda_function in smda_report.getFunctions():
@@ -48,6 +50,8 @@ class MinHashingTestSuite(unittest.TestCase):
             smda_json = json.load(fjson)
 
         smda_report = SmdaReport.fromDict(smda_json)
+
+        assert smda_report is not None
         sample_entry = SampleEntry(smda_report, sample_id=0, family_id=0)
 
         as_dict = sample_entry.toDict()

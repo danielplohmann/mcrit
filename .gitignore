@@ -32,11 +32,14 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
-.noseids
-nosetests.xml
 coverage.xml
-*,cover
 .hypothesis/
+.pytest_cache/
+
+# Tool caches
+.ruff_cache/
+.ty_cache/
+.mypy_cache/
 
 
 # pyenv
@@ -79,4 +82,3 @@ profiler
 # devcontainer / local dev environment artifacts
 .devcontainer/
 .dockerignore
-

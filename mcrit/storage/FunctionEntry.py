@@ -23,11 +23,11 @@ class FunctionEntry:
     family_id: int
     sample_id: int
     minhash: bytes  # TODO rename -> minhash_bytes? minhash_hex?
-    minhash_shingle_composition: Dict = None  # FIXME MongoDbStorage fails without this, ... why?
+    minhash_shingle_composition: Optional[Dict] = None  # FIXME MongoDbStorage fails without this, ... why?
     # inherited from sample
     architecture: str
     # smda information
-    function_name: str
+    function_name: Optional[str]
     function_labels: list
     matches: Dict
     pichash: int
@@ -36,12 +36,12 @@ class FunctionEntry:
     num_instructions: int
     binweight: float
     offset: int
-    xcfg: Dict
+    xcfg: Optional[Dict]
 
     def __init__(
         self,
-        sample_entry: "SampleEntry",
-        smda_function: "SmdaFunction",
+        sample_entry: Optional["SampleEntry"],
+        smda_function: Optional["SmdaFunction"],
         function_id: int,
         minhash: Optional[MinHash] = None,
     ) -> None:
@@ -54,10 +54,10 @@ class FunctionEntry:
             self.num_blocks = smda_function.num_blocks
             self.num_instructions = smda_function.num_instructions
             self.binweight = smda_function.binweight
-            self.offset = smda_function.offset
+            self.offset = smda_function.offset or 0
             self.xcfg = smda_function.toDict()
             self.function_name = smda_function.function_name
-            self.pichash = smda_function.pic_hash
+            self.pichash = smda_function.pic_hash or 0
             self.picblockhashes = []
         self.function_labels = []
         self.matches = {}
@@ -99,7 +99,7 @@ class FunctionEntry:
 
     @classmethod
     def fromDict(cls, entry_dict):
-        function_entry = cls(None, None, entry_dict["function_id"])  # type: ignore
+        function_entry = cls(None, None, entry_dict["function_id"])
         function_entry.family_id = entry_dict["family_id"]
         # function_entry.function_id = entry_dict["function_id"]
         function_entry.sample_id = entry_dict["sample_id"]

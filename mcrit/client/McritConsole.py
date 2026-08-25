@@ -306,8 +306,6 @@ class McritConsole:
             self._handle_query(ARGS)
         elif ARGS.client_command == "submit":
             self._handle_submit(ARGS)
-        elif ARGS.client_command == "sync":
-            self._handle_sync(ARGS)
         else:
             print(self.parser_client.print_help())
 
@@ -471,7 +469,7 @@ class McritConsole:
             update_required = True
         if update_required:
             print(f"UPDATING: Sample ID {sample_entry.sample_id} with SHA256: {sample_entry.sha256} - updating family/version/library.")
-            self.client.modifySample(sample_id, family=modified_family, version=modified_version, is_library=modified_is_library)
+            self.client.modifySample(sample_id, family_name=modified_family, version=modified_version, is_library=modified_is_library)
 
     def _handle_submit_file(self, args):
         sample_sha256 = sha256(readFileContent(args.filepath))

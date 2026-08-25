@@ -10,12 +10,18 @@ For the full methodology (PicHash/MinHash, LSH banding, case studies) see [`READ
   - `mcrit/server/` — Falcon REST API (`application_routes.py`, `*Resource.py`).
   - `mcrit/storage/` — data model and storage backends (`MongoDbStorage`, `MemoryStorage`).
   - `mcrit/queue/` — job queue (`LocalQueue`, `MongoQueue`) and RPC plumbing.
+  - `mcrit/index/` — `MinHashIndex` facade plus the search query parser/tree and pagination cursor.
+  - `mcrit/matchers/` — `MatcherInterface` and its per-scope subclasses (sample, query, cross, vs, vs-group).
+  - `mcrit/minhash/` — `MinHash`, `MinHasher`, and the `ShingleLoader`.
+  - `mcrit/shinglers/` — feature extractors, discovered by directory scan (`archived/` excluded).
+  - `mcrit/config/` — `McritConfig` and the per-area config dataclasses.
+  - `mcrit/client/` — `McritClient` (Python API) and `McritConsole` (the `mcrit client` CLI).
   - `mcrit/libs/` — helpers (parallel processing, graph, hashing).
   - `Worker.py`, `__main__.py` — worker process and CLI entry point.
 - `tests/` — pytest suite (unit + integration).
 - `docs/` — CLI docs, migration guides.
-- `examples/`, `experiments/`, `diagnosis/` — auxiliary scripts.
-- `setup.py`, `requirements.txt`, `ruff.toml`, `pytest.ini` — build/config.
+- `examples/` — auxiliary scripts. (`experiments/`, `diagnosis/`, `data/` are gitignored local working directories and are not part of a fresh checkout.)
+- `pyproject.toml` — the single source for build metadata, dependencies, and `ruff` / `ty` / `pytest` / `coverage` configuration. There are no `requirements*.txt` files.
 
 `docs/TUNING.md` is mirrored verbatim into the [docker-mcrit](https://github.com/danielplohmann/docker-mcrit)
 deployment repository. This repository holds the canonical copy, because the document describes the
@@ -26,14 +32,13 @@ advice that had stopped being true.
 
 ## Development setup
 
-Requires **Python 3.11 or 3.12**.
+Requires **Python 3.11 or newer** (`pyproject.toml` sets `requires-python = ">=3.11"` with no upper bound). CI exercises 3.11 through 3.14.
 
 ```bash
-pip install -r requirements.txt
-pip install -e .
+pip install -e ".[dev]"
 ```
 
-MongoDB 5.0+ is the recommended persistent backend, but the in-memory storage works for development without a database.
+MongoDB 5.0+ is the recommended persistent backend (CI runs the integration suite against `mongo:8.0`; newer 8.x servers work too), but the in-memory storage works for development without a database. The integration tests read the server address from `TEST_MONGODB` and fall back to `127.0.0.1:27017`.
 
 ## Common commands
 
@@ -101,17 +106,18 @@ mcrit client submit <file> -f <family_name>
 
 ## Code conventions
 
-- Lint/format: `ruff` (line-length 180, `target-version = "py311"`, selects `E4/E7/E9/F/I/UP`). Run `ruff format .` to auto-format.
-- Supported Python: 3.11–3.12 (`python_requires=">=3.11,<3.13"`).
-- License: GPL-3.0-only. Version is bumped manually in `setup.py` and the `README.md` changelog — do not change unless asked.
+- Lint/format: `ruff` (line-length 180, `target-version = "py311"`, selects `E4/E7/E9/F/I/UP`). Run `ruff format .` to auto-format. Note most `UP` rules are explicitly ignored in `[tool.ruff.lint]`, so the existing `Dict`/`Optional` typing style is intentional — do not "modernize" it.
+- Type checking: `ty` (`make typecheck` / `ty check`), enforced in CI next to ruff and currently at **zero diagnostics**. There are no suppressions in the tree — fix the code or the annotation instead of adding `ty: ignore`.
+- Supported Python: 3.11+ (`requires-python = ">=3.11"`).
+- License: GPL-3.0-only. The version is bumped manually in **three** places that must agree — `pyproject.toml`, `McritConfig.VERSION` (served by the `/version` endpoint), and the `README.md` changelog — do not change unless asked.
 - Never introduce or log secrets/API tokens/keys.
 
 ## Agent guardrails
 
 - **Never** run `git commit`, `git push`, or open a PR unless explicitly instructed.
 - **Do not** change MinHash/PicHash/shingler configuration or version numbers without explicit instruction — such changes require a full re-index of the database.
-- Integration tests require a running MongoDB (`mongo:5.0` container is enough); the unit suite runs without one.
-- Always run `ruff format`/`ruff check` and the unit test suite before considering work complete.
+- Integration tests require a running MongoDB (`mongo:8.0` in CI); the unit suite runs without one.
+- Always run `ruff format`/`ruff check`, `ty check`, and the unit test suite before considering work complete.
 
 ## Related repositories (reference only)
 

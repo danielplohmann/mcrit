@@ -26,6 +26,7 @@ import json
 import sys
 import time
 from datetime import UTC, datetime
+from typing import Any, Dict
 
 from pymongo import ASCENDING, MongoClient, ReplaceOne, UpdateOne
 
@@ -326,7 +327,7 @@ def main():
     if args.mode == "inplace" and args.target and args.target != args.source:
         parser.error("inplace mode migrates within one database; drop --target")
 
-    result = {"mode": args.mode, "source": args.source, "target": args.target or args.source, "utc": datetime.now(UTC).isoformat()}
+    result: Dict[str, Any] = {"mode": args.mode, "source": args.source, "target": args.target or args.source, "utc": datetime.now(UTC).isoformat()}
 
     if args.mode == "unsplit":
         result["functions"] = unsplit(source_db, args.batch, "functions", XCFG_COLLECTION)

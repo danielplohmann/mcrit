@@ -52,34 +52,54 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         # deleting a sample also removes the disassembly split out of the function documents (#137)
         xcfg = FakeCollection()
         query_xcfg = FakeCollection()
-        self.storage._database = FakeDb(functions=functions, samples=samples, families=families, xcfg=xcfg, query_xcfg=query_xcfg)
-        self.storage.getSampleById = MethodType(
-            lambda _self, sample_id: SimpleNamespace(
-                family_id=1,
-                statistics={"num_functions": 2},
-                is_library=False,
+        setattr(self.storage, "_database", FakeDb(functions=functions, samples=samples, families=families, xcfg=xcfg, query_xcfg=query_xcfg))
+        setattr(
+            self.storage,
+            "getSampleById",
+            MethodType(
+                lambda _self, sample_id: SimpleNamespace(
+                    family_id=1,
+                    statistics={"num_functions": 2},
+                    is_library=False,
+                ),
+                self.storage,
             ),
-            self.storage,
         )
-        self.storage.isSampleId = MethodType(
-            lambda _self, sample_id: (_ for _ in ()).throw(AssertionError("deleteSample should not re-check sample existence")),
+        setattr(
             self.storage,
+            "isSampleId",
+            MethodType(
+                lambda _self, sample_id: (_ for _ in ()).throw(AssertionError("deleteSample should not re-check sample existence")),
+                self.storage,
+            ),
         )
         band_updates = []
         family_updates = []
-        self.storage._updateBands = MethodType(
-            lambda _self, band_hashes, method="push": band_updates.append((band_hashes, method)),
+        setattr(
             self.storage,
+            "_updateBands",
+            MethodType(
+                lambda _self, band_hashes, method="push": band_updates.append((band_hashes, method)),
+                self.storage,
+            ),
         )
-        self.storage._updateFamilyStats = MethodType(
-            lambda _self, family_id, num_samples, num_functions, num_library_samples: family_updates.append((family_id, num_samples, num_functions, num_library_samples)),
+        setattr(
             self.storage,
+            "_updateFamilyStats",
+            MethodType(
+                lambda _self, family_id, num_samples, num_functions, num_library_samples: family_updates.append((family_id, num_samples, num_functions, num_library_samples)),
+                self.storage,
+            ),
         )
-        self.storage.getFamily = MethodType(
-            lambda _self, family_id: SimpleNamespace(num_samples=1, family_id=family_id),
+        setattr(
             self.storage,
+            "getFamily",
+            MethodType(
+                lambda _self, family_id: SimpleNamespace(num_samples=1, family_id=family_id),
+                self.storage,
+            ),
         )
-        self.storage._updateDbState = MethodType(lambda _self: None, self.storage)
+        setattr(self.storage, "_updateDbState", MethodType(lambda _self: None, self.storage))
 
         result = self.storage.deleteSample(7)
 

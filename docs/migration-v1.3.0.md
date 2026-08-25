@@ -13,7 +13,7 @@ To simplify the migration and especially avoid having to reprocess any binary co
 After updating to the latest requirements, you should have SMDA v1.3.11 or higher available:
 
 ```bash
-$ python -m pip install -r requirements.txt
+$ python -m pip install -e .
 ...
 $ python -m pip freeze | grep smda
 smda==1.3.11

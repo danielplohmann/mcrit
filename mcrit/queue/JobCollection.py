@@ -14,7 +14,7 @@ class JobCollection:
     def getJobs(self):
         return self._jobs
 
-    def getJobsForSample(self, sample_id: int, method=None, matching_only=False, finished_only=False) -> bool:
+    def getJobsForSample(self, sample_id: int, method=None, matching_only=False, finished_only=False) -> List["Job"]:
         selected_jobs = []
         for job in self._jobs:
             if matching_only and not job.is_matching_job:

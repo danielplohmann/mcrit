@@ -61,7 +61,7 @@ class QueryResource:
             db_log_msg(self.index, req, "QueryResource.on_post_query_binary_mapped - failed - no POST body.")
             return
         # convert string to int. 0 means figure out base automatically.
-        base_address = int(base_address, 0)
+        base_address = int(base_address, 0) if base_address is not None else 0
         binary = req.stream.read()
         summary = self.index.getMatchesForMappedBinary(binary, base_address, **parameters)
         resp.data = jsonify({"status": "successful", "data": summary})

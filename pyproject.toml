@@ -1,0 +1,142 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcrit"
+version = "1.7.1"
+description = "MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.11"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Daniel Plohmann", email = "daniel.plohmann@fkie.fraunhofer.de" },
+    { name = "Manuel Blatt" },
+    { name = "Steffen Enders" },
+    { name = "Paul Hordiienko" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Security",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+dependencies = [
+    "falcon>=2.0.0",
+    "fastcluster",
+    "gunicorn; platform_system != 'Windows'",
+    "lief>=0.16.0",
+    "mmh3>=2.5.1",
+    "numpy>=1.26",
+    "picblocks>=1.1.2",
+    "pymongo",
+    "pyparsing>=3",
+    "python-dotenv",
+    "rapidfuzz",
+    "requests",
+    "scipy",
+    "smda>=4.2.13",
+    "tqdm",
+    "waitress",
+    "werkzeug",
+]
+
+[project.optional-dependencies]
+dev = [
+    "build",
+    "coverage",
+    "pre-commit",
+    "pytest",
+    "pytest-cov",
+    "ruff",
+    "twine",
+    "ty",
+]
+
+[project.urls]
+Homepage = "https://github.com/danielplohmann/mcrit"
+Repository = "https://github.com/danielplohmann/mcrit"
+Issues = "https://github.com/danielplohmann/mcrit/issues"
+
+[project.scripts]
+mcrit = "mcrit.__main__:main"
+
+[tool.setuptools]
+# Ship only what is declared below: `mcrit/shinglers/archived/` is not a package and
+# must not end up in the distribution (ShingleLoader scans the shinglers directory).
+include-package-data = false
+
+[tool.setuptools.packages.find]
+# namespaces = false matches find_packages(): directories without __init__.py
+# (notably mcrit/shinglers/archived/) are not packages and are not shipped.
+namespaces = false
+exclude = ["tests*", "data*", "docs*", "examples*", "plugins*"]
+
+[tool.setuptools.package-data]
+mcrit = ["cache/*.json"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 180
+
+[tool.ruff.lint]
+# W605 keeps regex literals as raw strings, otherwise invalid escape sequences can come back unnoticed
+select = ["E4", "E7", "E9", "F", "I", "UP", "W605"]
+ignore = [
+    "UP006",
+    "UP007",
+    "UP008",
+    "UP009",
+    "UP031",
+    "UP032",
+    "UP034",
+    "UP035",
+    "UP036",
+    "UP045",
+]
+
+[tool.ty.environment]
+# ShingleLoader appends mcrit/shinglers/ to sys.path before importing each module,
+# so shinglers import their siblings (AbstractShingler, LogBucket) without a package
+# prefix. Mirror that here or every shingler reports an unresolved import.
+extra-paths = ["mcrit/shinglers"]
+
+[tool.ty.src]
+# Not shipped, not loaded by ShingleLoader, kept only for reference.
+exclude = ["mcrit/shinglers/archived"]
+
+[tool.pytest.ini_options]
+markers = [
+    "sleep: slow tests using sleep",
+    "mongo: tests involving MongoDb",
+]
+python_files = ["test*.py"]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["mcrit"]
+omit = ["*pymmh3*", "*config*"]
+
+[tool.coverage.report]
+omit = ["*pymmh3*", "*config*"]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self\\.debug",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "def main(argv):",
+]
+ignore_errors = true
+
+[tool.coverage.html]
+directory = "coverage_html_report"
