@@ -9,7 +9,7 @@ from .StorageConfig import StorageConfig
 
 class McritConfig:
     # NOTE to self: always change this in pyproject.toml and the README changelog as well!
-    VERSION = "1.8.0"
+    VERSION = "1.8.1"
     # basic pathing info
     CONFIG_FILE_PATH = str(os.path.abspath(__file__))
     PROJECT_ROOT = str(os.path.abspath(os.sep.join([CONFIG_FILE_PATH, "..", ".."])))

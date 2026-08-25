@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcrit"
-version = "1.8.0"
+version = "1.8.1"
 description = "MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -34,6 +34,8 @@ dependencies = [
     "lief>=0.16.0",
     "mmh3>=2.5.1",
     "numpy>=1.26",
+    # MongoDbStorage compares smda versions with packaging.version
+    "packaging",
     "picblocks>=1.1.2",
     "pymongo",
     "pyparsing>=3",

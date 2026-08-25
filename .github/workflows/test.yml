@@ -145,6 +145,19 @@ jobs:
       - name: Validate distributions
         run: python -m twine check dist/*
 
+      - name: Import the wheel with only its declared dependencies
+        run: |
+          # every other job installs the dev extra, which pulls pytest and with it packaging - so an
+          # undeclared runtime dependency is invisible everywhere but here. `packaging` was missing
+          # from the declarations for years and only surfaced in a container built without pytest.
+          python -m venv /tmp/clean-install
+          /tmp/clean-install/bin/python -m pip install --quiet "$(echo dist/*.whl)"
+          # run from outside the checkout, or ./mcrit shadows the installed package and the check
+          # would pass on a wheel that ships no code at all
+          cd /tmp
+          /tmp/clean-install/bin/python -c "from mcrit.storage.StorageFactory import StorageFactory; from mcrit.server.wsgi import app; import mcrit.__main__; print('production imports resolve against declared dependencies only')"
+          /tmp/clean-install/bin/mcrit 2>&1 | grep -q "Unrecognized command" && echo "the mcrit entry point runs"
+
       - name: Upload distributions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
