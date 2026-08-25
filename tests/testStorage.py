@@ -413,6 +413,10 @@ class MemoryStorageTest(TestCase):
         result = self.storage.getUniqueBlocks([sample_entry.sample_id])
         unique_blocks = result["unique_blocks"]
         self.assertTrue(unique_blocks)
+        # Worker.getUniqueBlocks reads these off every entry to build the block cover, so both
+        # backends have to deliver the same shape (the memory one used to omit three of them)
+        for block in unique_blocks.values():
+            self.assertEqual({"samples", "length", "function_id", "sample_id", "offset", "instructions", "escaped_sequence", "score"}, set(block.keys()))
         # every block is unique to the only sample in storage
         self.assertEqual(len(unique_blocks), result["statistics"]["unique_blocks_overall"])
         for block in unique_blocks.values():

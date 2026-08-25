@@ -839,8 +839,11 @@ class MemoryStorage(StorageInterface):
                         "samples": set(),
                         "length": block_entry["length"],
                         "function_id": entry.function_id,
+                        "sample_id": sample_id,
                         "offset": block_entry["offset"],
                         "instructions": [],
+                        "escaped_sequence": "",
+                        "score": 0,
                     }
                 candidate_picblockhashes[block_hash]["samples"].add(sample_id)
         # update statistics based on candidates
@@ -866,6 +869,14 @@ class MemoryStorage(StorageInterface):
         function_id_to_block_offsets = {}
         for picblockhash, entry in candidate_picblockhashes.items():
             candidate_picblockhashes[picblockhash]["samples"] = sorted(list(entry["samples"]))
+            # we calculate the score for this block as 80% of how well it covers the samples and 20% how far its size is away from an "ideal" signature block
+            sample_score = 100.0 * len(entry["samples"]) / len(sample_ids)
+            length_score = 100.0
+            if entry["length"] < 7:
+                length_score = 100.0 - (100.0 * (7 - entry["length"]) / 7)
+            elif entry["length"] > 10:
+                length_score = 100.0 * (1 / (entry["length"] - 10))
+            candidate_picblockhashes[picblockhash]["score"] = 0.8 * sample_score + 0.2 * length_score
             if entry["function_id"] not in function_id_to_block_offsets:
                 function_id_to_block_offsets[entry["function_id"]] = []
             function_id_to_block_offsets[entry["function_id"]].append((entry["offset"], picblockhash))

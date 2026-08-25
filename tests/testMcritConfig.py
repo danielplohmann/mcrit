@@ -1,4 +1,3 @@
-import logging
 import os
 import subprocess
 import sys
@@ -6,6 +5,7 @@ import unittest
 from unittest import mock
 
 from mcrit.config.McritConfig import McritConfig
+from mcrit.server import application_routes
 from mcrit.server.application_routes import AuthMiddleware
 
 READ_TOKEN = "from mcrit.config.McritConfig import McritConfig; print(McritConfig.AUTH_TOKEN)"
@@ -30,16 +30,21 @@ class TestMcritConfigAuthToken(unittest.TestCase):
 
 
 class TestAuthMiddleware(unittest.TestCase):
+    # NOTE: patch the logger rather than using assertLogs - other test modules call
+    # logging.disable(logging.CRITICAL) at import time, which would swallow the record
+
     def test_warning_when_no_token_configured(self):
         with mock.patch.object(McritConfig, "AUTH_TOKEN", ""):
-            with self.assertLogs("mcrit.server.application_routes", level=logging.WARNING) as logs:
+            with mock.patch.object(application_routes.LOGGER, "warning") as warning:
                 AuthMiddleware()
-        self.assertTrue(any("No AUTH_TOKEN configured" in message for message in logs.output))
+        warning.assert_called_once()
+        self.assertIn("No AUTH_TOKEN configured", warning.call_args.args[0])
 
     def test_no_warning_when_token_configured(self):
         with mock.patch.object(McritConfig, "AUTH_TOKEN", "some_token"):
-            with self.assertNoLogs("mcrit.server.application_routes", level=logging.WARNING):
+            with mock.patch.object(application_routes.LOGGER, "warning") as warning:
                 AuthMiddleware()
+        warning.assert_not_called()
 
     def test_token_comparison(self):
         with mock.patch.object(McritConfig, "AUTH_TOKEN", "some_token"):

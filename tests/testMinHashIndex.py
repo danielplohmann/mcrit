@@ -1,7 +1,10 @@
 #!/usr/bin/python
 
 import logging
+import os
 import unittest
+
+from smda.common.SmdaReport import SmdaReport
 
 from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.index.SearchQueryParser import SearchQueryParser
@@ -9,6 +12,8 @@ from mcrit.libs.utility import generate_unique_pairs
 from mcrit.minhash.EscaperFingerprint import getEscaperFingerprint
 
 from .context import config
+
+EXAMPLE_REPORT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "example_report.smda")
 
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
@@ -58,6 +63,34 @@ class MalformedSearchQueryTestSuite(unittest.TestCase):
         self.assertIn("search_results", index.getFamilySearchResults("foo"))
         self.assertIn("search_results", index.getSampleSearchResults("family:foo"))
         self.assertIn("search_results", index.getFunctionSearchResults("offset:>0x100"))
+
+
+class UniqueBlocksCoverTestSuite(unittest.TestCase):
+    """yara_covers used to be written once as 0 and never assigned again (#144)"""
+
+    def testYaraCoversReportsTheAchievedCover(self):
+        index = MinHashIndex(config)
+        worker = index.queue._worker
+        report = SmdaReport.fromFile(EXAMPLE_REPORT)
+        assert report is not None
+        sample_entry = index._storage.addSmdaReport(report)
+        assert sample_entry is not None
+
+        result = worker.getUniqueBlocks([sample_entry.sample_id])
+        statistics = result["statistics"]
+        # the only sample in storage owns every block, so the greedy cover reaches the full k of 10
+        self.assertTrue(statistics["has_yara_rule"])
+        self.assertTrue(statistics["has_complete_yara_rule"])
+        self.assertEqual(1, statistics["num_samples_covered"])
+        self.assertEqual(10, statistics["yara_covers"])
+        self.assertEqual(len(result["yara_rule"]), statistics["yara_covers"])
+
+    def testYaraCoversStaysZeroWithoutASample(self):
+        index = MinHashIndex(config)
+        worker = index.queue._worker
+        result = worker.getUniqueBlocks([])
+        self.assertEqual(0, result["statistics"]["yara_covers"])
+        self.assertFalse(result["statistics"]["has_yara_rule"])
 
 
 class EscaperProvenanceTestSuite(unittest.TestCase):
