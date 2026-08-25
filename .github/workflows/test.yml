@@ -156,7 +156,10 @@ jobs:
           # would pass on a wheel that ships no code at all
           cd /tmp
           /tmp/clean-install/bin/python -c "from mcrit.storage.StorageFactory import StorageFactory; from mcrit.server.wsgi import app; import mcrit.__main__; print('production imports resolve against declared dependencies only')"
-          /tmp/clean-install/bin/mcrit 2>&1 | grep -q "Unrecognized command" && echo "the mcrit entry point runs"
+          # bare `mcrit` prints its usage line and exits 0 - enough to show the console script and
+          # its import chain resolve, without starting a server or needing a database
+          /tmp/clean-install/bin/mcrit | grep -q "server, worker, spawningworker, client"
+          echo "the mcrit entry point runs"
 
       - name: Upload distributions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
