@@ -351,9 +351,7 @@ class Worker(QueueRemoteCallee):
         blocks_result_dict["statistics"]["yara_covers"] = 0
         blocks_result_dict["statistics"]["has_complete_yara_rule"] = False
         if min_instructions:
-            blocks_result_dict["unique_blocks"] = {
-                block_hash: entry for block_hash, entry in blocks_result_dict["unique_blocks"].items() if entry["length"] >= min_instructions
-            }
+            blocks_result_dict["unique_blocks"] = {block_hash: entry for block_hash, entry in blocks_result_dict["unique_blocks"].items() if entry["length"] >= min_instructions}
         unique_blocks = blocks_result_dict["unique_blocks"]
         blocks_result_dict["statistics"]["covers_required"] = covers_required
         blocks_result_dict["statistics"]["min_instructions"] = min_instructions
