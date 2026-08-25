@@ -454,6 +454,36 @@ class MemoryStorageTest(TestCase):
             self.assertEqual(4, len(match))
             self.assertEqual(sample_entry.sample_id, match[1])
 
+    def testSubmissionSurvivesAwkwardInstructionBytes(self):
+        # #85: submitting a report used to die on a single instruction, because SmdaBasicBlock
+        # computed its opcode block hash eagerly and getDetailed() asserted that capstone decodes
+        # the stored bytes to exactly one instruction. Both were fixed in SMDA 4.0.0, below the
+        # floor declared here, and MCRIT never asks for that hash itself - this pins the boundary
+        # so a future SMDA change cannot quietly drag the submission path back into the escaper.
+        for label, instruction_bytes, mnemonic, operands in [
+            # capstone splits this into `wait` + `fnstcw word ptr [esp]` where SMDA/IDA report one
+            ("x87 WAIT prefix", "9bd93c24", "fnstcw", "word ptr [esp]"),
+            # bytes capstone cannot decode at all, as a report from another disassembler may carry
+            ("undecodable", "0f04", "unknown", ""),
+        ]:
+            with self.subTest(instruction=label):
+                self.storage.clearStorage()
+                with open(self.example_file_path) as fjson:
+                    smda_json = json.load(fjson)
+                function_id = sorted(smda_json["xcfg"])[0]
+                block_id = sorted(smda_json["xcfg"][function_id]["blocks"])[0]
+                block = smda_json["xcfg"][function_id]["blocks"][block_id]
+                block[0] = [block[0][0], instruction_bytes, mnemonic, operands]
+                report = SmdaReport.fromDict(smda_json)
+                assert report is not None
+                report.sha256 = 64 * "e"
+
+                sample_entry = self.storage.addSmdaReport(report)
+                self.assertIsNotNone(sample_entry)
+                assert sample_entry is not None
+                function_entries = self.storage.getFunctionsBySampleId(sample_entry.sample_id)
+                self.assertTrue(function_entries)
+
 
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
