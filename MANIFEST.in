@@ -1,0 +1,2 @@
+# the release history used to ship inside README.md; keep it in the sdist now that it is its own file
+include CHANGELOG.md

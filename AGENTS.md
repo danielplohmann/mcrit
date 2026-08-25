@@ -22,6 +22,7 @@ For the full methodology (PicHash/MinHash, LSH banding, case studies) see [`READ
 - `docs/` — CLI docs, migration guides.
 - `examples/` — auxiliary scripts. (`experiments/`, `diagnosis/`, `data/` are gitignored local working directories and are not part of a fresh checkout.)
 - `pyproject.toml` — the single source for build metadata, dependencies, and `ruff` / `ty` / `pytest` / `coverage` configuration. There are no `requirements*.txt` files.
+- `CHANGELOG.md` — the release history, newest first. It used to live in `README.md`, which now only links here. `MANIFEST.in` exists solely to keep it in the sdist.
 
 `docs/TUNING.md` is mirrored verbatim into the [docker-mcrit](https://github.com/danielplohmann/docker-mcrit)
 deployment repository. This repository holds the canonical copy, because the document describes the
@@ -113,7 +114,7 @@ mcrit client submit <file> -f <family_name>
 - Lint/format: `ruff` (line-length 180, `target-version = "py311"`, selects `E4/E7/E9/F/I/UP`). Run `ruff format .` to auto-format. Note most `UP` rules are explicitly ignored in `[tool.ruff.lint]`, so the existing `Dict`/`Optional` typing style is intentional — do not "modernize" it.
 - Type checking: `ty` (`make typecheck` / `ty check`), enforced in CI next to ruff and currently at **zero diagnostics**. There are no suppressions in the tree — fix the code or the annotation instead of adding `ty: ignore`.
 - Supported Python: 3.11+ (`requires-python = ">=3.11"`).
-- License: GPL-3.0-only. The version is bumped manually in **three** places that must agree — `pyproject.toml`, `McritConfig.VERSION` (served by the `/version` endpoint), and the `README.md` changelog — do not change unless asked.
+- License: GPL-3.0-only. The version is bumped manually in **three** places that must agree — `pyproject.toml`, `McritConfig.VERSION` (served by the `/version` endpoint), and the newest entry in `CHANGELOG.md` — do not change unless asked.
 - Never introduce or log secrets/API tokens/keys.
 
 ## Agent guardrails
