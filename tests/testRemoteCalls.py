@@ -22,6 +22,8 @@ from mcrit.queue.QueueRemoteCalls import (
     upload_file_params,
 )
 
+from .context import getTestMongoServerAndPort
+
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logging.disable(logging.CRITICAL)
@@ -335,6 +337,7 @@ class MongoQueueRemoteCallTest(LocalQueueRemoteCallTest):
     def setUp(self):
         self.client = pymongo.MongoClient(os.environ.get("TEST_MONGODB"))
         queue_config = QueueConfig()
+        queue_config.QUEUE_SERVER, queue_config.QUEUE_PORT = getTestMongoServerAndPort()
         queue_config.QUEUE_MONGODB_DBNAME = "test_queue_remote_calls"
         queue_config.QUEUE_MONGODB_COLLECTION_NAME = "queue_1"
         self.queue = MongoQueue(queue_config, "consumer_1")

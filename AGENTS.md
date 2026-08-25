@@ -38,7 +38,7 @@ Requires **Python 3.11 or newer** (`pyproject.toml` sets `requires-python = ">=3
 pip install -e ".[dev]"
 ```
 
-MongoDB 5.0+ is the recommended persistent backend (CI runs the integration suite against `mongo:8.0`; newer 8.x servers work too), but the in-memory storage works for development without a database. The integration tests read the server address from `TEST_MONGODB` and fall back to `127.0.0.1:27017`.
+MongoDB 5.0+ is the recommended persistent backend (CI runs the integration suite against `mongo:8.0`), but the in-memory storage works for development without a database. The mongo-backed tests read the server from `TEST_MONGODB` and fall back to `127.0.0.1:27017`; the variable takes a bare host or a `host:port`, resolved for every one of them through `getTestMongoServerAndPort()` in `tests/context.py` - use that helper in a new mongo-backed test rather than reading the environment again.
 
 ## Common commands
 
@@ -66,6 +66,10 @@ If that MongoDB runs in a container, raise its open-file limit:
 ```bash
 docker run -d --rm --name mcrit-mongo --ulimit nofile=200000:200000 -p 27017:27017 mongo:5.0
 ```
+
+Pick 5.0 or 7.0 rather than 8.0 for a local container: mongod 8.0 refuses to start on Linux kernels
+6.19 and newer (`MongoDB cannot start: ... known incompatibility`, jira SERVER-121912) and the
+container exits immediately. CI is unaffected, its runners are on older kernels.
 
 The suite creates and drops the band collections repeatedly, which opens enough WiredTiger files
 to exceed docker's default `nofile`. mongod then hits EMFILE, panics and aborts mid-run, and every

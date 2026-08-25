@@ -17,9 +17,22 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageFactory import StorageFactory
 
+from .context import getTestMongoServerAndPort
+
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logging.disable(logging.CRITICAL)
+
+
+def buildMongoStorageConfig(dbname):
+    """A mongo StorageConfig pointed at the server TEST_MONGODB names."""
+    server, port = getTestMongoServerAndPort()
+    return StorageConfig(
+        STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB,
+        STORAGE_SERVER=server,
+        STORAGE_PORT=port,
+        STORAGE_MONGODB_DBNAME=dbname,
+    )
 
 
 class MemoryStorageTest(TestCase):
@@ -445,19 +458,8 @@ class MemoryStorageTest(TestCase):
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
     def setUp(self):
-        mongodb_server = os.environ.get("TEST_MONGODB", "127.0.0.1")
-        # split host:port when the env var contains both
-        if ":" in mongodb_server:
-            server, port = mongodb_server.rsplit(":", 1)
-        else:
-            server, port = mongodb_server, "27017"
-        self._storage_config = StorageConfig(
-            STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB,
-            STORAGE_SERVER=server,
-            STORAGE_PORT=port,
-            STORAGE_MONGODB_DBNAME="test_mongodbstorage_mcrit",
-            STORAGE_DROP_DISASSEMBLY=False,
-        )
+        self._storage_config = buildMongoStorageConfig("test_mongodbstorage_mcrit")
+        self._storage_config.STORAGE_DROP_DISASSEMBLY = False
         mcrit_config = McritConfig()
         mcrit_config.STORAGE_CONFIG = self._storage_config
         mcrit_config.MINHASH_CONFIG = MinHashConfig()
@@ -586,7 +588,7 @@ class MongoDbXcfgSplitTest(TestCase):
 
     def setUp(self):
         config = McritConfig()
-        config.STORAGE_CONFIG = StorageConfig(STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB, STORAGE_MONGODB_DBNAME="test_xcfg_split_mcrit")
+        config.STORAGE_CONFIG = buildMongoStorageConfig("test_xcfg_split_mcrit")
         config.MINHASH_CONFIG = MinHashConfig()
         config.SHINGLER_CONFIG = ShinglerConfig()
         self.storage = StorageFactory.getStorage(config)
@@ -654,7 +656,7 @@ class MongoDbXcfgSplitTest(TestCase):
 
     def testStatusSurfacesTheInlineXcfgSignal(self):
         mcrit_config = McritConfig()
-        mcrit_config.STORAGE_CONFIG = StorageConfig(STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB, STORAGE_MONGODB_DBNAME="test_xcfg_split_mcrit")
+        mcrit_config.STORAGE_CONFIG = buildMongoStorageConfig("test_xcfg_split_mcrit")
         status = MinHashIndex(mcrit_config).getStatus(with_pichash=False)["status"]
         self.assertFalse(status["inline_xcfg_remaining"])
         self._revertToInlineBlobs()

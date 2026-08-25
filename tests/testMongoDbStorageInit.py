@@ -1,5 +1,4 @@
 import logging
-import os
 import threading
 import time
 from unittest import TestCase, main
@@ -15,18 +14,15 @@ from mcrit.config.StorageConfig import StorageConfig
 from mcrit.storage.MongoDbStorage import MongoDbStorage
 from mcrit.storage.StorageFactory import StorageFactory
 
+from .context import getTestMongoServerAndPort
+
 LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logging.disable(logging.CRITICAL)
 
 
 def buildMcritConfig():
-    mongodb_server = os.environ.get("TEST_MONGODB", "127.0.0.1")
-    # split host:port when the env var contains both
-    if ":" in mongodb_server:
-        server, port = mongodb_server.rsplit(":", 1)
-    else:
-        server, port = mongodb_server, "27017"
+    server, port = getTestMongoServerAndPort()
     storage_config = StorageConfig(
         STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MONGODB,
         STORAGE_SERVER=server,
