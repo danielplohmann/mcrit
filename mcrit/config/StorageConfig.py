@@ -1,8 +1,9 @@
 import logging
 import os
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
+from mcrit.config.BandPresets import BAND_PRESETS
 from mcrit.config.ConfigInterface import ConfigInterface, default_field
 from mcrit.storage.StorageFactory import StorageFactory
 
@@ -36,9 +37,20 @@ class StorageConfig(ConfigInterface):
     # supported strategies:
     #  * random: randomly sample from minhash fields, possibly more fuzziness likely won't use all minhash fields
     #  * linear: use a sequential selection of minhash fields, requires size*number=MINHASH_SIGNATURE_LENGTH
+    #  * explicit: state each band's signature offsets directly, via STORAGE_BAND_PROJECTION or
+    #    STORAGE_BAND_PRESET. This subsumes both strategies above and allows bands of differing
+    #    size, overlapping bands, and bands confined to one shingler's segment of the signature.
     STORAGE_BAND_STRATEGY = "random"
     # random seed to be used when deriving sequences used as bands
+    # NOTE: only "random" consults this. Under "linear" and "explicit" the seed has no effect,
+    # so changing it there is silently a no-op.
     STORAGE_BAND_SEED: int = 0xDEADBEEF
+    # For STORAGE_BAND_STRATEGY = "explicit": either name a preset from BAND_PRESETS, or give the
+    # projection outright as a list of lists of signature offsets. STORAGE_BAND_PRESET wins if both
+    # are set. Under "explicit", STORAGE_BANDS is ignored and STORAGE_NUM_BANDS derives from the
+    # projection.
+    STORAGE_BAND_PRESET: str = ""
+    STORAGE_BAND_PROJECTION: List[List[int]] = default_field([])
     # Banding supports:
     #  * MemoryStorage: arbitrary banding configuration, multiple lengths
     #  * MongoDbStorage: arbitrary banding configuration, multiple lengths
@@ -106,7 +118,20 @@ class StorageConfig(ConfigInterface):
 
     @property
     def STORAGE_NUM_BANDS(self):
+        if getattr(self, "STORAGE_BAND_STRATEGY", "random") == "explicit":
+            return len(self.getBandProjection())
         num_bands = 0
         if self.STORAGE_BANDS:
             num_bands = sum([value for value in self.STORAGE_BANDS.values()])
         return num_bands
+
+    def getBandProjection(self) -> List[List[int]]:
+        """Resolve the explicit projection: a named preset if given, else STORAGE_BAND_PROJECTION."""
+        preset = getattr(self, "STORAGE_BAND_PRESET", "")
+        if preset:
+            if preset not in BAND_PRESETS:
+                raise AttributeError(
+                    "Unknown STORAGE_BAND_PRESET %r - available: %s" % (preset, ", ".join(sorted(BAND_PRESETS)))
+                )
+            return [list(band) for band in BAND_PRESETS[preset]]
+        return [list(band) for band in (getattr(self, "STORAGE_BAND_PROJECTION", None) or [])]
