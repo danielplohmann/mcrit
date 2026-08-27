@@ -1527,13 +1527,20 @@ class MongoDbStorage(StorageInterface):
         return unhashed_functions
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):
-        # drop band collections
+        # Drop every band_<n> present, not just the ones the current config expects. An explicit
+        # projection makes changing the band count easy, and dropping only band_0..NUM_BANDS-1
+        # would leave the surplus collections behind holding entries under the previous
+        # projection. Matching never reads them - it only iterates band_0..NUM_BANDS-1 - so they
+        # would sit there consuming disk until someone raised the band count again and started
+        # reading stale keys.
+        existing_bands = [name for name in self._getDb().list_collection_names() if re.match(r"^band_\d+$", name)]
+        for c in existing_bands:
+            self._getDb()[c].drop()
         # recreate collections and their indices
         collections = []
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
-            self._getDb()[c].drop()
             self._getDb()[c].create_index("band_hash")
         # re-add minhashes in batches
         total_functions = self._getDb().functions.count_documents(filter={})
