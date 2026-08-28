@@ -57,6 +57,11 @@ BAND_PRESETS = {
     "legacy-random-20x4": _random_projection(20, 4),
     "legacy-linear-16x4": [[n * 16 + b for n in range(4)] for b in range(16)],
     # ---- segment-aware schemes ------------------------------------------------------------
+    # 12 pure-block bands of 4 + 3 pure-metric bands of 6/5/5. Complete 64/64 coverage for
+    # essentially no throughput cost (~1.03x measured), against the 45/64 the random default
+    # reaches. Metric bands are wider than 4 because the metric segment is cheaper to probe when
+    # its bands are fewer; the cost is that band keys are no longer uniformly 4 bytes.
+    "segment-balanced-v1": _chunks(_BLOCK, 4) + [_STAT[0:6], _STAT[6:11], _STAT[11:16]],
     # 12 pure-block bands + 4 pure-metric bands. Complete coverage, uniform size 4.
     "segment-pure-v1": _chunks(_BLOCK, 4) + _chunks(_STAT, 4),
     # ... plus the offset block grid, which mainly buys retrieval back at k >= 2.
