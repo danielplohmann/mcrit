@@ -3,8 +3,11 @@ import logging
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
-from mcrit.config.BandPresets import (describeBandProjection, getBandProjectionFingerprint,
-                                      validateBandProjection)
+from mcrit.config.BandPresets import (
+    describeBandProjection,
+    getBandProjectionFingerprint,
+    validateBandProjection,
+)
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import NodeType
 from mcrit.minhash.MinHash import MinHash
