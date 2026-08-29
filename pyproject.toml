@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcrit"
-version = "1.8.1"
+version = "1.8.2"
 description = "MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"

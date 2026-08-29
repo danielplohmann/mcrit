@@ -1,7 +1,13 @@
 import datetime
+import logging
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
+from mcrit.config.BandPresets import (
+    describeBandProjection,
+    getBandProjectionFingerprint,
+    validateBandProjection,
+)
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import NodeType
 from mcrit.minhash.MinHash import MinHash
@@ -14,6 +20,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.SampleEntry import SampleEntry
+
+LOGGER = logging.getLogger(__name__)
 
 SampleId = int
 FunctionId = int
@@ -765,9 +773,35 @@ class StorageInterface:
                     index_sequence.append(index_num * step_size + band_index)
                 band_projection[band_index] = index_sequence
                 band_index += 1
+        elif banding_strategy == "explicit":
+            projection = self._storage_config.getBandProjection()
+            errors, warnings = validateBandProjection(projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH)
+            if errors:
+                raise AttributeError("invalid STORAGE_BAND_PROJECTION: " + "; ".join(errors))
+            for warning in warnings:
+                LOGGER.warning("band projection: %s", warning)
+            description = describeBandProjection(projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH)
+            LOGGER.info(
+                "band projection %s: %d bands, sizes %s, covering %d of %d fields, %d bands free of the metric segment",
+                getBandProjectionFingerprint(projection, self._minhash_config.MINHASH_SIGNATURE_LENGTH),
+                description["num_bands"],
+                description["band_sizes"],
+                description["coverage"],
+                description["signature_length"],
+                description["pure_block_bands"],
+            )
+            for band_index, band in enumerate(projection):
+                band_projection[band_index] = list(band)
         else:
             raise AttributeError("unrecognized STORAGE_BAND_STRATEGY in STORAGE_CONFIG")
         return band_projection
+
+    def getBandProjectionFingerprint(self):
+        """Fingerprint of the projection this instance would index under, or None for strategies
+        whose projection is derived rather than stated."""
+        if getattr(self._storage_config, "STORAGE_BAND_STRATEGY", "random") != "explicit":
+            return None
+        return getBandProjectionFingerprint(self._storage_config.getBandProjection(), self._minhash_config.MINHASH_SIGNATURE_LENGTH)
 
     # -> Dict[BandIndex, BandHash]
     def getBandHashesForMinHash(self, minhash: "MinHash") -> Dict[int, int]:
