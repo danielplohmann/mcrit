@@ -130,8 +130,6 @@ class StorageConfig(ConfigInterface):
         preset = getattr(self, "STORAGE_BAND_PRESET", "")
         if preset:
             if preset not in BAND_PRESETS:
-                raise AttributeError(
-                    "Unknown STORAGE_BAND_PRESET %r - available: %s" % (preset, ", ".join(sorted(BAND_PRESETS)))
-                )
+                raise AttributeError("Unknown STORAGE_BAND_PRESET %r - available: %s" % (preset, ", ".join(sorted(BAND_PRESETS))))
             return [list(band) for band in BAND_PRESETS[preset]]
         return [list(band) for band in (getattr(self, "STORAGE_BAND_PROJECTION", None) or [])]

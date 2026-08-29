@@ -109,9 +109,7 @@ def validateBandProjection(projection, signature_length=64):
             continue
         for offset in band:
             if not isinstance(offset, int) or not (0 <= offset < signature_length):
-                errors.append(
-                    "band %d contains offset %r outside 0..%d." % (index, offset, signature_length - 1)
-                )
+                errors.append("band %d contains offset %r outside 0..%d." % (index, offset, signature_length - 1))
         if len(set(band)) != len(band):
             errors.append("band %d repeats an offset: %s" % (index, band))
         if len(band) <= 2:
@@ -122,15 +120,9 @@ def validateBandProjection(projection, signature_length=64):
             )
     description = describeBandProjection(projection, signature_length=signature_length)
     if description["uncovered"]:
-        warnings.append(
-            "projection covers %d of %d signature fields; never indexed: %s"
-            % (description["coverage"], signature_length, description["uncovered"])
-        )
+        warnings.append("projection covers %d of %d signature fields; never indexed: %s" % (description["coverage"], signature_length, description["uncovered"]))
     if description["pure_block_bands"] == 0:
-        warnings.append(
-            "no band avoids the metric segment - every band then depends on the function metrics, "
-            "so a recompilation that shifts them can lose all bands at once."
-        )
+        warnings.append("no band avoids the metric segment - every band then depends on the function metrics, so a recompilation that shifts them can lose all bands at once.")
     return errors, warnings
 
 
