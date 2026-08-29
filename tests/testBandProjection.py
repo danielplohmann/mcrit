@@ -25,9 +25,7 @@ logging.disable(logging.CRITICAL)
 def buildStorage(**storage_kwargs):
     """A memory-backed storage, which is all createBandhashProjection needs."""
     config = McritConfig()
-    config.STORAGE_CONFIG = StorageConfig(
-        STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MEMORY, **storage_kwargs
-    )
+    config.STORAGE_CONFIG = StorageConfig(STORAGE_METHOD=StorageFactory.STORAGE_METHOD_MEMORY, **storage_kwargs)
     config.MINHASH_CONFIG = MinHashConfig()
     config.SHINGLER_CONFIG = ShinglerConfig()
     config.QUEUE_CONFIG = QueueConfig()
@@ -55,9 +53,7 @@ class BandPresetTestSuite(unittest.TestCase):
             ("legacy-linear-16x4", "linear", {4: 16}),
         ):
             derived = buildStorage(STORAGE_BAND_STRATEGY=strategy, STORAGE_BANDS=bands)
-            explicit = buildStorage(
-                STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PRESET=preset
-            )
+            explicit = buildStorage(STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PRESET=preset)
             minhash = emptyMinHash()
             self.assertEqual(
                 derived.createBandhashProjection(minhash),
@@ -111,9 +107,7 @@ class BandProjectionValidationTestSuite(unittest.TestCase):
 class BandProjectionFingerprintTestSuite(unittest.TestCase):
     def testFingerprintIsStable(self):
         projection = BAND_PRESETS["segment-balanced-v1"]
-        self.assertEqual(
-            getBandProjectionFingerprint(projection), getBandProjectionFingerprint(projection)
-        )
+        self.assertEqual(getBandProjectionFingerprint(projection), getBandProjectionFingerprint(projection))
 
     def testDifferentProjectionsFingerprintDifferently(self):
         self.assertNotEqual(
@@ -127,9 +121,7 @@ class BandProjectionFingerprintTestSuite(unittest.TestCase):
         fingerprint that normalised order would call them identical and defeat its own purpose."""
         forward = [[5, 17, 33, 60]]
         reversed_band = [[60, 33, 17, 5]]
-        self.assertNotEqual(
-            getBandProjectionFingerprint(forward), getBandProjectionFingerprint(reversed_band)
-        )
+        self.assertNotEqual(getBandProjectionFingerprint(forward), getBandProjectionFingerprint(reversed_band))
 
     def testFingerprintDependsOnSignatureLength(self):
         projection = [[0, 1, 2, 3]]
@@ -141,9 +133,7 @@ class BandProjectionFingerprintTestSuite(unittest.TestCase):
 
 class ExplicitStrategyTestSuite(unittest.TestCase):
     def testProjectionFromPreset(self):
-        storage = buildStorage(
-            STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PRESET="segment-balanced-v1"
-        )
+        storage = buildStorage(STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PRESET="segment-balanced-v1")
         projection = storage.createBandhashProjection(emptyMinHash())
         self.assertEqual(15, len(projection))
         self.assertEqual(15, storage._storage_config.STORAGE_NUM_BANDS)
@@ -185,16 +175,12 @@ class ExplicitStrategyTestSuite(unittest.TestCase):
         self.assertIn("segment-balanced-v1", str(context.exception))
 
     def testInvalidProjectionIsRejected(self):
-        storage = buildStorage(
-            STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PROJECTION=[[0, 1, 2, 999]]
-        )
+        storage = buildStorage(STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PROJECTION=[[0, 1, 2, 999]])
         with self.assertRaises(AttributeError):
             storage.createBandhashProjection(emptyMinHash())
 
     def testFingerprintOnlyReportedForExplicitStrategy(self):
-        explicit = buildStorage(
-            STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PRESET="segment-balanced-v1"
-        )
+        explicit = buildStorage(STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PRESET="segment-balanced-v1")
         self.assertIsNotNone(explicit.getBandProjectionFingerprint())
         derived = buildStorage(STORAGE_BAND_STRATEGY="random")
         self.assertIsNone(derived.getBandProjectionFingerprint())
@@ -204,15 +190,9 @@ class ExplicitStrategyTestSuite(unittest.TestCase):
         different order produce a different band key, so an index built under one is not readable
         by the other."""
         minhash = MinHash(minhash_signature=list(range(64)), minhash_bits=8)
-        forward = buildStorage(
-            STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PROJECTION=[[5, 17, 33, 60]]
-        )
-        backward = buildStorage(
-            STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PROJECTION=[[60, 33, 17, 5]]
-        )
-        self.assertNotEqual(
-            forward.getBandHashesForMinHash(minhash), backward.getBandHashesForMinHash(minhash)
-        )
+        forward = buildStorage(STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PROJECTION=[[5, 17, 33, 60]])
+        backward = buildStorage(STORAGE_BAND_STRATEGY="explicit", STORAGE_BAND_PROJECTION=[[60, 33, 17, 5]])
+        self.assertNotEqual(forward.getBandHashesForMinHash(minhash), backward.getBandHashesForMinHash(minhash))
 
 
 if __name__ == "__main__":

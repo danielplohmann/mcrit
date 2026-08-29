@@ -775,23 +775,20 @@ class StorageInterface:
                 band_index += 1
         elif banding_strategy == "explicit":
             projection = self._storage_config.getBandProjection()
-            errors, warnings = validateBandProjection(
-                projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH
-            )
+            errors, warnings = validateBandProjection(projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH)
             if errors:
-                raise AttributeError(
-                    "invalid STORAGE_BAND_PROJECTION: " + "; ".join(errors)
-                )
+                raise AttributeError("invalid STORAGE_BAND_PROJECTION: " + "; ".join(errors))
             for warning in warnings:
                 LOGGER.warning("band projection: %s", warning)
-            description = describeBandProjection(
-                projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH
-            )
+            description = describeBandProjection(projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH)
             LOGGER.info(
                 "band projection %s: %d bands, sizes %s, covering %d of %d fields, %d bands free of the metric segment",
                 getBandProjectionFingerprint(projection, self._minhash_config.MINHASH_SIGNATURE_LENGTH),
-                description["num_bands"], description["band_sizes"], description["coverage"],
-                description["signature_length"], description["pure_block_bands"],
+                description["num_bands"],
+                description["band_sizes"],
+                description["coverage"],
+                description["signature_length"],
+                description["pure_block_bands"],
             )
             for band_index, band in enumerate(projection):
                 band_projection[band_index] = list(band)
@@ -804,9 +801,7 @@ class StorageInterface:
         whose projection is derived rather than stated."""
         if getattr(self._storage_config, "STORAGE_BAND_STRATEGY", "random") != "explicit":
             return None
-        return getBandProjectionFingerprint(
-            self._storage_config.getBandProjection(), self._minhash_config.MINHASH_SIGNATURE_LENGTH
-        )
+        return getBandProjectionFingerprint(self._storage_config.getBandProjection(), self._minhash_config.MINHASH_SIGNATURE_LENGTH)
 
     # -> Dict[BandIndex, BandHash]
     def getBandHashesForMinHash(self, minhash: "MinHash") -> Dict[int, int]:
