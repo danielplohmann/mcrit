@@ -40,7 +40,7 @@ class StorageConfig(ConfigInterface):
     #  * explicit: state each band's signature offsets directly, via STORAGE_BAND_PROJECTION or
     #    STORAGE_BAND_PRESET. This subsumes both strategies above and allows bands of differing
     #    size, overlapping bands, and bands confined to one shingler's segment of the signature.
-    STORAGE_BAND_STRATEGY = "random"
+    STORAGE_BAND_STRATEGY: str = "random"
     # random seed to be used when deriving sequences used as bands
     # NOTE: only "random" consults this. Under "linear" and "explicit" the seed has no effect,
     # so changing it there is silently a no-op.

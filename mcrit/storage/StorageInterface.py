@@ -5,8 +5,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
 from packaging import version
 
-from mcrit.config.BandPresets import (describeBandProjection, getBandProjectionFingerprint,
-                                      validateBandProjection)
+from mcrit.config.BandPresets import (
+    describeBandProjection,
+    getBandProjectionFingerprint,
+    validateBandProjection,
+)
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import NodeType
 from mcrit.minhash.MinHash import MinHash
