@@ -1506,15 +1506,41 @@ class MongoDbStorage(StorageInterface):
             stats["num_functions"] += family_document["num_functions"]
         return stats
 
+    def _hashableSizeQuery(self) -> Optional[Dict]:
+        """Query fragment for "this function is large enough to receive a MinHash".
+
+        Mirrors StorageInterface.isHashableBySize. Returns None when no threshold is active, in
+        which case nothing is hashable and the caller should not query at all.
+        """
+        clauses = []
+        if self._minhash_config.MINHASH_FN_MIN_BLOCKS:
+            clauses.append({"num_blocks": {"$gt": self._minhash_config.MINHASH_FN_MIN_BLOCKS}})
+        if self._minhash_config.MINHASH_FN_MIN_INS:
+            clauses.append({"num_instructions": {"$gt": self._minhash_config.MINHASH_FN_MIN_INS}})
+        if not clauses:
+            return None
+        return clauses[0] if len(clauses) == 1 else {"$or": clauses}
+
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
-        unhashed_functions = []
-        search_query = {}
+        # Select in the database rather than in Python. Both filters matter on a large corpus:
+        # "minhash is empty" is trivially indexable work the server should not ship to the client,
+        # and the size filter keeps functions that can never BE hashed out of the result. Without
+        # it, every caller re-fetches the disassembly of every sub-threshold function to rediscover
+        # it is too small - on an 11.6M-function corpus that was 4.16M of the 10.01M functions with
+        # an empty minhash, on every invocation, which is enough to stall a repair and exhaust the
+        # memory of the process pool that consumes the result.
+        hashable_query = self._hashableSizeQuery()
+        if hashable_query is None:
+            return []
+        search_query = {"minhash": "", **hashable_query}
         if function_ids is not None:
-            search_query = {"function_id": {"$in": list(function_ids)}}
+            search_query["function_id"] = {"$in": list(function_ids)}
+        # only_function_ids wants exactly one field; projecting it keeps the scan from dragging
+        # every other field of every matching document across the wire for nothing.
+        projection = {"function_id": 1, "_id": 0} if only_function_ids else {"_id": 0}
+        unhashed_functions = []
         pending_documents = []
-        for function_document in self._getDb().functions.find(search_query, {"_id": 0}):
-            if function_document["minhash"] != "":
-                continue
+        for function_document in self._getDb().functions.find(search_query, projection):
             if only_function_ids:
                 unhashed_functions.append(function_document["function_id"])
             else:

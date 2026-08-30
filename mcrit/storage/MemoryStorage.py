@@ -751,18 +751,24 @@ class MemoryStorage(StorageInterface):
         return valid_candidates
 
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
-        result: List[Union[int, FunctionEntry]] = []
+        # Same selection as the MongoDB backend: needs a MinHash, and is large enough to receive
+        # one. Functions below the size thresholds can never be hashed, so returning them only
+        # makes every caller rediscover that after loading their disassembly.
+        candidates = [
+            function_entry
+            for _, function_entry in self._functions.items()
+            if not function_entry.minhash and self.isHashableBySize(function_entry.num_instructions, function_entry.num_blocks)
+        ]
         if function_ids is None:
-            if only_function_ids:
-                result = [function_entry.function_id for _, function_entry in self._functions.items() if function_entry.xcfg and not function_entry.minhash]
-            else:
-                result = [function_entry for _, function_entry in self._functions.items() if function_entry.xcfg and not function_entry.minhash]
-            return result
-        if only_function_ids:
-            result = [function_entry.function_id for _, function_entry in self._functions.items() if (not function_entry.minhash and function_entry.function_id in function_ids)]
+            # the None case additionally requires disassembly to be present, since without it there
+            # is nothing to hash from
+            candidates = [function_entry for function_entry in candidates if function_entry.xcfg]
         else:
-            result = [function_entry for _, function_entry in self._functions.items() if (not function_entry.minhash and function_entry.function_id in function_ids)]
-        return result
+            wanted = set(function_ids)
+            candidates = [function_entry for function_entry in candidates if function_entry.function_id in wanted]
+        if only_function_ids:
+            return [function_entry.function_id for function_entry in candidates]
+        return list(candidates)
 
     def deleteXcfgData(self) -> None:
         for function_id, function_entry in self._functions.items():
