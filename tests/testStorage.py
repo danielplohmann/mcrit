@@ -563,6 +563,84 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual(17, counters.find_one({"name": "job"})["value"])
         self.assertTrue(counters.index_information()["name_1"].get("unique", False))
 
+    ##### picblockhash inverted index #####
+
+    def _twoIdenticalSamples(self):
+        """Two samples built from the same report, so they carry exactly the same block hashes."""
+        with open(self.example_file_path) as fjson:
+            smda_json = json.load(fjson)
+        report_a = SmdaReport.fromDict(smda_json)
+        report_b = SmdaReport.fromDict(smda_json)
+        assert report_a is not None and report_b is not None
+        report_a.sha256 = 64 * "a"
+        report_b.sha256 = 64 * "b"
+        return self.storage.addSmdaReport(report_a), self.storage.addSmdaReport(report_b)
+
+    def testPicBlockHashIndexAgreesWithTheScan(self):
+        # the whole point of the index: it must answer exactly what reading every function answers
+        self.storage.clearStorage()
+        entry_a, entry_b = self._twoIdenticalSamples()
+        for sample_ids in ([entry_a.sample_id], [entry_a.sample_id, entry_b.sample_id]):
+            self.assertTrue(self.storage._isPicBlockHashIndexComplete())
+            from_index = set(self.storage.getUniqueBlocks(sample_ids)["unique_blocks"])
+            self.storage._setPicBlockHashIndexComplete(False)
+            from_scan = set(self.storage.getUniqueBlocks(sample_ids)["unique_blocks"])
+            self.storage._setPicBlockHashIndexComplete(True)
+            self.assertEqual(from_scan, from_index, f"index and scan disagree for {sample_ids}")
+
+    def testPicBlockHashIndexIsMaintainedOnAddAndDelete(self):
+        self.storage.clearStorage()
+        entry_a, entry_b = self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        # both samples hold every block, so nothing is unique to either
+        self.assertEqual({}, self.storage.getUniqueBlocks([entry_a.sample_id])["unique_blocks"])
+        self.assertTrue(index.count_documents({"sample_ids": entry_b.sample_id}) > 0)
+        # deleting one hands every block back to the other
+        self.storage.deleteSample(entry_b.sample_id)
+        self.assertEqual(0, index.count_documents({"sample_ids": entry_b.sample_id}))
+        self.assertTrue(self.storage.getUniqueBlocks([entry_a.sample_id])["unique_blocks"])
+        # and the delete leaves no emptied posting lists behind (the #149 residue)
+        self.assertEqual(0, index.count_documents({"sample_ids": []}))
+        # removing the last holder removes the documents themselves
+        self.storage.deleteSample(entry_a.sample_id)
+        self.assertEqual(0, index.count_documents({}))
+
+    def testRebuildPicBlockHashIndexReproducesIncrementalState(self):
+        # the rebuild is the repair path, so it has to land on what the write hooks built
+        self.storage.clearStorage()
+        self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        incremental = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.assertTrue(incremental)
+        num_hashes = self.storage.rebuildPicBlockHashIndex()
+        rebuilt = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.assertEqual(incremental, rebuilt)
+        self.assertEqual(len(incremental), num_hashes)
+
+    def testFamilyReassignmentLeavesPicBlockHashIndexAlone(self):
+        # the index carries no family_id, so a relabel cannot invalidate it - pinned so that a
+        # future change which adds family_id here has to confront this test first
+        self.storage.clearStorage()
+        entry_a, _ = self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        before = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.storage.modifySample(entry_a.sample_id, {"family_name": "a_different_family"})
+        after = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.assertEqual(before, after)
+
+    def testPicBlockHashIndexIsNotWrittenWhileIncomplete(self):
+        # an index nothing trusts is not worth maintaining, and half-maintaining it would make the
+        # eventual rebuild look unnecessary
+        self.storage.clearStorage()
+        self.storage._setPicBlockHashIndexComplete(False)
+        self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        self.assertEqual(0, index.count_documents({}))
+        # ... and the rebuild recovers it
+        self.storage.rebuildPicBlockHashIndex()
+        self.assertTrue(self.storage._isPicBlockHashIndexComplete())
+        self.assertTrue(index.count_documents({}) > 0)
+
     def testStorageInitializationCreatesIndexes(self):
         expected_indexed_fields = {
             "samples": {"sample_id", "sha256", "family_id"},

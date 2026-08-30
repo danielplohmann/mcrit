@@ -260,6 +260,11 @@ class Worker(QueueRemoteCallee):
 
     # Reports PROGRESS
     @Remote(progress=True)
+    def rebuildPicBlockHashIndex(self, progress_reporter=NoProgressReporter()):
+        return self._storage.rebuildPicBlockHashIndex(progress_reporter=progress_reporter)
+
+    # Reports PROGRESS
+    @Remote(progress=True)
     def recalculatePicHashes(self, progress_reporter=NoProgressReporter()):
         return self._storage.recalculateAllPicHashes(progress_reporter=progress_reporter)
 

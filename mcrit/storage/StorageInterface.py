@@ -701,6 +701,15 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def rebuildPicBlockHashIndex(self, progress_reporter=None) -> int:
+        """Rebuild the inverted picblockhash index used by getUniqueBlocks
+        Args:
+            progress_reporter: optional callable invoked with progress updates
+        Returns:
+            the number of distinct block hashes indexed
+        """
+        raise NotImplementedError
+
     def rebuildMinhashBandIndex(self, progress_reporter=None) -> int:
         """Drop the current band index and rebuild it from scratch
         Args:
