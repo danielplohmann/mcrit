@@ -105,6 +105,15 @@ class McritClient:
             return response
         return handle_response(response)
 
+    def rebuildPicBlockHashIndex(self):
+        """
+        Schedule a job that rebuilds the inverted picblockhash index getUniqueBlocks reads; answers the job id
+        """
+        response = requests.get(f"{self.mcrit_server}/rebuild_picblockhash_index", headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+
     def repairMinHashes(self):
         """
         Schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (#142); answers the job id

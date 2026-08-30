@@ -22,6 +22,9 @@ class FakeCollection:
     def _matching(self, query):
         return [document for document in self.documents if all(document.get(key) == value for key, value in query.items())]
 
+    def find_one(self, query, projection=None):
+        return self.documents[0] if self.documents else None
+
     def delete_many(self, query):
         self.delete_many_calls.append(query)
         matching = self._matching(query)
@@ -64,7 +67,11 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         # deleting a sample also removes the disassembly split out of the function documents (#137)
         xcfg = FakeCollection()
         query_xcfg = FakeCollection()
-        setattr(self.storage, "_database", FakeDb(functions=functions, samples=samples, families=families, xcfg=xcfg, query_xcfg=query_xcfg))
+        # deleteSample also drops the sample from the picblockhash index, which first asks settings
+        # whether that index is trusted. Empty here, so the hook returns before touching functions -
+        # which is what keeps the find_calls assertion below about the #137 projection alone.
+        settings = FakeCollection()
+        setattr(self.storage, "_database", FakeDb(functions=functions, samples=samples, families=families, xcfg=xcfg, query_xcfg=query_xcfg, settings=settings))
         setattr(
             self.storage,
             "getSampleById",
