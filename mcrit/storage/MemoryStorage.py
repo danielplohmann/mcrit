@@ -895,6 +895,12 @@ class MemoryStorage(StorageInterface):
                 candidate_picblockhashes[picblockhash]["instructions"] = block_instructions
         return {"statistics": block_statistics, "unique_blocks": candidate_picblockhashes}
 
+    def rebuildPicBlockHashIndex(self, progress_reporter=None) -> int:
+        # MemoryStorage holds every function in a dict already, so getUniqueBlocks' elimination is
+        # an in-memory pass with nothing to index. Implemented rather than left to raise, so the
+        # backends stay interchangeable for callers that offer the rebuild unconditionally.
+        return 0
+
     def rebuildMinhashBandIndex(self, progress_reporter=None):
         # TODO while minhashes are considerably small, there is a still chance that the
         # sum of all minhashes will eventually exceed available memory on a given system.

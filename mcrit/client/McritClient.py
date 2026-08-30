@@ -105,6 +105,12 @@ class McritClient:
             return response
         return handle_response(response)
 
+    def rebuildPicBlockHashIndex(self):
+        response = requests.get(f"{self.mcrit_server}/rebuild_picblockhash_index", headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+
     def recalculatePicHashes(self):
         response = requests.get(f"{self.mcrit_server}/recalculate_pichashes", headers=self.headers)
         if self.raw:

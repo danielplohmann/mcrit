@@ -95,6 +95,13 @@ class StatusResource:
         return
 
     @timing
+    def on_get_rebuild_picblockhash_index(self, req, resp):
+        index_report = self.index.rebuildPicBlockHashIndex(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": index_report})
+        db_log_msg(self.index, req, "StatusResource.on_get_rebuild_picblockhash_index - success.")
+        return
+
+    @timing
     def on_get_recalculate_pichashes(self, req, resp):
         index_report = self.index.recalculatePicHashes(force_recalculation=True)
         resp.data = jsonify({"status": "successful", "data": index_report})
