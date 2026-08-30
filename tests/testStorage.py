@@ -570,8 +570,9 @@ class MongoDbStorageTest(MemoryStorageTest):
         with open(self.example_file_path) as fjson:
             smda_json = json.load(fjson)
         report_a = SmdaReport.fromDict(smda_json)
-        report_a.sha256 = 64 * "a"
         report_b = SmdaReport.fromDict(smda_json)
+        assert report_a is not None and report_b is not None
+        report_a.sha256 = 64 * "a"
         report_b.sha256 = 64 * "b"
         return self.storage.addSmdaReport(report_a), self.storage.addSmdaReport(report_b)
 
