@@ -637,6 +637,22 @@ class StorageInterface:
         """
         return None
 
+    def isHashableBySize(self, num_instructions: int, num_blocks: int) -> bool:
+        """Whether a function of this size can receive a MinHash at all.
+
+        Mirrors MinHasher.isMinHashableFunction, but from the counts stored on a function document,
+        so a caller can decide before paying to load and parse the disassembly. Note that a
+        threshold of 0 is falsy and therefore disables its clause rather than meaning "no minimum" -
+        with both thresholds at 0 nothing is hashable, which is what isMinHashableFunction does too.
+        """
+        min_blocks = self._minhash_config.MINHASH_FN_MIN_BLOCKS
+        min_instructions = self._minhash_config.MINHASH_FN_MIN_INS
+        if min_blocks and num_blocks > min_blocks:
+            return True
+        if min_instructions and num_instructions > min_instructions:
+            return True
+        return False
+
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
         """Given a list of function_ids, return all FunctionEntry objects corresponding to these IDs if they do not have a minhash yet.
         Otherwise, return all FunctionEntry objects that do not have a minhash.
