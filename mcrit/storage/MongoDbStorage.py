@@ -205,7 +205,6 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["functions"].create_index("function_name")
         self._getDb()["functions"].create_index("_pichash")
         self._getDb()["functions"].create_index("_picblockhashes.hash")
-        self._getDb()["functions"].create_index("_picblockhashes.offset")
         # stored without guarantee of existence
         self._getDb()["query_samples"].create_index("sample_id")
         self._getDb()["query_samples"].create_index("sha256")
