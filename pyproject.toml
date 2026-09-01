@@ -60,7 +60,7 @@ dev = [
     "twine",
     # ty is pinned: it gates CI and is pre-1.0, so a new release can add diagnostics and redden an
     # unchanged tree. Dependabot proposes the bump, which is where a new diagnostic gets reviewed.
-    "ty==0.0.74",
+    "ty==0.0.75",
 ]
 
 [project.urls]
