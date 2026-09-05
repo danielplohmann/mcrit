@@ -108,25 +108,31 @@ class MinHashingTestSuite(unittest.TestCase):
         for matches in matches_by_function.values():
             for rank, match in enumerate(matches):
                 match.matched_score = max(10.0, match.matched_score - 15.0 * rank)
+        # and give one function two differently scored matches in two samples of the same
+        # family, so that a per-function maximum would credit the weaker sample too much
+        sample_ids = [entry.sample_id for entry in matching_result.sample_matches]
+        self.assertEqual(2, len(sample_ids))
+        twin_matches = next(matches for matches in matches_by_function.values() if len(matches) >= 2)
+        for match, sample_id in zip(twin_matches[:2], sample_ids):
+            match.matched_family_id = twin_matches[0].matched_family_id
+            match.matched_sample_id = sample_id
+        twin_matches[0].matched_score, twin_matches[1].matched_score = 90.0, 30.0
         # a function is unique to a family when all its matches are in that one family; the
         # expected bytes are then the best-scored match of the function, summed per sample
         expected_bytes = {entry.sample_id: 0 for entry in matching_result.sample_matches}
-        best_per_function = {}
-        samples_per_function = {}
+        best_per_function_and_sample = {}
         families_per_function = {}
         for match in matching_result.function_matches:
             weighted = match.num_bytes * match.matched_score / 100.0
-            best_per_function[match.function_id] = max(best_per_function.get(match.function_id, 0), weighted)
-            samples_per_function.setdefault(match.function_id, set()).add(match.matched_sample_id)
+            key = (match.function_id, match.matched_sample_id)
+            best_per_function_and_sample[key] = max(best_per_function_and_sample.get(key, 0), weighted)
             families_per_function.setdefault(match.function_id, set()).add(match.matched_family_id)
-        for function_id, weighted in best_per_function.items():
-            if len(families_per_function[function_id]) != 1:
-                continue
-            for sample_id in samples_per_function[function_id]:
+        for (function_id, sample_id), weighted in best_per_function_and_sample.items():
+            if len(families_per_function[function_id]) == 1:
                 expected_bytes[sample_id] += weighted
         differing = [
             fid
-            for fid in best_per_function
+            for fid in families_per_function
             if len(families_per_function[fid]) == 1 and len({m.matched_score for m in matching_result.function_matches if m.function_id == fid}) > 1
         ]
         self.assertGreater(len(differing), 0, "the fixture needs functions matched with differing scores to be meaningful")

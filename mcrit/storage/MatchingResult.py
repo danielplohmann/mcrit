@@ -361,24 +361,24 @@ class MatchingResult:
             self.unique_family_scores_per_sample = {entry.sample_id: {"functions_matched": 0, "bytes_matched": 0, "unique_score": 0} for entry in self.sample_matches}
             families_matched_by_function_id = {}
             samples_matched_by_function_id = {}
-            weighted_bytes_per_function_id = {}
+            weighted_bytes_per_function_and_sample = {}
             for function_match_summary in self.function_matches:
                 if function_match_summary.function_id not in families_matched_by_function_id:
                     families_matched_by_function_id[function_match_summary.function_id] = set()
                     samples_matched_by_function_id[function_match_summary.function_id] = set()
-                    weighted_bytes_per_function_id[function_match_summary.function_id] = 0
                 families_matched_by_function_id[function_match_summary.function_id].add(function_match_summary.matched_family_id)
                 samples_matched_by_function_id[function_match_summary.function_id].add(function_match_summary.matched_sample_id)
-                # matches should be weighted by match score - the best one a function has, not
-                # whichever match happened to be iterated last (#157)
-                weighted_bytes_per_function_id[function_match_summary.function_id] = max(
-                    weighted_bytes_per_function_id[function_match_summary.function_id], function_match_summary.num_bytes * function_match_summary.matched_score / 100.0
+                # matches should be weighted by match score - the best one the function has in
+                # that sample, not whichever match happened to be iterated last (#157)
+                key = (function_match_summary.function_id, function_match_summary.matched_sample_id)
+                weighted_bytes_per_function_and_sample[key] = max(
+                    weighted_bytes_per_function_and_sample.get(key, 0), function_match_summary.num_bytes * function_match_summary.matched_score / 100.0
                 )
             for function_id in families_matched_by_function_id:
                 if len(families_matched_by_function_id[function_id]) == 1:
                     for sid in samples_matched_by_function_id[function_id]:
                         self.unique_family_scores_per_sample[sid]["functions_matched"] += 1
-                        self.unique_family_scores_per_sample[sid]["bytes_matched"] += weighted_bytes_per_function_id[function_id]
+                        self.unique_family_scores_per_sample[sid]["bytes_matched"] += weighted_bytes_per_function_and_sample[(function_id, sid)]
             for sid in self.unique_family_scores_per_sample:
                 self.unique_family_scores_per_sample[sid]["unique_score"] = (
                     100.0 * self.unique_family_scores_per_sample[sid]["bytes_matched"] / self.reference_sample_entry.binweight
