@@ -577,7 +577,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             last_element_key = None
 
         forward_cursor_str = None
-        if last_element_key:
+        # `is not None`, not truthiness: the key is an id, and a page whose last entry is
+        # id 0 (function 0, sample 0, the unknown family 0) used to end the listing there
+        if last_element_key is not None:
             last_result = search_results_objects[last_element_key]
             forward_cursor = MinimalSearchCursor()
             forward_cursor.is_forward_search = True ^ is_backward_search  # switch for backward search, because of swap
@@ -613,9 +615,12 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
                 (standard_sort, is_ascending),
             ]
         else:
+            # the tie-break follows the direction of the sort field: the order stays total and
+            # deterministic, and a single compound index on (field, id) then serves the
+            # descending order as well, walked backwards (fkie-cad/mcritweb#59)
             sort_by_list = [
                 (sort_by, is_ascending),
-                (standard_sort, True),
+                (standard_sort, is_ascending),
             ]
         return sort_by_list
 
