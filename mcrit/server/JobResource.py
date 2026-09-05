@@ -14,21 +14,29 @@ class JobResource:
     def __init__(self, index: MinHashIndex):
         self.index = index
 
+    @staticmethod
+    def _selection(req):
+        """The parameters that select jobs, shared by the listing and its count."""
+        return {
+            "method": req.params.get("method", None),
+            "state": req.params.get("state", None),
+            "filter": req.params.get("filter", None),
+            "username": req.params.get("username", None),
+        }
+
+    @timing
+    def on_get_count(self, req, resp):
+        count = self.index.getQueueCount(**self._selection(req))
+        resp.data = jsonify({"status": "successful", "data": {"count": count}})
+        db_log_msg(self.index, req, "JobResource.on_get_count - success.")
+
     @timing
     def on_get_collection(self, req, resp):
         # parse optional request parameters
         ascending = False
         if "ascending" in req.params:
             ascending = req.params["ascending"].lower().strip() == "true"
-        method_filter = None
-        if "method" in req.params:
-            method_filter = req.params["method"]
-        state_filter = None
-        if "state" in req.params:
-            state_filter = req.params["state"]
-        query_filter = None
-        if "filter" in req.params:
-            query_filter = req.params["filter"]
+        selection = self._selection(req)
         start_job_id = 0
         if "start" in req.params:
             try:
@@ -41,7 +49,7 @@ class JobResource:
                 limit_job_count = int(req.params["limit"])
             except ValueError:
                 pass
-        queue_data = self.index.getQueueData(start_index=start_job_id, limit=limit_job_count, method=method_filter, state=state_filter, filter=query_filter, ascending=ascending)
+        queue_data = self.index.getQueueData(start_index=start_job_id, limit=limit_job_count, ascending=ascending, **selection)
         resp.data = jsonify({"status": "successful", "data": queue_data})
         db_log_msg(self.index, req, "JobResource.on_get_collection - success.")
 

@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import time
@@ -184,6 +185,59 @@ class MongoQueueTest(TestCase):
         # a document from before the field existed
         self.queue._getCollection().update_one({"_id": without_user}, {"$unset": {"username": ""}})
         self.assertIsNone(self.queue.get_job(without_user).username)
+
+    def test_state_queries_agree_with_identify_job_state(self):
+        # fkie-cad/mcritweb#57: the per-state queries replace a per-document classification in Python; over
+        # every combination of the fields that classification reads, each document must be
+        # selected by exactly the query of its state
+        from itertools import product
+
+        now = datetime.now()
+        documents = []
+        for started_at, locked_by, finished_at, terminated, attempts_left in product((None, now), (None, "worker"), (None, now), (False, True), (0, 1)):
+            document = dict(self.queue._default_insert)
+            document.update(
+                {
+                    "payload": {"method": "test_method", "params": "{}", "descriptor": "d"},
+                    "created_at": now,
+                    "started_at": started_at,
+                    "locked_by": locked_by,
+                    "finished_at": finished_at,
+                    "terminated": terminated,
+                    "attempts_left": attempts_left,
+                }
+            )
+            documents.append(document)
+        self.queue._getCollection().insert_many(documents)
+        self.assertEqual(32, self.queue.get_job_count())
+        # a document no branch claims (e.g. locked but never started) is "unknown" in Python
+        # and is selected by no state query either
+        unknown = {doc["_id"] for doc in documents if self.queue._identifyJobState(doc) == "unknown"}
+        seen = set()
+        for state in ("in_progress", "failed", "queued", "finished", "terminated"):
+            expected = {doc["_id"] for doc in documents if self.queue._identifyJobState(doc) == state}
+            selected = {job.job_id for job in self.queue.get_jobs(0, 0, state=state)}
+            self.assertEqual(expected, selected, state)
+            self.assertEqual(len(expected), self.queue.get_job_count(state=state), state)
+            self.assertTrue(seen.isdisjoint(selected), state)
+            seen |= selected
+        self.assertEqual(32 - len(unknown), len(seen))
+        self.assertTrue(seen.isdisjoint(unknown))
+
+    def test_filter_and_username_select_before_paging(self):
+        for i in range(5):
+            self.queue.put({"method": "test_method", "params": '{"0": "apple %d"}' % i, "descriptor": "a%d" % i}, username="alice")
+            self.queue.put({"method": "other_method", "params": '{"0": "pear %d"}' % i, "descriptor": "p%d" % i}, username="bob")
+        self.assertEqual(5, self.queue.get_job_count(filter="Apple"))
+        self.assertEqual(5, self.queue.get_job_count(filter="other_"))
+        self.assertEqual(5, self.queue.get_job_count(username="bob"))
+        self.assertEqual(0, self.queue.get_job_count(filter="apple", username="bob"))
+        self.assertEqual(10, self.queue.get_job_count(state="queued"))
+        self.assertEqual(["apple 4", "apple 3", "apple 2"], [json.loads(job.payload["params"])["0"] for job in self.queue.get_jobs(0, 3, filter="apple")])
+        self.assertEqual(["apple 1", "apple 0"], [json.loads(job.payload["params"])["0"] for job in self.queue.get_jobs(3, 3, filter="apple")])
+        self.assertEqual(["apple 0", "apple 1"], [json.loads(job.payload["params"])["0"] for job in self.queue.get_jobs(0, 2, filter="apple", ascending=True)])
+        # a regex special character in the filter is literal
+        self.assertEqual(0, self.queue.get_job_count(filter="apple.*"))
 
     def test_context_manager_error(self):
         self.queue.put({"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()})

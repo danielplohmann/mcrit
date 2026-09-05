@@ -580,43 +580,49 @@ class McritClient:
             return response
         return handle_response(response)
 
-    def getQueueData(self, start=0, limit=0, method=None, filter=None, state=None, ascending=False):
+    @staticmethod
+    def _job_selection_query(method=None, filter=None, state=None, username=None, **more):
+        """The query string of the parameters that select jobs, URL-encoded (a filter is free text)."""
+        params = {"method": method, "filter": filter, "state": state, "username": username, **more}
+        present = {key: value for key, value in params.items() if value is not None and value is not False and value != 0}
+        return "?" + urllib.parse.urlencode(present) if present else ""
+
+    def getQueueData(self, start=0, limit=0, method=None, filter=None, state=None, ascending=False, username=None):
         """
-        Get queue data, optionally from <start> and <limit> many
+        Get queue data, optionally from <start> and <limit> many, narrowed to a <method>, a
+        <state>, jobs whose parameters contain <filter> (case-insensitive) and/or jobs requested
+        by <username>. The narrowing is applied before paging, so a page is a page of the matches.
         Supported by mcritweb API pass-through
         """
-        query_string = "?ascending=True" if ascending else ""
-        if isinstance(start, int) and start > 0:
-            if len(query_string) == 0:
-                query_string = f"?start={start}"
-            else:
-                query_string += f"&start={start}"
-        if isinstance(limit, int) and limit > 0:
-            if len(query_string) == 0:
-                query_string = f"?limit={limit}"
-            else:
-                query_string += f"&limit={limit}"
-        if isinstance(method, str) and method is not None:
-            if len(query_string) == 0:
-                query_string = f"?method={method}"
-            else:
-                query_string += f"&method={method}"
-        if isinstance(filter, str) and filter is not None:
-            if len(query_string) == 0:
-                query_string = f"?filter={filter}"
-            else:
-                query_string += f"&filter={filter}"
-        if isinstance(state, str) and state is not None:
-            if len(query_string) == 0:
-                query_string = f"?state={state}"
-            else:
-                query_string += f"&state={state}"
+        query_string = self._job_selection_query(
+            method=method,
+            filter=filter,
+            state=state,
+            username=username,
+            start=start if isinstance(start, int) else 0,
+            limit=limit if isinstance(limit, int) else 0,
+            ascending="True" if ascending else None,
+        )
         response = requests.get(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers)
         if self.raw:
             return response
         data = handle_response(response)
         if data is not None:
             return [Job(job_data, None) for job_data in data]
+
+    def getQueueCount(self, method=None, filter=None, state=None, username=None):
+        """
+        How many jobs getQueueData would list for the same selection - what a paginated listing
+        needs to size itself.
+        Supported by mcritweb API pass-through
+        """
+        query_string = self._job_selection_query(method=method, filter=filter, state=state, username=username)
+        response = requests.get(f"{self.mcrit_server}/jobs/count{query_string}", headers=self.headers)
+        if self.raw:
+            return response
+        data = handle_response(response)
+        if data is not None:
+            return data["count"]
 
     def deleteQueueData(self, method=None, created_before=None, finished_before=None):
         """
