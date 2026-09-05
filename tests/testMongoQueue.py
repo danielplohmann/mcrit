@@ -176,6 +176,34 @@ class MongoQueueTest(TestCase):
         self.assertEqual(1, len(jobs_in_progress))
         self.assertEqual(job.job_id, jobs_in_progress[0]["_id"])
 
+    def test_cached_job_prefers_finished_over_running(self):
+        # fkie-cad/mcritweb#47: a force rematch that is still running must not shadow the finished job whose
+        # result is what a repeated request can actually use
+        payload = {"method": "test_method", "descriptor": "same-request"}
+        finished_id = self.queue.put(dict(payload))
+        self.queue.next().complete("result-1")
+        running_id = self.queue.put(dict(payload))
+        self.queue.next()  # locked by the consumer, in progress
+        self.assertEqual(finished_id, self.queue.get_cached_job_id(payload))
+        # once the newer job is finished as well, the newest finished result wins
+        self.queue.get_job(running_id).complete("result-2")
+        self.assertEqual(running_id, self.queue.get_cached_job_id(payload))
+
+    def test_cached_job_ignores_failed_and_terminated(self):
+        payload = {"method": "test_method", "descriptor": "same-request"}
+        self.queue.max_attempts = 1
+        self.queue._default_insert["attempts_left"] = 1
+        failed_id = self.queue.put(dict(payload))
+        self.queue.next().error("boom")
+        self.assertEqual(0, self.queue.get_job(failed_id).attempts_left)
+        self.assertIsNone(self.queue.get_cached_job_id(payload))
+        terminated_id = self.queue.put(dict(payload))
+        self.queue.next().terminate()
+        self.assertTrue(self.queue.get_job(terminated_id)._is_terminated())
+        self.assertIsNone(self.queue.get_cached_job_id(payload))
+        queued_id = self.queue.put(dict(payload))
+        self.assertEqual(queued_id, self.queue.get_cached_job_id(payload))
+
     def test_context_manager_error(self):
         self.queue.put({"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()})
         job = self.queue.next()

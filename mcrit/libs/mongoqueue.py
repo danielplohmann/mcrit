@@ -488,6 +488,13 @@ class MongoQueue:
         return entry.metadata
 
     def get_cached_job_id(self, payload):
+        """The job whose result a repeated request with the same descriptor should reuse.
+
+        A finished job is preferred over one still queued or running, and among several of
+        the same kind the newest wins; jobs that failed (no attempts left) or were terminated
+        are never reused. Sorting by finished_at descending puts the finished jobs first
+        because a descending sort places null (unfinished) after every date (fkie-cad/mcritweb#47).
+        """
         job = self._wrap_one(
             self._getCollection().find_one(
                 {
@@ -495,7 +502,7 @@ class MongoQueue:
                     "payload.descriptor": payload["descriptor"],
                     "terminated": False,
                 },
-                sort=[("created_at", pymongo.DESCENDING)],
+                sort=[("finished_at", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)],
             )
         )
         return job and job.job_id or None
