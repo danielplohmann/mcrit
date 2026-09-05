@@ -369,8 +369,11 @@ class MatchingResult:
                     weighted_bytes_per_function_id[function_match_summary.function_id] = 0
                 families_matched_by_function_id[function_match_summary.function_id].add(function_match_summary.matched_family_id)
                 samples_matched_by_function_id[function_match_summary.function_id].add(function_match_summary.matched_sample_id)
-                # matches should be weighted by match score
-                weighted_bytes_per_function_id[function_match_summary.function_id] = function_match_summary.num_bytes * function_match_summary.matched_score / 100.0
+                # matches should be weighted by match score - the best one a function has, not
+                # whichever match happened to be iterated last (#157)
+                weighted_bytes_per_function_id[function_match_summary.function_id] = max(
+                    weighted_bytes_per_function_id[function_match_summary.function_id], function_match_summary.num_bytes * function_match_summary.matched_score / 100.0
+                )
             for function_id in families_matched_by_function_id:
                 if len(families_matched_by_function_id[function_id]) == 1:
                     for sid in samples_matched_by_function_id[function_id]:

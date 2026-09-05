@@ -91,6 +91,54 @@ class MinHashingTestSuite(unittest.TestCase):
         assert len(filtered_result.getFunctionMatches()) == 715
         assert len(set([match.function_id for match in filtered_result.getFunctionMatches()])) == 513
 
+    def testUniqueFamilyScoreUsesTheBestMatchOfAFunction(self):
+        # #157: a function matched twice within one family (two samples, two scores) must
+        # contribute its best score to the unique family score, regardless of match order
+        THIS_FILE_PATH = str(os.path.abspath(__file__))
+        PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
+        example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_matching_report.json"])
+        with open(example_file_path) as fjson:
+            match_json = json.load(fjson)
+        matching_result = MatchingResult.fromDict(match_json)
+        # the fixture scores every match of a function alike; spread them so that the order
+        # of iteration would show if only the last one were kept
+        matches_by_function = {}
+        for match in matching_result.function_matches:
+            matches_by_function.setdefault(match.function_id, []).append(match)
+        for matches in matches_by_function.values():
+            for rank, match in enumerate(matches):
+                match.matched_score = max(10.0, match.matched_score - 15.0 * rank)
+        # a function is unique to a family when all its matches are in that one family; the
+        # expected bytes are then the best-scored match of the function, summed per sample
+        expected_bytes = {entry.sample_id: 0 for entry in matching_result.sample_matches}
+        best_per_function = {}
+        samples_per_function = {}
+        families_per_function = {}
+        for match in matching_result.function_matches:
+            weighted = match.num_bytes * match.matched_score / 100.0
+            best_per_function[match.function_id] = max(best_per_function.get(match.function_id, 0), weighted)
+            samples_per_function.setdefault(match.function_id, set()).add(match.matched_sample_id)
+            families_per_function.setdefault(match.function_id, set()).add(match.matched_family_id)
+        for function_id, weighted in best_per_function.items():
+            if len(families_per_function[function_id]) != 1:
+                continue
+            for sample_id in samples_per_function[function_id]:
+                expected_bytes[sample_id] += weighted
+        differing = [
+            fid
+            for fid in best_per_function
+            if len(families_per_function[fid]) == 1 and len({m.matched_score for m in matching_result.function_matches if m.function_id == fid}) > 1
+        ]
+        self.assertGreater(len(differing), 0, "the fixture needs functions matched with differing scores to be meaningful")
+        for sample_id, bytes_expected in expected_bytes.items():
+            info = matching_result.getUniqueFamilyMatchInfoForSample(sample_id)
+            self.assertAlmostEqual(bytes_expected, info["bytes_matched"], places=6)
+        # and the same numbers when the matches arrive in reverse order
+        reversed_result = MatchingResult.fromDict(match_json)
+        reversed_result.function_matches = list(reversed(matching_result.function_matches))
+        for sample_id, bytes_expected in expected_bytes.items():
+            self.assertAlmostEqual(bytes_expected, reversed_result.getUniqueFamilyMatchInfoForSample(sample_id)["bytes_matched"], places=6)
+
     def testMatchingResultLazyFiltering(self):
         """The filtered_* lists are derived lazily and can be reset, so that a MatchingResult
         may be reused across several independent filter runs (e.g. from a cache)."""
