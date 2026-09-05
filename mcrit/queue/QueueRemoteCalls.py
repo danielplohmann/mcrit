@@ -253,7 +253,10 @@ def add_job_id_to_files(self, job_id, grid_params):
 def _createJobPayload(method_name, params, grid_params, descriptor):
     payload = {
         "method": method_name,
-        "params": json.dumps(params),
+        # not ASCII-escaped: the serialized parameters are what the job listing's text
+        # filter matches against, and a filter typed as "Müller" must find a job whose
+        # parameter reads "Müller" in the listing (fkie-cad/mcritweb#57)
+        "params": json.dumps(params, ensure_ascii=False),
         "file_params": json.dumps(grid_params),
         "descriptor": descriptor,
     }

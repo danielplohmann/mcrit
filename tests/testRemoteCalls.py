@@ -276,6 +276,12 @@ class LocalQueueRemoteCallTest(TestCase):
         self.assertEqual(sorted(numbers), numbers)
         self.assertEqual(3, len(self.caller.getQueueData(0, 0, filter="apple", username="alice")))
         self.assertEqual(12, len(self.caller.getQueueData(0, 0, state="finished")))
+        # a parameter is matched as the listing shows it, not as an ASCII escape
+        umlaut_job = self.caller.test(needle="Müller", index=99)
+        self.caller.awaitResult(umlaut_job)
+        self.assertEqual(1, self.caller.getQueueCount(filter="müller"))
+        self.assertEqual(1, self.caller.getQueueCount(filter="Müller"))
+        self.assertEqual(0, self.caller.getQueueCount(filter="u00fc"))
         self.queue.clear()
 
     def test_file_access(self):
