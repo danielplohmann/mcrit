@@ -72,6 +72,48 @@ class MemoryStorageTest(TestCase):
         self.assertEqual(10, stats_without_pichash["num_functions"])
         self.assertIsNone(stats_without_pichash["num_pichashes"])
 
+    def testModifyFunction(self):
+        # fkie-cad/mcritweb#72: a function's name can be set; the name is recorded as a label
+        # by the user who set it, once per (user, name); query functions and unknown ids are refused
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        assert smda_report is not None
+        sample_entry = self.storage.addSmdaReport(smda_report)
+        assert sample_entry is not None
+        function_entry = (self.storage.getFunctionsBySampleId(sample_entry.sample_id) or [])[0]
+        function_id = function_entry.function_id
+        labels_before = len(function_entry.function_labels)
+        self.assertTrue(self.storage.modifyFunction(function_id, {"function_name": "decrypt_config"}, username="alice"))
+        modified = self.storage.getFunctionById(function_id)
+        assert modified is not None
+        self.assertEqual("decrypt_config", modified.function_name)
+        self.assertEqual(labels_before + 1, len(modified.function_labels))
+        self.assertEqual(("decrypt_config", "alice"), (modified.function_labels[-1].function_label, modified.function_labels[-1].username))
+        # the same label by the same user is not recorded twice, by another user it is
+        self.assertTrue(self.storage.modifyFunction(function_id, {"function_name": "decrypt_config"}, username="alice"))
+        self.assertTrue(self.storage.modifyFunction(function_id, {"function_name": "decrypt_config"}, username="bob"))
+        modified = self.storage.getFunctionById(function_id)
+        assert modified is not None
+        self.assertEqual(labels_before + 2, len(modified.function_labels))
+        self.assertEqual("bob", modified.function_labels[-1].username)
+        # without a user the label is anonymous; an empty name clears the name and records nothing
+        self.assertTrue(self.storage.modifyFunction(function_id, {"function_name": "sub_1234"}))
+        modified = self.storage.getFunctionById(function_id)
+        assert modified is not None
+        self.assertEqual("anonymous", modified.function_labels[-1].username)
+        self.assertTrue(self.storage.modifyFunction(function_id, {"function_name": ""}, username="alice"))
+        modified = self.storage.getFunctionById(function_id)
+        assert modified is not None
+        self.assertEqual("", modified.function_name)
+        self.assertEqual(labels_before + 3, len(modified.function_labels))
+        # the other functions of the sample are untouched, the entry round-trips through toDict
+        untouched = (self.storage.getFunctionsBySampleId(sample_entry.sample_id) or [])[1]
+        self.assertEqual(labels_before, len(untouched.function_labels))
+        self.assertEqual(modified.toDict()["function_labels"], [label.toDict() for label in modified.function_labels])
+        self.assertFalse(self.storage.modifyFunction(function_id + 100000, {"function_name": "x"}, username="alice"))
+        self.assertFalse(self.storage.modifyFunction(-1, {"function_name": "x"}, username="alice"))
+        self.assertTrue(self.storage.modifyFunction(function_id, {}, username="alice"))
+
     def testStatusAnswersInlineXcfgOnMemoryStorage(self):
         # the interface default is None ("not applicable"), so /status must keep working on
         # backends without the pre-split shape - a raise here broke every memory-backed call.

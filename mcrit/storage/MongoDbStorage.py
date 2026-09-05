@@ -690,6 +690,22 @@ class MongoDbStorage(StorageInterface):
             self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"component": update_information["component"]}})
         return True
 
+    def modifyFunction(self, function_id: int, update_information: dict, username: Optional[str] = None) -> bool:
+        if function_id < 0 or not self.isFunctionId(function_id):
+            return False
+        if "function_name" in update_information:
+            function_name = update_information["function_name"]
+            update: Dict[str, Any] = {"$set": {"function_name": function_name}}
+            if function_name:
+                function_entry = self.getFunctionById(function_id)
+                assert function_entry is not None
+                label_username = username or "anonymous"
+                is_known_label = any(label.username == label_username and label.function_label == function_name for label in function_entry.function_labels)
+                if not is_known_label:
+                    update["$push"] = {"function_labels": FunctionLabelEntry(function_name, label_username).toDict()}
+            self._getDb().functions.update_one({"function_id": function_id}, update)
+        return True
+
     def modifyFamily(self, family_id: int, update_information: dict) -> bool:
         if not self.isFamilyId(family_id):
             return False

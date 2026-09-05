@@ -348,6 +348,16 @@ class McritClient:
         if data is not None:
             return FunctionEntry.fromDict(data)
 
+    def modifyFunction(self, function_id: int, function_name: str):
+        """
+        Set the name of the function <function_id>; the name is also recorded as a label by this client's username.
+        Supported by mcritweb API pass-through
+        """
+        response = requests.put(f"{self.mcrit_server}/functions/{function_id}", {"function_name": function_name}, headers=self.headers)
+        if self.raw:
+            return response
+        return handle_response(response)
+
     ###########################################
     ### Matching
     ###########################################

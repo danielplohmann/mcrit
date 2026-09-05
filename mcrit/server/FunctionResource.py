@@ -3,7 +3,7 @@ import re
 import falcon
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, jsonify, timing
 
 
 class FunctionResource:
@@ -33,6 +33,36 @@ class FunctionResource:
             }
         )
         db_log_msg(self.index, req, f"FunctionResource.on_get - success - {function_id}.")
+
+    @timing
+    def on_put(self, req, resp, function_id=None):
+        resp.status = falcon.HTTP_400
+        if not req.content_length or not isinstance(req.media, dict):
+            resp.data = jsonify({"status": "failed", "data": {"message": "PUT request without body can't be processed."}})
+            db_log_msg(self.index, req, "FunctionResource.on_put - failed - no PUT body.")
+            return
+        information_update = req.media
+        if "function_name" not in information_update:
+            resp.data = jsonify({"status": "failed", "data": {"message": "Nothing to modify: function_name is the only modifiable field."}})
+            db_log_msg(self.index, req, "FunctionResource.on_put - failed - nothing to modify.")
+            return
+        if not isinstance(information_update["function_name"], str) or not re.match(r"^[ -~]{0,256}$", information_update["function_name"]):
+            resp.data = jsonify({"status": "failed", "data": {"message": "function_name may be 0-256 printable ASCII characters."}})
+            db_log_msg(self.index, req, "FunctionResource.on_put - failed - invalid function name.")
+            return
+        if function_id is None or function_id < 0 or not self.index.isFunctionId(function_id):
+            resp.data = jsonify({"status": "failed", "data": {"message": "We don't have a function with that id."}})
+            resp.status = falcon.HTTP_404
+            db_log_msg(self.index, req, f"FunctionResource.on_put - failed - {function_id} unknown.")
+            return
+        successful = self.index.modifyFunction(function_id, {"function_name": information_update["function_name"].strip()}, username=get_username(req))
+        if successful:
+            resp.data = jsonify({"status": "successful", "data": {"message": "Function modified."}})
+            resp.status = falcon.HTTP_200
+            db_log_msg(self.index, req, f"FunctionResource.on_put - success - modified function_id {function_id}.")
+        else:
+            resp.data = jsonify({"status": "failed", "data": {"message": "Failed to modify function."}})
+            db_log_msg(self.index, req, f"FunctionResource.on_put - failed - function_id {function_id} not modified.")
 
     @timing
     def on_post_collection(self, req, resp):

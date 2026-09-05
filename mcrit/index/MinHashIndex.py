@@ -3,7 +3,7 @@ import json
 import logging
 import re
 from datetime import datetime, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from smda.common.SmdaReport import SmdaReport
 from smda.SmdaConfig import SmdaConfig
@@ -387,6 +387,11 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
             report_json = json.load(fin)
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches)
+
+    def modifyFunction(self, function_id: int, update_information: dict, username: Optional[str] = None) -> bool:
+        # unlike modifySample/modifyFamily this touches one document and no statistics, so it
+        # is answered synchronously instead of as a job (fkie-cad/mcritweb#72)
+        return self.getStorage().modifyFunction(function_id, update_information, username=username)
 
     def getMatchesCross(self, sample_ids: List[int], sample_group_only=False, force_recalculation=False, **params):
         sample_to_job_id = {}

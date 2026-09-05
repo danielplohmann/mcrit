@@ -224,6 +224,19 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def modifyFunction(self, function_id: int, update_information: dict, username: Optional[str] = None) -> bool:
+        """Update a function in the storage (fkie-cad/mcritweb#72)
+
+        Args:
+            function_id: the id of the function to modify; query functions (negative ids) cannot be modified
+            update_information: a dictionary with update information for fields (function_name)
+            username: who submits the change; a new function_name is also recorded as a FunctionLabelEntry by this user
+
+        Returns:
+            True if function_id was contained in the storage and updated successfully, False otherwise
+        """
+        raise NotImplementedError
+
     def deleteSample(self, sample_id: int) -> bool:
         """Remove a sample from the storage, also removes all functions of the sample.
         All minhashes will be removed from the bands.
