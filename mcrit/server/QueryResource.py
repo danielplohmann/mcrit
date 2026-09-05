@@ -3,7 +3,7 @@ import re
 import falcon
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, getMatchingParams, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, getMatchingParams, jsonify, timing
 
 
 class QueryResource:
@@ -25,7 +25,7 @@ class QueryResource:
             db_log_msg(self.index, req, "QueryResource.on_post_query_smda - failed - no POST body.")
             return
         smda_report = req.media
-        summary = self.index.getMatchesForSmdaReport(smda_report, **parameters)
+        summary = self.index.getMatchesForSmdaReport(smda_report, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": summary})
         db_log_msg(self.index, req, "QueryResource.on_post_query_smda - success.")
 
@@ -43,7 +43,7 @@ class QueryResource:
             db_log_msg(self.index, req, "QueryResource.on_post_query_binary - failed - no POST body.")
             return
         binary = req.stream.read()
-        summary = self.index.getMatchesForUnmappedBinary(binary, **parameters)
+        summary = self.index.getMatchesForUnmappedBinary(binary, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": summary})
         db_log_msg(self.index, req, "QueryResource.on_post_query_binary - success.")
 
@@ -63,7 +63,7 @@ class QueryResource:
         # convert string to int. 0 means figure out base automatically.
         base_address = int(base_address, 0) if base_address is not None else 0
         binary = req.stream.read()
-        summary = self.index.getMatchesForMappedBinary(binary, base_address, **parameters)
+        summary = self.index.getMatchesForMappedBinary(binary, base_address, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": summary})
         db_log_msg(self.index, req, "QueryResource.on_post_query_binary_mapped - success.")
 

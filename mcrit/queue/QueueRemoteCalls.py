@@ -127,11 +127,13 @@ def QueueRemoteCaller(clsCallee):
 
 # Wrapper that creates a remote call proxy for a given method
 def RemotifyFunctionWrapper(function):
-    def submitPayloadQueue(self, payload, await_jobs):
-        return str(self.queue.put(payload, await_jobs=await_jobs))
+    def submitPayloadQueue(self, payload, await_jobs, username):
+        return str(self.queue.put(payload, await_jobs=await_jobs, username=username))
 
     # remote call proxy
-    def remote_call_function(self, *params, await_jobs=None, force_recalculation=False, **kwparams):
+    # username is who asked for the job (fkie-cad/mcritweb#37): it is recorded on the job document and is not
+    # part of the descriptor, so a request by another user is still served from the cache
+    def remote_call_function(self, *params, await_jobs=None, force_recalculation=False, username=None, **kwparams):
         name = function.__name__
 
         # join file locations:
@@ -158,7 +160,7 @@ def RemotifyFunctionWrapper(function):
         payload = _createJobPayload(name, params, grid_params, descriptor)
         if await_jobs is None:
             await_jobs = []
-        job_id = submitPayloadQueue(self, payload, await_jobs)
+        job_id = submitPayloadQueue(self, payload, await_jobs, username)
 
         # Add job ids to parameters
         add_job_id_to_files(self, job_id, grid_params)

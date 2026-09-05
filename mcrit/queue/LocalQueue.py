@@ -246,6 +246,11 @@ class Job:
         return self._data["priority"]
 
     @property
+    def username(self):
+        # who asked for the job (fkie-cad/mcritweb#37); None on jobs from a backend that did not record it
+        return self._data.get("username")
+
+    @property
     def attempts_left(self):
         return self._data["attempts_left"]
 
@@ -484,13 +489,14 @@ class LocalQueue:
         del self._files[grid]
         del self._files_meta[grid]
 
-    def put(self, payload, await_jobs=[]):
+    def put(self, payload, await_jobs=[], username=None):
         id = str(uuid.uuid4())
         job_data: Dict[str, Any] = defaultdict(lambda: None)
         job_data["_id"] = id
         job_data["number"] = self._job_counter
         self._job_counter += 1
         job_data["payload"] = payload
+        job_data["username"] = username
         job_data["unfinished_dependencies"] = await_jobs
         job_data["all_dependencies"] = await_jobs
         job_data["attempts_left"] = self.max_attempts

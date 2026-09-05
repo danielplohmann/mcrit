@@ -6,8 +6,13 @@ from bson import json_util
 LOGGER = logging.getLogger(__name__)
 
 
+def get_username(req):
+    """The user a request was made for, as MCRITweb and McritClient send it, or None."""
+    return req.get_header("username", default=None)
+
+
 def db_log_msg(index, req, message, level=None):
-    username = req.get_header("username", default="anonymous")
+    username = get_username(req) or "anonymous"
     if level is None:
         LOGGER.info(f"{username} - {message}")
     index._storage.dbLogEvent(message, username=username)

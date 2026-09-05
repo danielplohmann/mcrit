@@ -4,7 +4,7 @@ import re
 import falcon
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, jsonify, timing
 
 
 class StatusResource:
@@ -82,28 +82,28 @@ class StatusResource:
 
     @timing
     def on_get_complete_minhashes(self, req, resp):
-        minhash_report = self.index.updateMinHashes(None, force_recalculation=True)
+        minhash_report = self.index.updateMinHashes(None, force_recalculation=True, username=get_username(req))
         resp.data = jsonify({"status": "successful", "data": minhash_report})
         db_log_msg(self.index, req, "StatusResource.on_get_complete_minhashes - success.")
         return
 
     @timing
     def on_get_rebuild_index(self, req, resp):
-        index_report = self.index.rebuildIndex(force_recalculation=True)
+        index_report = self.index.rebuildIndex(force_recalculation=True, username=get_username(req))
         resp.data = jsonify({"status": "successful", "data": index_report})
         db_log_msg(self.index, req, "StatusResource.on_get_rebuild_index - success.")
         return
 
     @timing
     def on_get_recalculate_pichashes(self, req, resp):
-        index_report = self.index.recalculatePicHashes(force_recalculation=True)
+        index_report = self.index.recalculatePicHashes(force_recalculation=True, username=get_username(req))
         resp.data = jsonify({"status": "successful", "data": index_report})
         db_log_msg(self.index, req, "StatusResource.on_get_recalculate_pichashes - success.")
         return
 
     @timing
     def on_get_recalculate_minhashes(self, req, resp):
-        index_report = self.index.recalculateMinHashes(force_recalculation=True)
+        index_report = self.index.recalculateMinHashes(force_recalculation=True, username=get_username(req))
         resp.data = jsonify({"status": "successful", "data": index_report})
         db_log_msg(self.index, req, "StatusResource.on_get_recalculate_minhashes - success.")
         return
