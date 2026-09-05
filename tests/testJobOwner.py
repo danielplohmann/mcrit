@@ -66,5 +66,29 @@ class JobOwnerTest(unittest.TestCase):
         self._assert_called_with_username(index, "rebuildIndex", "alice")
 
 
+class ReportSubmissionOwnerTest(unittest.TestCase):
+    """The minhash job a submitted report queues is the submitter's too (POST /samples)"""
+
+    def test_add_report_forwards_the_user_to_the_minhash_job(self):
+        import json
+        import os
+
+        from smda.common.SmdaReport import SmdaReport
+
+        from mcrit.index.MinHashIndex import MinHashIndex
+
+        from .context import config
+
+        index = MinHashIndex(config)
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "example_report.smda")) as fjson:
+            report = SmdaReport.fromDict(json.load(fjson))
+        assert report is not None
+        summary = index.addReport(report, username="alice")
+        assert summary is not None
+        job = index.queue.get_job(summary["job_id"])
+        assert job is not None
+        self.assertEqual("alice", job.username)
+
+
 if __name__ == "__main__":
     unittest.main()

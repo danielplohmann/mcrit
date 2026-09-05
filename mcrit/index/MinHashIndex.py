@@ -375,7 +375,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         LOGGER.info("Added %d function entries.", len(function_entries))
         job_id = None
         if calculate_hashes:
-            job_id = self.updateMinHashesForSample(sample_entry.sample_id)
+            job_id = self.updateMinHashesForSample(sample_entry.sample_id, username=username)
         return {"existed": False, "sample_info": sample_entry.toDict(), "job_id": job_id}
 
     def addReportJson(self, report_json, calculate_hashes=True, calculate_matches=False, username=None):
