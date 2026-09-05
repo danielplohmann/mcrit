@@ -35,9 +35,11 @@ class MatchedFunctionEntry:
         self.matched_sample_id = match_tuple[1]
         self.matched_function_id = match_tuple[2]
         self.matched_score = match_tuple[3]
-        self.match_is_minhash = match_tuple[4] & MatcherFlags.IS_MINHASH_FLAG
-        self.match_is_pichash = match_tuple[4] & MatcherFlags.IS_PICHASH_FLAG
-        self.match_is_library = match_tuple[4] & MatcherFlags.IS_LIBRARY_FLAG
+        # stored as booleans: getMatchTuple multiplies them with the flag values again, and a
+        # masked int there would square the flag and corrupt the round trip (#155)
+        self.match_is_minhash = bool(match_tuple[4] & MatcherFlags.IS_MINHASH_FLAG)
+        self.match_is_pichash = bool(match_tuple[4] & MatcherFlags.IS_PICHASH_FLAG)
+        self.match_is_library = bool(match_tuple[4] & MatcherFlags.IS_LIBRARY_FLAG)
         self.matched_family = None
         self.matched_link_score = 0
         self.matched_unique = None

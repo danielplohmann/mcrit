@@ -8,8 +8,10 @@ from copy import deepcopy
 
 from smda.common.SmdaReport import SmdaReport
 
+import mcrit.matchers.MatcherFlags as MatcherFlags
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
 from mcrit.storage.MatchingResult import MatchingResult
 from mcrit.storage.SampleEntry import SampleEntry
 
@@ -57,6 +59,19 @@ class MinHashingTestSuite(unittest.TestCase):
         as_dict = sample_entry.toDict()
         as_entry = SampleEntry.fromDict(as_dict)
         self.assertEqual(as_entry.sample_id, sample_entry.sample_id)
+
+    def testMatchedFunctionEntryFlagsSurviveTheRoundTrip(self):
+        # #155: every combination of the three match flags must come back unchanged from
+        # toDict()/fromDict(), which is what a served match report goes through
+        all_flags = MatcherFlags.IS_MINHASH_FLAG | MatcherFlags.IS_PICHASH_FLAG | MatcherFlags.IS_LIBRARY_FLAG
+        for flags in range(all_flags + 1):
+            with self.subTest(flags=flags):
+                entry = MatchedFunctionEntry(1, 100, 0x1000, [2, 3, 4, 75.0, flags])
+                self.assertEqual(flags, entry.getMatchTuple()[4])
+                self.assertEqual(flags, MatchedFunctionEntry.fromDict(entry.toDict()).getMatchTuple()[4])
+                self.assertIs(bool(flags & MatcherFlags.IS_MINHASH_FLAG), entry.match_is_minhash)
+                self.assertIs(bool(flags & MatcherFlags.IS_PICHASH_FLAG), entry.match_is_pichash)
+                self.assertIs(bool(flags & MatcherFlags.IS_LIBRARY_FLAG), entry.match_is_library)
 
     def testMatchingResult(self):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
