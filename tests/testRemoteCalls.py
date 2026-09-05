@@ -220,6 +220,9 @@ class LocalQueueRemoteCallTest(TestCase):
     def _set_job_fields(self, job_id, **fields):
         self.queue._jobs[job_id].update(fields)
 
+    def _unknown_job_id(self):
+        return "no-such-job"
+
     def test_job_cache_prefers_finished_and_skips_failed(self):
         # fkie-cad/mcritweb#47: the cache answers with the newest finished job, falls back to an unfinished one
         # only when no finished job exists, and never answers with a failed or terminated job
@@ -238,6 +241,9 @@ class LocalQueueRemoteCallTest(TestCase):
         self._set_job_fields(job_id_2, terminated=True)
         job_id_3 = self.caller.test(**kwparams)
         self.assertNotIn(job_id_3, (job_id_1, job_id_2))
+        # a lookup of an unknown job must not break the cache afterwards
+        self.assertIsNone(self.queue.get_job(self._unknown_job_id()))
+        self.assertEqual(job_id_3, self.caller.test(**kwparams))
         self.queue.clear()
 
     def test_function_access(self):
@@ -372,7 +378,12 @@ class MongoQueueRemoteCallTest(LocalQueueRemoteCallTest):
         self.worker_thread.start()
 
     def _set_job_fields(self, job_id, **fields):
-        self.queue._getCollection().update_one({"_id": ObjectId(job_id)}, {"$set": fields})
+        queue = self.queue
+        assert isinstance(queue, MongoQueue)
+        queue._getCollection().update_one({"_id": ObjectId(job_id)}, {"$set": fields})
+
+    def _unknown_job_id(self):
+        return str(ObjectId())
 
     @pytest.mark.sleep
     def test_termination(self):

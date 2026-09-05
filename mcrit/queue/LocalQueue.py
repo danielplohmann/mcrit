@@ -390,7 +390,9 @@ class LocalQueue:
         self._worker = worker
 
     def get_job(self, job_id):
-        data = self._jobs[job_id]
+        # .get(): _jobs is a defaultdict, and indexing it with an unknown id used to leave a
+        # None entry behind that every later scan of the jobs tripped over
+        data = self._jobs.get(job_id)
         return data and Job(data, self)
 
     def get_jobs(self, start_index: int, limit: int, method=None, state=None, filter=None, ascencing=False):
