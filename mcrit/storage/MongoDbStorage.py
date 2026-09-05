@@ -695,15 +695,13 @@ class MongoDbStorage(StorageInterface):
             return False
         if "function_name" in update_information:
             function_name = update_information["function_name"]
-            update: Dict[str, Any] = {"$set": {"function_name": function_name}}
+            self._getDb().functions.update_one({"function_id": function_id}, {"$set": {"function_name": function_name}})
             if function_name:
-                function_entry = self.getFunctionById(function_id)
-                assert function_entry is not None
+                # the "not yet labelled so by this user" check is part of the update's filter,
+                # so two concurrent identical requests cannot both push the label
                 label_username = username or "anonymous"
-                is_known_label = any(label.username == label_username and label.function_label == function_name for label in function_entry.function_labels)
-                if not is_known_label:
-                    update["$push"] = {"function_labels": FunctionLabelEntry(function_name, label_username).toDict()}
-            self._getDb().functions.update_one({"function_id": function_id}, update)
+                not_yet_labelled = {"function_id": function_id, "function_labels": {"$not": {"$elemMatch": {"username": label_username, "function_label": function_name}}}}
+                self._getDb().functions.update_one(not_yet_labelled, {"$push": {"function_labels": FunctionLabelEntry(function_name, label_username).toDict()}})
         return True
 
     def modifyFamily(self, family_id: int, update_information: dict) -> bool:
