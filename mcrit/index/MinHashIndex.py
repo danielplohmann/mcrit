@@ -715,11 +715,12 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         except Exception:
             pass
 
+        sha_match = None
         if re.match("^[a-fA-F0-9]{64}$", search_term) is not None:
+            # both storages answer an unknown hash with None (#158)
             sample_entry = storage.getSampleBySha256(search_term)
-            sha_match = sample_entry.toDict()
-        else:
-            sha_match = None
+            if sample_entry is not None:
+                sha_match = sample_entry.toDict()
 
         if sort_by not in (
             None,
