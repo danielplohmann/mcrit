@@ -110,6 +110,13 @@ class StatusResource:
         return
 
     @timing
+    def on_post_repair_minhashes(self, req, resp):
+        job_id = self.index.repairMinHashes(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": job_id})
+        db_log_msg(self.index, req, "StatusResource.on_post_repair_minhashes - success.")
+        return
+
+    @timing
     def on_get_recalculate_minhashes(self, req, resp):
         index_report = self.index.recalculateMinHashes(force_recalculation=True)
         resp.data = jsonify({"status": "successful", "data": index_report})

@@ -185,6 +185,38 @@ class MemoryStorageTest(TestCase):
         family.num_samples = num_samples
         family.num_functions = num_functions
 
+    def testMinHashesOfOneSampleCanBeDroppedAndTheirVersionTracked(self):
+        # #142
+        self.storage.clearStorage()
+        with open(self.example_file_path) as fjson:
+            report = SmdaReport.fromDict(json.load(fjson))
+        assert report is not None
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        sample_id = sample_entry.sample_id
+        minhashes = [MinHash(function_id=function_id, minhash_signature=[0x30 + function_id + index for index in range(10)], minhash_bits=8) for function_id in [0, 2, 3, 5, 7, 8]]
+        self.storage.addMinHashes(minhashes)
+        # nothing recorded yet: stale; recorded below the threshold: stale; at or above: current
+        self.assertEqual([sample_id], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.assertEqual(1, self.storage.countSamplesWithStaleMinHashes("4.4.5"))
+        self.storage.setMinHashVersionForSamples("4.4.0", [sample_id])
+        self.assertEqual([sample_id], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.storage.setMinHashVersionForSamples("4.4.5", [sample_id])
+        self.assertEqual([], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.assertEqual(0, self.storage.countSamplesWithStaleMinHashes("4.4.5"))
+        self.storage.setMinHashVersionForSamples("4.9.9")  # all samples
+        self.assertEqual([], self.storage.getSamplesWithStaleMinHashes("4.9.9"))
+        # dropping the sample's minhashes empties its functions and the band index, and forgets the version
+        self.assertEqual(6, self.storage.deleteMinHashesForSample(sample_id))
+        self.assertTrue(all(not f.minhash for f in self.storage.getFunctionsBySampleId(sample_id)))
+        self.assertEqual(0, self._numBandEntries())
+        self.assertEqual([sample_id], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.assertEqual(0, self.storage.deleteMinHashesForSample(sample_id))
+        self.assertEqual(0, self.storage.deleteMinHashesForSample(4242))
+
+    def _numBandEntries(self):
+        return sum(len(function_ids) for band in self.storage._bands.values() for function_ids in band.values())
+
     def testSampleHandling(self):
         self.storage.clearStorage()
         # TODO: different samples required, because addSmdaReport wont accept identical hashes
@@ -637,6 +669,10 @@ class MongoDbStorageTest(MemoryStorageTest):
             self.storage._updateFamilyStats(4242, 1, 10, 0)
         self.assertIn("has no document", logger.warning.call_args.args[0])
         self.assertEqual(4242, logger.warning.call_args.args[1])
+
+    def _numBandEntries(self):
+        db = self.storage._getDb()
+        return sum(len(d.get("function_ids", [])) for band_id in range(self.storage._storage_config.STORAGE_NUM_BANDS) for d in db["band_%d" % band_id].find({}))
 
     def _createSecondStorage(self):
         mcrit_config = McritConfig()

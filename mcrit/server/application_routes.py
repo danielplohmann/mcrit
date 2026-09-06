@@ -107,6 +107,8 @@ def get_app():
     _app.add_route("/recompute_family_stats", status_resource, suffix="recompute_family_stats")  # post
     # schedule a job that updates all function_entries where the pichash was possibly calculated with an outdated SMDA version
     _app.add_route("/recalculate_pichashes", status_resource, suffix="recalculate_pichashes")  # get
+    # schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (#142)
+    _app.add_route("/repair_minhashes", status_resource, suffix="repair_minhashes")  # post
     # schedule a job that updates all function_entries where the minhash was possibly calculated with an outdated SMDA version
     _app.add_route("/recalculate_minhashes", status_resource, suffix="recalculate_minhashes")  # get
 

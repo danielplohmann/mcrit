@@ -271,7 +271,44 @@ class Worker(QueueRemoteCallee):
     @Remote(progress=True)
     def recalculateMinHashes(self, progress_reporter=NoProgressReporter()):
         self._storage.deleteAllMinHashes(progress_reporter=progress_reporter)
-        return self.updateMinHashes(None, progress_reporter=progress_reporter)
+        num_updated = self.updateMinHashes(None, progress_reporter=progress_reporter)
+        self._storage.setMinHashVersionForSamples(SmdaConfig().VERSION)
+        return num_updated
+
+    @staticmethod
+    def getMinHashCompatibilityThreshold() -> str:
+        """The oldest smda whose escaper produces the same minhashes as the running one."""
+        smda_config = SmdaConfig()
+        return getattr(smda_config, "ESCAPER_DOWNWARD_COMPATIBILITY", None) or smda_config.VERSION
+
+    # Reports PROGRESS
+    @Remote(progress=True)
+    def repairMinHashes(self, progress_reporter=NoProgressReporter()):
+        """Rehash only the samples whose minhashes an older smda escaper produced (#142).
+
+        recalculateMinHashes drops every band collection and rehashes everything; this walks
+        the samples whose recorded minhash smda version is older than the escaper compatibility
+        threshold (or unrecorded), pulls their band entries, rehashes them and records the
+        running version, so the index stays serving throughout and a killed run costs one sample.
+        """
+        threshold = self.getMinHashCompatibilityThreshold()
+        stale_sample_ids = self._storage.getSamplesWithStaleMinHashes(threshold)
+        LOGGER.info("Repairing MinHashes: %d samples are stale against escaper compatibility %s.", len(stale_sample_ids), threshold)
+        progress_reporter.set_total(len(stale_sample_ids))
+        report = {
+            "compatibility_threshold": threshold,
+            "smda_version": SmdaConfig().VERSION,
+            "num_samples_stale": len(stale_sample_ids),
+            "num_samples_repaired": 0,
+            "num_functions_dropped": 0,
+            "num_functions_rehashed": 0,
+        }
+        for sample_id in stale_sample_ids:
+            report["num_functions_dropped"] += self._storage.deleteMinHashesForSample(sample_id)
+            report["num_functions_rehashed"] += self.updateMinHashesForSample(sample_id) or 0
+            report["num_samples_repaired"] += 1
+            progress_reporter.step()
+        return report
 
     # Reports PROGRESS
     @Remote(progress=True)
@@ -321,6 +358,10 @@ class Worker(QueueRemoteCallee):
             update_result = self.updateMinHashes([fe.function_id for fe in function_entries], progress_reporter=progress_reporter)
         else:
             LOGGER.info("Sample %d did not have any functions, proceeding.", sample_id)
+            update_result = 0
+        # which escaper produced them, so a later smda can tell whether they are stale (#142)
+        self._storage.setMinHashVersionForSamples(SmdaConfig().VERSION, [sample_id])
+        if not function_entries:
             return 0
         if self.config.STORAGE_CONFIG.STORAGE_DROP_DISASSEMBLY:
             self._storage.deleteXcfgForSampleId(sample_id)
