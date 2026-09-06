@@ -95,11 +95,18 @@ class ExportImportRoundTripMixin(unittest.TestCase):
         self.assertEqual(len(source_functions), num_with_xcfg)
         self.assertGreater(num_with_minhash, 0)
         self.assertGreater(num_with_blocks, 0)
-        # the imported minhashes are in the band index: the sample matches its own import
-        self.assertEqual(
-            sorted(t[2] for t in source.getMatchesForPicHash(next(iter(source_functions.values())).pichash)),
-            sorted(t[2] for t in source.getMatchesForPicHash(next(iter(source_functions.values())).pichash)),
-        )
+        # the target's own indexes know the imported functions: the pichash lookup finds every
+        # imported function under its new ids, and the band index yields a minhashed function as
+        # a candidate for its own minhash
+        target_storage = target.getStorage()
+        minhash_bits = target_config.MINHASH_CONFIG.MINHASH_SIGNATURE_BITS
+        num_candidates_checked = 0
+        for offset, after in target_functions.items():
+            self.assertIn((imported.family_id, imported.sample_id, after.function_id), target_storage.getMatchesForPicHash(after.pichash), offset)
+            if after.minhash:
+                self.assertIn(after.function_id, target_storage.getCandidatesForMinHash(after.getMinHash(minhash_bits=minhash_bits)), offset)
+                num_candidates_checked += 1
+        self.assertEqual(num_with_minhash, num_candidates_checked)
         target_status = target.getStatus(with_pichash=True)["status"]
         source_status = source.getStatus(with_pichash=True)["status"]
         self.assertEqual(source_status["num_functions"], target_status["num_functions"])
