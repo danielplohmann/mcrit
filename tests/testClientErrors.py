@@ -6,10 +6,12 @@ from mcrit.client.McritClient import (
     McritBadRequest,
     McritClient,
     McritClientError,
+    McritConflict,
     McritGone,
     McritNotFound,
     McritRequestError,
     McritServerError,
+    McritUnauthorized,
     failure_message,
     handle_response,
 )
@@ -42,7 +44,7 @@ class HandleResponseTest(unittest.TestCase):
             self.assertEqual("job", handle_response(answer(202, {"status": "successful", "data": "job"}), **flags))
 
     def test_request_errors_raise_their_own_class_with_the_servers_message(self):
-        for status, cls in ((400, McritBadRequest), (404, McritNotFound), (410, McritGone)):
+        for status, cls in ((400, McritBadRequest), (401, McritUnauthorized), (403, McritUnauthorized), (404, McritNotFound), (409, McritConflict), (410, McritGone), (418, McritRequestError)):
             with self.assertRaises(cls) as raised:
                 handle_response(answer(status, FAILED), raise_client_errors=True)
             self.assertIsInstance(raised.exception, McritRequestError)
@@ -55,7 +57,7 @@ class HandleResponseTest(unittest.TestCase):
             self.assertIsNone(handle_response(answer(status, FAILED), raise_server_errors=True))
 
     def test_server_errors_raise_only_in_the_server_mode(self):
-        for status in (500, 501, 418, 302):
+        for status in (500, 501, 302):
             with self.assertRaises(McritServerError) as raised:
                 handle_response(answer(status, FAILED), raise_server_errors=True)
             self.assertNotIsInstance(raised.exception, McritRequestError)
@@ -110,6 +112,17 @@ class ClientModesTest(unittest.TestCase):
         response = answer(500, FAILED)
         with patch("mcrit.client.McritClient.requests.get", return_value=response):
             self.assertIs(response, client.getSampleById(7))
+            self.assertIs(response, client.getFunctionById(7))
+            self.assertIs(response, client.isFunctionId(7))
+
+    def test_a_four_xx_never_reads_as_a_server_failure(self):
+        """401 (AuthMiddleware) and 409 (an existing binary) are answers the server gives on
+        purpose; with both modes on they must come back as request errors, not as a backend
+        failure, and with the server mode alone they stay None."""
+        for status in (401, 403, 409, 418):
+            with self.assertRaises(McritRequestError):
+                handle_response(answer(status, FAILED), raise_client_errors=True, raise_server_errors=True)
+            self.assertIsNone(handle_response(answer(status, FAILED), raise_server_errors=True))
 
 
 if __name__ == "__main__":

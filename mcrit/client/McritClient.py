@@ -74,13 +74,27 @@ class McritGone(McritRequestError):
     """410: the record existed and has been removed since."""
 
 
+class McritUnauthorized(McritRequestError):
+    """401 or 403: the API token is missing, invalid, or not allowed to do this."""
+
+
+class McritConflict(McritRequestError):
+    """409: the request collides with what is stored already (a binary that exists)."""
+
+
 class McritServerError(McritClientError):
     """The server failed to answer the request (500, 501, an unexpected status, or a 2xx
     whose body reports ``"status": "failed"``). The request may or may not have been acted
     on, which is what makes this different from a refused request."""
 
 
-_REQUEST_ERRORS = {400: McritBadRequest, 404: McritNotFound, 410: McritGone}
+_REQUEST_ERRORS = {400: McritBadRequest, 401: McritUnauthorized, 403: McritUnauthorized, 404: McritNotFound, 409: McritConflict, 410: McritGone}
+
+
+def request_error_for(status):
+    """The McritRequestError subclass for a 4xx status, McritRequestError itself for one
+    without a class of its own."""
+    return _REQUEST_ERRORS.get(status, McritRequestError)
 
 
 def failure_message(response):
@@ -105,10 +119,10 @@ def failure_message(response):
 def handle_response(response, raise_client_errors=False, raise_server_errors=False) -> Any:
     """The ``data`` of a successful answer, ``None`` for a failed one.
 
-    With ``raise_client_errors`` a 400, 404 or 410 raises the matching
-    :class:`McritRequestError`; with ``raise_server_errors`` a 500, 501, any status this
-    client does not know, and a 2xx that reports ``"status": "failed"`` raise
-    :class:`McritServerError`. Both default to False, so existing callers keep getting
+    With ``raise_client_errors`` any 4xx raises a :class:`McritRequestError` (400, 401/403,
+    404, 409 and 410 have subclasses of their own); with ``raise_server_errors`` a 500, 501,
+    any status this client does not know, and a 2xx that reports ``"status": "failed"``
+    raise :class:`McritServerError`. Both default to False, so existing callers keep getting
     ``None``, which they cannot tell apart from "not found" (fkie-cad/mcritweb#43).
     """
     data = None
@@ -118,9 +132,9 @@ def handle_response(response, raise_client_errors=False, raise_server_errors=Fal
         LOGGER.warning("McritClient received status code %d from MCRIT.", status)
         if raise_server_errors:
             raise McritServerError(status, failure_message(response), url)
-    elif status in _REQUEST_ERRORS:
+    elif 400 <= status < 500:
         if raise_client_errors:
-            raise _REQUEST_ERRORS[status](status, failure_message(response), url)
+            raise request_error_for(status)(status, failure_message(response), url)
     elif status in [200, 202]:
         json_response = response.json()
         if "status" in json_response and json_response["status"] == "successful":
@@ -137,7 +151,7 @@ class McritClient:
     def __init__(self, mcrit_server=None, apitoken=None, username=None, raw_responses=False, raise_client_errors=False, raise_server_errors=False):
         """
         raw_responses: every method answers the requests.Response itself.
-        raise_client_errors: a 400, 404 or 410 raises McritBadRequest / McritNotFound / McritGone instead of answering None.
+        raise_client_errors: a 4xx raises a McritRequestError (McritBadRequest, McritUnauthorized, McritNotFound, McritConflict, McritGone) instead of answering None.
         raise_server_errors: a 500, 501, unknown status or a failed 2xx raises McritServerError instead of answering None.
         """
         self.mcrit_server = "http://localhost:8000"
@@ -420,8 +434,6 @@ class McritClient:
         if self.raw:
             return response
         data = self._handle(response)
-        if self.raw:
-            return data
         if data is not None:
             return True
         return False
@@ -433,9 +445,9 @@ class McritClient:
         """
         query_with_xcfg = "?with_xcfg=True" if with_xcfg else ""
         response = requests.get(f"{self.mcrit_server}/functions/{function_id}{query_with_xcfg}", headers=self.headers)
-        data = self._handle(response)
         if self.raw:
             return response
+        data = self._handle(response)
         if data is not None:
             return FunctionEntry.fromDict(data)
 
