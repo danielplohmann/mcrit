@@ -101,7 +101,9 @@ class PichashPaddingTest(TestCase):
         self.storage._pichash_padded = None
 
     def test_a_fresh_instance_stores_padded_values_and_says_so(self):
-        self.assertTrue(self.db.settings.find_one({})["pichash_padded"])
+        settings = self.db.settings.find_one({})
+        assert settings is not None
+        self.assertTrue(settings["pichash_padded"])
         self.assertTrue(self.storage.isPichashPadded())
         self.assertTrue(self.storage.getStats(with_pichash=False)["pichash_padded"])
         self.assertTrue(all(is_padded(value) for value in self._stored_pichashes()))
