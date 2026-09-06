@@ -58,6 +58,17 @@ class FamilyResource:
                 information_update["is_library"] = True
             elif information_update["is_library"] in ["False", "false", "0", 0]:
                 information_update["is_library"] = False
+        if "actors" in information_update:
+            actors = information_update["actors"]
+            if isinstance(actors, str):
+                actors = [actor for actor in actors.split(",")]
+            if not isinstance(actors, list) or not all(isinstance(actor, str) and re.match(r"^[\w .\-]{1,64}$", actor.strip()) for actor in actors):
+                resp.data = jsonify(
+                    {"status": "failed", "data": {"message": "actors must be a list of 1-64 character names (letters, digits, spaces, dots, dashes, underscores)."}}
+                )
+                db_log_msg(self.index, req, "FamilyResource.on_put - failed - actors malformed.")
+                return
+            information_update["actors"] = actors
         successful = self.index.modifyFamily(family_id, information_update, force_recalculation=True)
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Family modified."}})

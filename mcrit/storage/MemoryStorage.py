@@ -272,6 +272,8 @@ class MemoryStorage(StorageInterface):
             return False
         old_family_info = self.getFamily(family_id)
         assert old_family_info is not None
+        if "actors" in update_information:
+            self._families[family_id].actors = FamilyEntry.normalizeActors(update_information["actors"])
         if "is_library" in update_information:
             for sample_id, sample_entry in self._samples.items():
                 if family_id == sample_entry.family_id:

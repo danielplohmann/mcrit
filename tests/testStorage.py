@@ -109,6 +109,16 @@ class MemoryStorageTest(TestCase):
         # family deletion
         self.storage.deleteFamily(4)
         self.assertEqual(None, self.storage.getFamilyId("family_1a"))
+        # actors (#57): set, normalised, kept through a rename, cleared
+        self.assertEqual([], self.storage.getFamily(2).actors)
+        self.assertTrue(self.storage.modifyFamily(2, {"actors": [" Actor A", "Actor B", "Actor A"]}))
+        self.assertEqual(["Actor A", "Actor B"], self.storage.getFamily(2).actors)
+        self.storage.modifyFamily(2, {"family_name": "family_2b", "actors": ["Actor C"]})
+        family_2b = self.storage.getFamilyId("family_2b")
+        self.assertIsNotNone(family_2b)
+        self.assertTrue(self.storage.modifyFamily(family_2b, {"actors": []}))
+        self.assertEqual([], self.storage.getFamily(family_2b).actors)
+        self.assertFalse(self.storage.modifyFamily(4242, {"actors": ["x"]}))
 
     def testSampleHandling(self):
         self.storage.clearStorage()

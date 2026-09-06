@@ -695,6 +695,8 @@ class MongoDbStorage(StorageInterface):
             return False
         old_family_info = self.getFamily(family_id)
         assert old_family_info is not None
+        if "actors" in update_information:
+            self._getDb().families.update_one({"family_id": family_id}, {"$set": {"actors": FamilyEntry.normalizeActors(update_information["actors"])}})
         if "is_library" in update_information:
             self._getDb().samples.update_many({"family_id": family_id}, {"$set": {"is_library": update_information["is_library"]}})
             updated_count = old_family_info.num_samples if update_information["is_library"] else 0
