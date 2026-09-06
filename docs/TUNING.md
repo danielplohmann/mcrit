@@ -92,3 +92,21 @@ Notes on the individual knobs:
   earlier only the batch size, `BAND_MATCHES_REQUIRED` and the mongod cache size apply.
 * All measurements used single-process matching; comparisons against a pooled configuration
   will differ.
+
+## Reclaiming space after the query cleanup
+
+| setting | default | effect |
+|---|---|---|
+| `STORAGE_MONGODB_COMPACT_AFTER_CLEANUP` | `False` | run MongoDB's `compact` on `query_samples`, `query_functions` and `query_xcfg` after every `DbCleanup` job |
+
+The cleanup job deletes expired query samples, their functions and disassembly, and the
+orphans a broken deletion left behind; WiredTiger keeps the freed pages inside the collection
+files and reuses them for later inserts, so disk usage does not shrink on its own. `compact`
+returns that space to the file system. It needs the `compact` privilege on the database
+(the default `readWrite` role does not carry it - grant `dbAdmin` or a custom role), it
+blocks writes to the collection it is working on for the duration (seconds to minutes,
+depending on collection size; queries keep being accepted by the other collections), and on
+a replica set it runs on the member it is sent to only. Leave it off unless the query
+collections are large and the instance's disk is tight; the cleanup report says how many
+bytes each compaction returned.
+

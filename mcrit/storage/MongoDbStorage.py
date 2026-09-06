@@ -723,19 +723,46 @@ class MongoDbStorage(StorageInterface):
             self._updateDbState()
         return True
 
+    # query ids are handed out from a counter and stored negated, so a smaller id is a newer
+    # record; deletes and the $in/$nin arguments are kept to this many ids per command
+    _ORPHAN_BATCH_SIZE = 5000
+
     def deleteOrphanedQueryData(self) -> Dict[str, int]:
         """Delete the query functions no query sample refers to and the query disassembly no
         query function refers to. Both are left behind when a deletion is interrupted halfway,
-        and a query job can be deleted without its sample (#68). The query collections are
-        bounded by the cleanup TTL, so listing their ids is affordable."""
+        and a query job can be deleted without its sample (#68).
+
+        Safe next to a query being inserted on another worker: the boundary is taken first,
+        and only records older than it (a larger, i.e. less negative, id) are judged. A query
+        inserted afterwards has ids below the boundary and is never looked at, however its
+        sample and functions interleave with this walk. The ids are walked in batches, so no
+        single command carries the whole collection.
+        """
         db = self._getDb()
+        newest = db.query_functions.find_one({}, {"function_id": 1, "_id": 0}, sort=[("function_id", 1)])
+        if newest is None:
+            return {"query_functions": 0, "query_xcfg": 0}
+        function_boundary = newest["function_id"]
+        # the sample snapshot is taken after the boundary: a query sample is written before its
+        # functions, so every sample a judged function can refer to is in it
         sample_ids = set(db.query_samples.distinct("sample_id"))
-        orphan_sample_ids = sorted(set(db.query_functions.distinct("sample_id")) - sample_ids)
         num_functions = 0
-        if orphan_sample_ids:
-            num_functions = db.query_functions.delete_many({"sample_id": {"$in": orphan_sample_ids}}).deleted_count
-        function_ids = db.query_functions.distinct("function_id")
-        num_xcfg = db.query_xcfg.delete_many({"_id": {"$nin": function_ids}}).deleted_count
+        orphan_sample_ids = [sample_id for sample_id in db.query_functions.distinct("sample_id", {"function_id": {"$gte": function_boundary}}) if sample_id not in sample_ids]
+        for start in range(0, len(orphan_sample_ids), self._ORPHAN_BATCH_SIZE):
+            chunk = orphan_sample_ids[start : start + self._ORPHAN_BATCH_SIZE]
+            num_functions += db.query_functions.delete_many({"sample_id": {"$in": chunk}, "function_id": {"$gte": function_boundary}}).deleted_count
+        num_xcfg = 0
+        last_id = None
+        while True:
+            query = {"_id": {"$gte": function_boundary}} if last_id is None else {"_id": {"$gt": last_id}}
+            batch = [document["_id"] for document in db.query_xcfg.find(query, {"_id": 1}).sort("_id", 1).limit(self._ORPHAN_BATCH_SIZE)]
+            if not batch:
+                break
+            referenced = set(db.query_functions.distinct("function_id", {"function_id": {"$in": batch}}))
+            orphans = [function_id for function_id in batch if function_id not in referenced]
+            if orphans:
+                num_xcfg += db.query_xcfg.delete_many({"_id": {"$in": orphans}}).deleted_count
+            last_id = batch[-1]
         return {"query_functions": num_functions, "query_xcfg": num_xcfg}
 
     def compactQueryCollections(self) -> Dict[str, Any]:

@@ -512,11 +512,16 @@ class MongoDbStorageTest(MemoryStorageTest):
         assert query_entry is not None
         num_functions = db.query_functions.count_documents({})
         db.query_functions.insert_many([{"function_id": -1000, "sample_id": -999}, {"function_id": -1001, "sample_id": -999}])
-        db.query_xcfg.insert_many([{"_id": -1000, "_xcfg": "{}"}, {"_id": -5000, "_xcfg": "{}"}])
+        db.query_xcfg.insert_many([{"_id": -1000, "_xcfg": "{}"}, {"_id": -500, "_xcfg": "{}"}])
         self.assertEqual({"query_functions": 2, "query_xcfg": 2}, self.storage.deleteOrphanedQueryData())
         self.assertEqual(num_functions, db.query_functions.count_documents({}))
         self.assertEqual(num_functions, db.query_xcfg.count_documents({}))
         self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        # many ids: batches, not one command
+        db.query_functions.insert_many([{"function_id": -20000 - i, "sample_id": -777} for i in range(12000)])
+        db.query_samples.insert_one({"sample_id": -777, "sha256": 64 * "f"})
+        db.query_samples.delete_one({"sample_id": -777})
+        self.assertEqual(12000, self.storage.deleteOrphanedQueryData()["query_functions"])
 
     def testCompactingTheQueryCollectionsAnswersPerCollection(self):
         self.storage.clearStorage()
