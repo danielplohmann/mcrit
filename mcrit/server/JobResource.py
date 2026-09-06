@@ -16,6 +16,7 @@ class JobResource:
 
     @timing
     def on_get_collection(self, req, resp):
+        """The queued jobs, newest first unless ``ascending=true``; ``start``, ``limit``, and the filters ``method`` (job method name), ``state`` and ``filter`` (substring of the job descriptor)."""
         # parse optional request parameters
         ascending = False
         if "ascending" in req.params:
@@ -47,6 +48,7 @@ class JobResource:
 
     @timing
     def on_get_stats(self, req, resp):
+        """Queue statistics per method and state; ``with_refresh=true`` recounts instead of answering the cached numbers."""
         query_with_refresh = False
         if "with_refresh" in req.params:
             query_with_refresh = req.params["with_refresh"].lower().strip() == "true"
@@ -56,6 +58,7 @@ class JobResource:
 
     @timing
     def on_delete_collection(self, req, resp):
+        """Delete jobs matching all given filters: ``method``, ``created_before`` and ``finished_before`` (``YYYY-MM-DD`` or ``YYYY-MM-DDTHH:MM:SS``). Answers ``num_deleted``."""
         # parse optional request parameters, to be used as an "AND" query
         method_filter = None
         if "method" in req.params:
@@ -85,6 +88,7 @@ class JobResource:
 
     @timing
     def on_get(self, req, resp, job_id=None):
+        """One job by its 24 hex digit id. Malformed ids answer 400, unknown ones 404."""
         # validate that we only allow hexstrings with 24 chars
         if job_id is None or not re.match("[a-fA-F0-9]{24}", job_id):
             resp.status = falcon.HTTP_400
@@ -99,6 +103,7 @@ class JobResource:
 
     @timing
     def on_delete(self, req, resp, job_id=None):
+        """Delete one job (and its result) by id."""
         # validate that we only allow hexstrings with 24 chars
         if job_id is None or not re.match("[a-fA-F0-9]{24}", job_id):
             resp.status = falcon.HTTP_400
@@ -113,6 +118,7 @@ class JobResource:
 
     @timing
     def on_get_results(self, req, resp, result_id=None):
+        """The result stored under a 24 hex digit result id; ``compact=true`` strips the per-function matches."""
         # validate that we only allow hexstrings with 24 chars
         if result_id is None or not re.match("[a-fA-F0-9]{24}", result_id):
             resp.status = falcon.HTTP_400
@@ -134,6 +140,7 @@ class JobResource:
 
     @timing
     def on_get_job_result(self, req, resp, job_id=None):
+        """The result of a job by job id, or null while it is not finished; ``compact=true`` strips the per-function matches."""
         # validate that we only allow hexstrings with 24 chars
         if job_id is None or not re.match("[a-fA-F0-9]{24}", job_id):
             resp.status = falcon.HTTP_400
@@ -154,6 +161,7 @@ class JobResource:
 
     @timing
     def on_get_result_job(self, req, resp, result_id=None):
+        """The job that produced the result with the given id."""
         # validate that we only allow hexstrings with 24 chars
         if result_id is None or not re.match("[a-fA-F0-9]{24}", result_id):
             resp.status = falcon.HTTP_400
