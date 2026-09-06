@@ -79,6 +79,26 @@ class WorkerKeepsBinariesTest(unittest.TestCase):
             storage.storeSampleBinary.assert_not_called()
             self.assertNotIn("binary_stored", result)
 
+    def test_a_known_sample_without_a_stored_binary_gets_it_on_resubmission(self):
+        """a retried job (sample committed, binary not) or a sample from before binaries were
+        kept: the existing-sample path completes the storage instead of skipping it"""
+        with patch("mcrit.Worker.Disassembler"):
+            worker, storage = self._worker(keep=True)
+            known = MagicMock()
+            known.sample_id = 7
+            known.toDict.return_value = {"sample_id": 7}
+            storage.getSampleBySha256.return_value = known
+            storage.getSampleBinary.return_value = None
+            result = worker.addBinarySample(b"MZ", "a.exe", "fam", "1", False, None, None)
+            storage.storeSampleBinary.assert_called_once_with(7, b"MZ")
+            self.assertTrue(result["binary_stored"])
+            # already stored: nothing to do
+            storage.storeSampleBinary.reset_mock()
+            storage.getSampleBinary.return_value = b"MZ"
+            result = worker.addBinarySample(b"MZ", "a.exe", "fam", "1", False, None, None)
+            storage.storeSampleBinary.assert_not_called()
+            self.assertNotIn("binary_stored", result)
+
 
 if __name__ == "__main__":
     unittest.main()

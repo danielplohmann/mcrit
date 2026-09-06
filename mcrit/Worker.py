@@ -152,7 +152,12 @@ class Worker(QueueRemoteCallee):
         sample_entry = self._storage.getSampleBySha256(binary_sha256)
         if sample_entry:
             LOGGER.info("Sample is already known with ID: %d", sample_entry.sample_id)
-            return {"sample_info": sample_entry.toDict()}
+            result = {"sample_info": sample_entry.toDict()}
+            if self._storage_config.STORAGE_KEEP_SUBMITTED_BINARIES and self._storage.getSampleBinary(sample_entry.sample_id) is None:
+                # a retried job (the sample was committed, storing the binary was not) or a
+                # sample submitted before binaries were kept: complete it here
+                result["binary_stored"] = self._storage.storeSampleBinary(sample_entry.sample_id, binary)
+            return result
         config = SmdaConfig()
         SMDA_REPORT = None
         DISASSEMBLER = Disassembler(config)
