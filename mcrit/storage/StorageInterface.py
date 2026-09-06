@@ -316,8 +316,25 @@ class StorageInterface:
         """
         raise NotImplementedError
 
-    def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
-        """For a given sample_id, get all corresponding FunctionEntries.
+    def getSmdaReportForSample(self, sample_id: int) -> Optional["SmdaReport"]:
+        """Rebuild the SMDA report a sample was submitted as from what the storage holds (#94).
+
+        None for an unknown sample. Functions whose disassembly was dropped
+        (STORAGE_DROP_DISASSEMBLY) are absent from the report's xcfg.
+        """
+        from smda.common.SmdaReport import SmdaReport
+
+        sample_entry = self.getSampleById(sample_id)
+        if sample_entry is None:
+            return None
+        xcfg = {}
+        for function_entry in self.getFunctionsBySampleId(sample_id, with_xcfg=True) or []:
+            if function_entry.xcfg:
+                xcfg[function_entry.offset] = function_entry.xcfg
+        return SmdaReport.fromDict(sample_entry.toSmdaReportDict(xcfg))
+
+    def getFunctionsBySampleId(self, sample_id: int, with_xcfg: bool = False) -> Optional[List["FunctionEntry"]]:
+        """For a given sample_id, get all corresponding FunctionEntries, with their disassembly when with_xcfg is set.
 
         Args:
             sample_id: a sample_id

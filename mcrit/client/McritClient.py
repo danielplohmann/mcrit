@@ -259,6 +259,18 @@ class McritClient:
         if data is not None:
             return SampleEntry.fromDict(data)
 
+    def getSmdaReportForSample(self, sample_id):
+        """
+        The SMDA report the sample was submitted as, rebuilt from what the server stores (#94); None for an unknown sample
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/smda", headers=self.headers)
+        if self.raw:
+            return response
+        data = handle_response(response)
+        if data is None:
+            return None
+        return SmdaReport.fromDict(data)
+
     def getSamples(self, start=0, limit=0):
         """
         Get all SampleEntries, optionally from sample_id <start> and up to <limit> many

@@ -880,13 +880,15 @@ class MongoDbStorage(StorageInterface):
         self._dbInsertMany("functions", functions_as_dicts)
         return function_entries
 
-    def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
+    def getFunctionsBySampleId(self, sample_id: int, with_xcfg: bool = False) -> Optional[List["FunctionEntry"]]:
         if not self.isSampleId(sample_id):
             return None
         if sample_id < 0:
             function_dicts = list(self._getDb().query_functions.find({"sample_id": sample_id}, {"_id": 0}))
         else:
             function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0}))
+        if with_xcfg:
+            self._attachXcfgBlobs(function_dicts)
         functions = []
         self._attachXcfgBlobs(function_dicts)
         for f in function_dicts:
