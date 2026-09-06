@@ -116,6 +116,8 @@ class McritClient:
     def respawn(self) -> Optional[Dict[str, Any]]:
         """POST /respawn: drop the whole database and set up a fresh, empty instance. Answers the server's confirmation message."""
         response = requests.post(f"{self.mcrit_server}/respawn", headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     def completeMinhashes(self) -> Optional[str]:
@@ -204,6 +206,8 @@ class McritClient:
         if len(query_fields) > 0:
             query_string = "?" + "&".join(query_fields)
         response = requests.post(f"{self.mcrit_server}/samples/binary{query_string}", data=binary, headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     ###########################################
@@ -218,6 +222,8 @@ class McritClient:
         if is_library is not None:
             update_dict["is_library"] = is_library
         response = requests.put(f"{self.mcrit_server}/families/{family_id}", update_dict, headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     def getFamily(self, family_id: int, with_samples: bool = True) -> Optional[FamilyEntry]:
@@ -255,6 +261,8 @@ class McritClient:
         """DELETE /families/{family_id}: delete a family and its samples, or with ``keep_samples`` move the samples to the unknown family. Answers True on success, None for an unknown id."""
         query_params = "?keep_samples=true" if keep_samples else "?keep_samples=false"
         response = requests.delete(f"{self.mcrit_server}/families/{family_id}{query_params}", headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     ###########################################
@@ -285,11 +293,15 @@ class McritClient:
         if is_library is not None:
             update_dict["is_library"] = is_library
         response = requests.put(f"{self.mcrit_server}/samples/{sample_id}", update_dict, headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     def deleteSample(self, sample_id: int) -> Optional[bool]:
         """DELETE /samples/{sample_id}: delete a sample with its functions and index entries. Answers True on success."""
         response = requests.delete(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     def getSamplesByFamilyId(self, family_id: int) -> Optional[Dict[int, SampleEntry]]:
@@ -753,12 +765,12 @@ class McritClient:
             if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
                 sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
                 response = requests.get(f"{self.mcrit_server}/export/{sample_ids_as_str}{compress_uri_param}", headers=self.headers)
-                result_data = handle_response(response)
+                result_data = self._passthrough(response) if self.raw else handle_response(response)
             else:
                 raise ValueError("sample_ids must be a list of int.")
         else:
             response = requests.get(f"{self.mcrit_server}/export{compress_uri_param}", headers=self.headers)
-            result_data = handle_response(response)
+            result_data = self._passthrough(response) if self.raw else handle_response(response)
         return result_data
 
     def addImportData(self, import_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -770,6 +782,8 @@ class McritClient:
         if not isinstance(import_data, dict):
             raise ValueError("Can only forward dictionaries with export data.")
         response = requests.post(f"{self.mcrit_server}/import", json=import_data, headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     ###########################################
@@ -797,7 +811,7 @@ class McritClient:
             sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
             params = self._getUniqueBlocksParams(covers_required, min_instructions)
             response = requests.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}", headers=self.headers, params=params)
-            result_data = handle_response(response)
+            result_data = self._passthrough(response) if self.raw else handle_response(response)
         else:
             raise ValueError("sample_ids must be a list of int.")
         return result_data
@@ -811,7 +825,7 @@ class McritClient:
         if isinstance(family_id, int):
             params = self._getUniqueBlocksParams(covers_required, min_instructions)
             response = requests.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}", headers=self.headers, params=params)
-            result_data = handle_response(response)
+            result_data = self._passthrough(response) if self.raw else handle_response(response)
         else:
             raise ValueError("family_id must be an int.")
         return result_data
@@ -854,6 +868,8 @@ class McritClient:
             params["limit"] = limit
         encoded_params = urllib.parse.urlencode(params)
         response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
         return handle_response(response)
 
     search_families = functools.partialmethod(_search_base, "families")
