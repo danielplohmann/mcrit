@@ -44,7 +44,15 @@ class HandleResponseTest(unittest.TestCase):
             self.assertEqual("job", handle_response(answer(202, {"status": "successful", "data": "job"}), **flags))
 
     def test_request_errors_raise_their_own_class_with_the_servers_message(self):
-        for status, cls in ((400, McritBadRequest), (401, McritUnauthorized), (403, McritUnauthorized), (404, McritNotFound), (409, McritConflict), (410, McritGone), (418, McritRequestError)):
+        for status, cls in (
+            (400, McritBadRequest),
+            (401, McritUnauthorized),
+            (403, McritUnauthorized),
+            (404, McritNotFound),
+            (409, McritConflict),
+            (410, McritGone),
+            (418, McritRequestError),
+        ):
             with self.assertRaises(cls) as raised:
                 handle_response(answer(status, FAILED), raise_client_errors=True)
             self.assertIsInstance(raised.exception, McritRequestError)
