@@ -119,6 +119,16 @@ class MemoryStorageTest(TestCase):
         self.assertTrue(self.storage.modifyFamily(family_2b, {"actors": []}))
         self.assertEqual([], self.storage.getFamily(family_2b).actors)
         self.assertFalse(self.storage.modifyFamily(4242, {"actors": ["x"]}))
+        # a rename keeps the actors, and a rename onto an existing family merges both lists
+        self.storage.modifyFamily(family_2b, {"actors": ["Actor D"]})
+        self.storage.modifyFamily(family_2b, {"family_name": "family_2c"})
+        family_2c = self.storage.getFamilyId("family_2c")
+        self.assertEqual(["Actor D"], self.storage.getFamily(family_2c).actors)
+        self.assertEqual(None, self.storage.getFamilyId("family_2b"))
+        other = self.storage.addFamily("family_2d")
+        self.storage.modifyFamily(other, {"actors": ["Actor E", "Actor D"]})
+        self.storage.modifyFamily(family_2c, {"family_name": "family_2d"})
+        self.assertEqual(["Actor E", "Actor D"], self.storage.getFamily(other).actors)
 
     def testSampleHandling(self):
         self.storage.clearStorage()

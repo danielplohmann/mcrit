@@ -716,8 +716,12 @@ class MongoDbStorage(StorageInterface):
                 self._getDb().families.update_one({"family_id": 0}, {"$set": {"num_samples": 0, "num_functions": 0, "num_library_samples": 0}})
             else:
                 self._getDb().families.delete_one({"family_id": family_id})
+            # the attribution moves with the samples: a rename onto an existing family merges
+            # both actor lists (a review of #57 caught the rename dropping them)
+            merged_actors = FamilyEntry.normalizeActors(list(new_family_info.actors or []) + list(old_family_info.actors or []))
             self._getDb().families.update_one(
-                {"family_id": new_family_id}, {"$set": {"num_samples": new_num_samples, "num_functions": new_num_functions, "num_library_samples": new_num_lib_samples}}
+                {"family_id": new_family_id},
+                {"$set": {"num_samples": new_num_samples, "num_functions": new_num_functions, "num_library_samples": new_num_lib_samples, "actors": merged_actors}},
             )
             # update sample_entry and function_entries with new family information
             self._getDb().samples.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id, "family": family_name}})
