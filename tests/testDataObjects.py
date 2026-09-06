@@ -178,7 +178,8 @@ class MinHashingTestSuite(unittest.TestCase):
         by_fid = lambda summary: summary["fid"]  # noqa: E731
         self.assertEqual(sorted(match_json["matches"]["functions"], key=by_fid), wire["matches"]["functions"])
         self.assertEqual(match_json["matches"]["aggregation"], wire["matches"]["aggregation"])
-        self.assertEqual(match_json["info"]["sample"], wire["info"]["sample"])
+        # the sample entry's own serialisation may carry more fields than the example file
+        self.assertEqual(SampleEntry.fromDict(match_json["info"]["sample"]).toDict(), wire["info"]["sample"])
 
         reparsed = MatchingResult.fromDict(wire)
         self.assertEqual(len(matching_result.function_matches), len(reparsed.function_matches))
