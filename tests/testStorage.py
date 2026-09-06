@@ -110,6 +110,27 @@ class MemoryStorageTest(TestCase):
         self.storage.deleteFamily(4)
         self.assertEqual(None, self.storage.getFamilyId("family_1a"))
 
+    def testASubmittedBinaryCanBeKeptAndGoesWithItsSample(self):
+        # #95
+        self.storage.clearStorage()
+        with open(self.example_file_path) as fjson:
+            report = SmdaReport.fromDict(json.load(fjson))
+        assert report is not None
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        self.assertIsNone(self.storage.getSampleBinary(sample_entry.sample_id))
+        self.assertFalse(self.storage.storeSampleBinary(4242, b"nope"))
+        self.assertTrue(self.storage.storeSampleBinary(sample_entry.sample_id, b"MZ\x00\x01" * 1000))
+        self.assertEqual(b"MZ\x00\x01" * 1000, self.storage.getSampleBinary(sample_entry.sample_id))
+        # storing again replaces
+        self.assertTrue(self.storage.storeSampleBinary(sample_entry.sample_id, b"second"))
+        self.assertEqual(b"second", self.storage.getSampleBinary(sample_entry.sample_id))
+        self.assertTrue(self.storage.deleteSampleBinary(sample_entry.sample_id))
+        self.assertFalse(self.storage.deleteSampleBinary(sample_entry.sample_id))
+        self.storage.storeSampleBinary(sample_entry.sample_id, b"third")
+        self.storage.deleteSample(sample_entry.sample_id)
+        self.assertIsNone(self.storage.getSampleBinary(sample_entry.sample_id))
+
     def testSampleHandling(self):
         self.storage.clearStorage()
         # TODO: different samples required, because addSmdaReport wont accept identical hashes

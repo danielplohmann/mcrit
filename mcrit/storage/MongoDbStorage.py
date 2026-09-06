@@ -10,6 +10,7 @@ from itertools import zip_longest
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
+import gridfs
 import numpy as np
 from packaging import version
 from picblocks.blockhasher import BlockHasher
@@ -211,6 +212,7 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["query_samples"].create_index("sha256")
         self._getDb()["query_functions"].create_index("function_id")
         self._getDb()["query_functions"].create_index("sample_id")
+        self._getDb()[self._BINARIES_BUCKET + ".files"].create_index("metadata.sample_id")
         # ensure that their counters are at least 1, so that they never contain items with sample_id/function_id 0
         # the name-only filter with $max is idempotent: it matches an existing counter instead of upserting a duplicate (#105)
         self._getDb().counters.update_one({"name": "query_samples"}, {"$max": {"value": 1}}, upsert=True)
@@ -615,6 +617,7 @@ class MongoDbStorage(StorageInterface):
         self._getDb().functions.delete_many({"sample_id": sample_id})
         # remove sample
         self._getDb().samples.delete_one({"sample_id": sample_id})
+        self.deleteSampleBinary(sample_id)
         # delete family if empty
         family_info = self.getFamily(sample_entry.family_id)
         assert family_info is not None
@@ -723,6 +726,31 @@ class MongoDbStorage(StorageInterface):
             self._updateDbState()
         return True
 
+    # raw submitted binaries live in their own GridFS bucket, keyed by sample id (#95)
+    _BINARIES_BUCKET = "sample_binaries"
+
+    def _getBinaries(self) -> "gridfs.GridFS":
+        return gridfs.GridFS(self._getDb(), collection=self._BINARIES_BUCKET)
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        self.deleteSampleBinary(sample_id)
+        self._getBinaries().put(bytes(binary), metadata={"sample_id": sample_id, "size": len(binary)})
+        return True
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        stored = self._getBinaries().find_one({"metadata.sample_id": sample_id})
+        return stored.read() if stored is not None else None
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        deleted = False
+        bucket = self._getBinaries()
+        for stored in bucket.find({"metadata.sample_id": sample_id}):
+            bucket.delete(stored._id)
+            deleted = True
+        return deleted
+
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         family_entry = self.getFamily(family_id)
         if family_entry is None:
@@ -762,7 +790,20 @@ class MongoDbStorage(StorageInterface):
     def clearStorage(self) -> None:
         # "xcfg"/"query_xcfg" hold the disassembly split out of the function documents (#137);
         # leaving them behind while the counters reset would collide on _id at the next insert
-        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions", "xcfg", "query_xcfg"]
+        collections = [
+            "samples",
+            "families",
+            "functions",
+            "matches",
+            "candidates",
+            "counters",
+            "query_samples",
+            "query_functions",
+            "xcfg",
+            "query_xcfg",
+            "sample_binaries.files",
+            "sample_binaries.chunks",
+        ]
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:

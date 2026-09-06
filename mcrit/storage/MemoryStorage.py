@@ -146,6 +146,7 @@ class MemoryStorage(StorageInterface):
         self._db_timestamp = self._getCurrentTimestamp()
         self._families = {}
         self._samples = {}
+        self._sample_binaries: Dict[int, bytes] = {}
         self._functions = {}
         self._query_samples = {}
         self._query_functions = {}
@@ -227,6 +228,7 @@ class MemoryStorage(StorageInterface):
         self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
+        self._sample_binaries.pop(sample_id, None)
         return True
 
     def modifySample(self, sample_id: int, update_information: dict) -> bool:
@@ -308,6 +310,18 @@ class MemoryStorage(StorageInterface):
                     self._pichashes[function_entry.pichash].add((new_family_id, sample_id, function_id))
         self._updateDbState()
         return True
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        self._sample_binaries[sample_id] = bytes(binary)
+        return True
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        return self._sample_binaries.get(sample_id)
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        return self._sample_binaries.pop(sample_id, None) is not None
 
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         if family_id not in self._families:

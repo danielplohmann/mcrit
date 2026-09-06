@@ -33,6 +33,9 @@ class StorageConfig(ConfigInterface):
     STORAGE_MONGODB_CLEANUP_TTL: int = 60 * 60 * 24 * 7
     # Once MinHashes have been calculated, discard disassembly from function entries
     STORAGE_DROP_DISASSEMBLY: bool = False
+    # Keep the raw binary of every sample submitted through /samples/binary, retrievable via
+    # /samples/{id}/binary; off by default, since it stores every submitted file in full (#95)
+    STORAGE_KEEP_SUBMITTED_BINARIES: bool = False
     # supported strategies:
     #  * random: randomly sample from minhash fields, possibly more fuzziness likely won't use all minhash fields
     #  * linear: use a sequential selection of minhash fields, requires size*number=MINHASH_SIGNATURE_LENGTH

@@ -169,10 +169,13 @@ class Worker(QueueRemoteCallee):
             SMDA_REPORT.version = version
         sample_entry = self._addReport(SMDA_REPORT)
         LOGGER.info("Disassembled and indexed sample: %s", sample_entry)
-        if sample_entry is not None:
-            return {"sample_info": sample_entry.toDict()}
-        else:
+        if sample_entry is None:
             return None
+        result = {"sample_info": sample_entry.toDict()}
+        if self._storage_config.STORAGE_KEEP_SUBMITTED_BINARIES:
+            # the raw submission, for whatever wants the bytes later (#95)
+            result["binary_stored"] = self._storage.storeSampleBinary(sample_entry.sample_id, binary)
+        return result
 
     # Reports PROGRESS
     @Remote(progress=True)

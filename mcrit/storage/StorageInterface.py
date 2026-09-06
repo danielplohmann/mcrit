@@ -492,6 +492,18 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        """Keep the raw binary a sample was submitted as; replaces an earlier one (#95)."""
+        raise NotImplementedError
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        """The raw binary kept for the sample, or None when none was kept (#95)."""
+        raise NotImplementedError
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        """Drop the raw binary kept for the sample; True when there was one (#95)."""
+        raise NotImplementedError
+
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         """Delete family if known and return boolean success state
 

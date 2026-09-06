@@ -212,6 +212,24 @@ class SampleResource:
         db_log_msg(self.index, req, "SampleResource.on_get_function - success.")
 
     @timing
+    def on_get_binary(self, req, resp, sample_id=None):
+        """The raw binary the sample was submitted as, when STORAGE_KEEP_SUBMITTED_BINARIES kept it (#95)."""
+        if not self.index.isSampleId(sample_id):
+            resp.data = jsonify({"status": "failed", "data": {"message": "We don't have a sample with that id."}})
+            resp.status = falcon.HTTP_404
+            db_log_msg(self.index, req, f"SampleResource.on_get_binary - failed - unknown sample_id {sample_id}.")
+            return
+        binary = self.index.getSampleBinary(sample_id)
+        if binary is None:
+            resp.data = jsonify({"status": "failed", "data": {"message": "No binary is stored for that sample."}})
+            resp.status = falcon.HTTP_404
+            db_log_msg(self.index, req, f"SampleResource.on_get_binary - failed - no binary for sample_id {sample_id}.")
+            return
+        resp.content_type = "application/octet-stream"
+        resp.data = binary
+        db_log_msg(self.index, req, "SampleResource.on_get_binary - success.")
+
+    @timing
     def on_get_functions(self, req, resp, sample_id=None):
         if not self.index.isSampleId(sample_id):
             resp.data = jsonify(
