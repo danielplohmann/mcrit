@@ -1061,6 +1061,10 @@ class MongoDbStorage(StorageInterface):
                     band_hashes[band_number][band_hash].append(minhash.function_id)
         self._updateBands(band_hashes)
 
+    # a band document whose posting list is empty (or missing) holds nothing a candidate
+    # lookup could find; it is residue, not index (#149)
+    _EMPTY_BAND_DOCUMENT = {"$or": [{"function_ids": {"$size": 0}}, {"function_ids": {"$exists": False}}]}
+
     def _updateBands(self, band_hashes: Dict[int, Dict[int, List[int]]], method="push") -> int:
         if method not in ["push", "pull"]:
             raise ValueError(f"MongoDbStorage._updateBands() can only do 'push' and 'pull', not '{method}'.")
@@ -1071,14 +1075,27 @@ class MongoDbStorage(StorageInterface):
                 if len(function_ids) < 1:
                     continue
                 if method == "push":
-                    update_command = {"$push": {"function_ids": {"$each": function_ids}}}
+                    # a band hash seen for the first time gets its document here
+                    band_updates.append(UpdateOne({"band_hash": band_hash}, {"$push": {"function_ids": {"$each": function_ids}}}, upsert=True))
                 else:
-                    update_command = {"$pull": {"function_ids": {"$in": function_ids}}}
-                band_updates.append(UpdateOne({"band_hash": band_hash}, update_command, upsert=True))
+                    # pulling from a band hash that has no document must not create one (#149)
+                    band_updates.append(UpdateOne({"band_hash": band_hash}, {"$pull": {"function_ids": {"$in": function_ids}}}))
             if band_updates:
-                self._getDb()["band_%d" % band_number].bulk_write(band_updates, ordered=False)
+                collection = self._getDb()["band_%d" % band_number]
+                collection.bulk_write(band_updates, ordered=False)
+                if method == "pull":
+                    # a posting list the pull emptied is removed, not kept as a tombstone; scoped to
+                    # the hashes just touched, so it is one indexed delete per band (#149)
+                    collection.delete_many({"band_hash": {"$in": list(band_data)}, **self._EMPTY_BAND_DOCUMENT})
             num_band_updates += len(band_updates)
         return num_band_updates
+
+    def purgeEmptyBandDocuments(self) -> int:
+        """Remove the empty band documents that deletions left behind before #149; returns how many."""
+        removed = 0
+        for band_number in range(self._storage_config.STORAGE_NUM_BANDS):
+            removed += self._getDb()["band_%d" % band_number].delete_many(self._EMPTY_BAND_DOCUMENT).deleted_count
+        return removed
 
     def _collectBandHashTargets(self, function_id_to_minhash: Dict[int, "MinHash"]):
         """band_number -> set(band_hash) to query, and band_number -> band_hash -> query function_ids."""
