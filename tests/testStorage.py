@@ -594,6 +594,32 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual("family_1", self.storage.getFamily(sample_a.family_id).family_name)
         self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(sample_a.family_id))
 
+    def testAnEnsuredFamilyIdIsNeverHandedOutAgain(self):
+        # an imported family id at or beyond the counter would otherwise be re-issued by addFamily
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        self.storage.importSampleEntry(SampleEntry(report_a, sample_id=0, family_id=5))
+        self.assertGreater(self.storage.addFamily("after_import"), 5)
+        self.assertEqual(1, self.storage._getDb().families.count_documents({"family_id": 5}))
+
+    def testAMoveIsCountedOnlyByTheRequestThatPerformsIt(self):
+        # of two identical concurrent moves only one changes the sample; the other must not
+        # touch the counters (modelled by the second call seeing the sample already moved)
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        assert sample_a is not None
+        family_1 = sample_a.family_id
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_moved"})
+        family_moved = self.storage.getFamilyId("family_moved")
+        self.assertEqual(self._actualFamilyCounts(family_moved), self._storedFamilyCounts(family_moved))
+        # the sample document is already in family_moved: a stale request for the same move
+        db = self.storage._getDb()
+        db.samples.update_one({"sample_id": sample_a.sample_id}, {"$set": {"family_id": family_1, "family": "family_1"}})
+        db.samples.update_one({"sample_id": sample_a.sample_id}, {"$set": {"family_id": family_moved, "family": "family_moved"}})
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_moved"})
+        self.assertEqual(self._actualFamilyCounts(family_moved), self._storedFamilyCounts(family_moved))
+
     def testImportingASampleEnsuresItsFamilyDocument(self):
         self.storage.clearStorage()
         report_a, _ = self._twoReports()

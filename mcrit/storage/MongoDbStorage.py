@@ -635,6 +635,8 @@ class MongoDbStorage(StorageInterface):
             {"$setOnInsert": FamilyEntry(family_name=family_name, family_id=family_id).toDict()},
             upsert=True,
         )
+        # the id came from elsewhere (an import): the counter must never hand it out again
+        self._getDb().counters.update_one({"name": "families"}, {"$max": {"value": family_id + 1}}, upsert=True)
 
     def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
         result = self._getDb().families.update_one(
@@ -661,8 +663,10 @@ class MongoDbStorage(StorageInterface):
         is_library = sample_entry.is_library
         if "is_library" in update_information:
             new_is_library = bool(update_information["is_library"])
-            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": new_is_library}})
-            if new_is_library != is_library:
+            # the counter follows the transition this write performs, not the value read
+            # before it: two concurrent identical requests would otherwise both count
+            transition = self._getDb().samples.update_one({"sample_id": sample_id, "is_library": {"$ne": new_is_library}}, {"$set": {"is_library": new_is_library}})
+            if transition.modified_count:
                 self._updateFamilyStats(sample_entry.family_id, 0, 0, 1 if new_is_library else -1)
             is_library = new_is_library
         if "family_name" in update_information:
@@ -670,13 +674,17 @@ class MongoDbStorage(StorageInterface):
             family_name = update_information["family_name"]
             family_id = self.addFamily(family_name)
             if family_id != old_family_id:
-                # update sample_entry and function_entries with new family information; the
-                # functions matched are the functions moved, whatever the sample's statistics say
-                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
-                num_functions_moved = self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}}).matched_count
-                self._updateFamilyStats(old_family_id, -1, -num_functions_moved, -int(is_library))
-                self._updateFamilyStats(family_id, +1, num_functions_moved, int(is_library))
-                self._deleteFamilyIfEmpty(old_family_id)
+                # gated on the family the sample was read in: of two concurrent moves only the
+                # one that performs the transition adjusts the counters. The functions moved
+                # are the ones still carrying the old family, whatever the sample's statistics say
+                moved = self._getDb().samples.update_one({"sample_id": sample_id, "family_id": old_family_id}, {"$set": {"family_id": family_id, "family": family_name}})
+                if moved.modified_count:
+                    num_functions_moved = (
+                        self._getDb().functions.update_many({"sample_id": sample_id, "family_id": old_family_id}, {"$set": {"family_id": family_id}}).modified_count
+                    )
+                    self._updateFamilyStats(old_family_id, -1, -num_functions_moved, -int(is_library))
+                    self._updateFamilyStats(family_id, +1, num_functions_moved, int(is_library))
+                    self._deleteFamilyIfEmpty(old_family_id)
             self._updateDbState()
         if "version" in update_information:
             self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"version": update_information["version"]}})
@@ -740,19 +748,64 @@ class MongoDbStorage(StorageInterface):
             if family_id not in known_family_ids:
                 self._ensureFamilyDocument(family_id, str(row.get("family") or ""))
                 report["num_families_created"] += 1
-        for family_document in db.families.find({}, {"_id": 0, "family_id": 1, "num_samples": 1, "num_functions": 1, "num_library_samples": 1}):
-            family_id = family_document["family_id"]
-            actual = {
-                "num_samples": samples_by_family.get(family_id, {}).get("num_samples", 0),
-                "num_functions": functions_by_family.get(family_id, 0),
-                "num_library_samples": samples_by_family.get(family_id, {}).get("num_library_samples", 0),
-            }
-            report["num_families"] += 1
-            stored = {key: family_document.get(key) for key in actual}
-            if stored != actual:
-                db.families.update_one({"family_id": family_id}, {"$set": actual})
-                report["num_families_corrected"] += 1
-                report["corrections"][family_id] = {"before": stored, "after": actual}
+        # a counter is only replaced while it still holds what was read next to the aggregate:
+        # a concurrent ingest, move or deletion that incremented it in between fails the filter,
+        # and the family is aggregated again. Increments landing after the write are consistent
+        # with it (their sample is not in the aggregate either way), so two passes converge.
+        pending = {document["family_id"] for document in db.families.find({}, {"_id": 0, "family_id": 1})}
+        for _ in range(3):
+            if not pending:
+                break
+            retry = set()
+            for family_document in db.families.find(
+                {"family_id": {"$in": sorted(pending)}}, {"_id": 0, "family_id": 1, "num_samples": 1, "num_functions": 1, "num_library_samples": 1}
+            ):
+                family_id = family_document["family_id"]
+                actual = {
+                    "num_samples": samples_by_family.get(family_id, {}).get("num_samples", 0),
+                    "num_functions": functions_by_family.get(family_id, 0),
+                    "num_library_samples": samples_by_family.get(family_id, {}).get("num_library_samples", 0),
+                }
+                if family_id not in report["corrections"]:
+                    report["num_families"] += 1
+                stored = {key: family_document.get(key) for key in actual}
+                if stored == actual:
+                    continue
+                written = db.families.update_one({"family_id": family_id, **stored}, {"$set": actual})
+                if written.modified_count:
+                    if family_id not in report["corrections"]:
+                        report["num_families_corrected"] += 1
+                    report["corrections"][family_id] = {"before": stored, "after": actual}
+                else:
+                    retry.add(family_id)
+            if not retry:
+                break
+            # re-aggregate only the families a concurrent write touched
+            samples_by_family.update(
+                {
+                    row["_id"]: row
+                    for row in db.samples.aggregate(
+                        [
+                            {"$match": {"family_id": {"$in": sorted(retry)}}},
+                            {
+                                "$group": {
+                                    "_id": "$family_id",
+                                    "num_samples": {"$sum": 1},
+                                    "num_library_samples": {"$sum": {"$cond": ["$is_library", 1, 0]}},
+                                    "family": {"$first": "$family"},
+                                }
+                            },
+                        ]
+                    )
+                }
+            )
+            functions_by_family.update(
+                {
+                    row["_id"]: row["num_functions"]
+                    for row in db.functions.aggregate([{"$match": {"family_id": {"$in": sorted(retry)}}}, {"$group": {"_id": "$family_id", "num_functions": {"$sum": 1}}}])
+                }
+            )
+            pending = retry
         return report
 
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
