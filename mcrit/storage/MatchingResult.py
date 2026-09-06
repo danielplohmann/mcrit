@@ -1,5 +1,6 @@
 import math
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from operator import attrgetter
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
@@ -613,22 +614,22 @@ class MatchingResult:
         return cluster_results
 
     def toDict(self):
-        # we need to aggregate by function_id here
-        summarized_function_match_summaries: Dict[int, Dict[str, Any]] = {}
+        # the wire format groups the pairs by own function, in the order of function_matches (which
+        # is sorted by function_id), as a list of summaries - the same shape the matchers produce
+        # and fromDict reads back
+        summaries: List[Dict[str, Any]] = []
+        current_function_id = None
+        current_matches: List[Any] = []
         for function_match_entry in self.function_matches:
-            if function_match_entry.function_id not in summarized_function_match_summaries:
-                summarized_function_match_summaries[function_match_entry.function_id] = {
-                    "num_bytes": function_match_entry.num_bytes,
-                    "offset": function_match_entry.offset,
-                    "fid": function_match_entry.function_id,
-                    "matches": [function_match_entry.getMatchTuple()],
-                }
-            else:
-                summarized_function_match_summaries[function_match_entry.function_id]["matches"].append(function_match_entry.getMatchTuple())
+            if function_match_entry.function_id != current_function_id:
+                current_function_id = function_match_entry.function_id
+                current_matches = []
+                summaries.append({"num_bytes": function_match_entry.num_bytes, "offset": function_match_entry.offset, "fid": current_function_id, "matches": current_matches})
+            current_matches.append(function_match_entry.getMatchTuple())
         # build the dictionary
         matching_entry = {
             "info": {"sample": self.reference_sample_entry.toDict()},
-            "matches": {"aggregation": self.match_aggregation, "functions": summarized_function_match_summaries, "samples": [match.toDict() for match in self.sample_matches]},
+            "matches": {"aggregation": self.match_aggregation, "functions": summaries, "samples": [match.toDict() for match in self.sample_matches]},
         }
         if self.other_sample_entry is not None:
             matching_entry["other_sample_info"] = self.other_sample_entry.toDict()
@@ -644,28 +645,42 @@ class MatchingResult:
             matching_entry.other_sample_entry = None
         matching_entry.match_aggregation = entry_dict["matches"]["aggregation"]
         matching_entry.sample_matches = [MatchedSampleEntry.fromDict(entry) for entry in entry_dict["matches"]["samples"]]
-        # expand function matches into individual entries
-        list_of_function_matches = []
+        # expand function matches into individual entries. This is the hot loop for large results
+        # (#44): a local append, set-backed membership tests instead of list scans, and no
+        # per-pair attribute lookups on the result object
+        list_of_function_matches: List[MatchedFunctionEntry] = []
+        append_function_match = list_of_function_matches.append
+        function_id_to_family_ids_matched = matching_entry.function_id_to_family_ids_matched
+        library_flag = MatcherFlags.IS_LIBRARY_FLAG
         if "functions" in entry_dict["matches"]:
-            matching_entry.library_matches = {abs(entry["fid"]): [] for entry in entry_dict["matches"]["functions"]}
+            function_summaries = entry_dict["matches"]["functions"]
+            library_matches: Dict[int, List[Tuple[int, int]]] = {abs(entry["fid"]): [] for entry in function_summaries}
+            matching_entry.library_matches = library_matches
             matching_entry.unique_family_scores_per_sample = None
-            for function_match_summary in entry_dict["matches"]["functions"]:
+            for function_match_summary in function_summaries:
                 num_bytes = function_match_summary["num_bytes"]
                 offset = function_match_summary["offset"]
                 function_id = function_match_summary["fid"]
                 # ensure that we have all function_ids in increasing order, regardless of whether they come from a query or regular match.
-                matching_entry.is_query = True if function_id < 0 else False
+                matching_entry.is_query = function_id < 0
                 function_id = abs(function_id)
-                if function_id not in matching_entry.function_id_to_family_ids_matched:
-                    matching_entry.function_id_to_family_ids_matched[function_id] = []
+                family_ids_matched = function_id_to_family_ids_matched.setdefault(function_id, [])
+                families_seen = set(family_ids_matched)
+                function_library_matches = library_matches[function_id]
+                library_seen = set(function_library_matches)
                 for match_tuple in function_match_summary["matches"]:
-                    list_of_function_matches.append(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
-                    if match_tuple[0] not in matching_entry.function_id_to_family_ids_matched[function_id]:
-                        matching_entry.function_id_to_family_ids_matched[function_id].append(match_tuple[0])
-                    if match_tuple[4] & MatcherFlags.IS_LIBRARY_FLAG:
-                        if (match_tuple[0], match_tuple[1]) not in matching_entry.library_matches[function_id]:
-                            matching_entry.library_matches[function_id].append((match_tuple[0], match_tuple[1]))
-        matching_entry.function_matches = sorted(list_of_function_matches, key=lambda x: x.function_id)
+                    append_function_match(MatchedFunctionEntry(function_id, num_bytes, offset, match_tuple))
+                    matched_family_id = match_tuple[0]
+                    if matched_family_id not in families_seen:
+                        families_seen.add(matched_family_id)
+                        family_ids_matched.append(matched_family_id)
+                    if match_tuple[4] & library_flag:
+                        library_match = (matched_family_id, match_tuple[1])
+                        if library_match not in library_seen:
+                            library_seen.add(library_match)
+                            function_library_matches.append(library_match)
+        list_of_function_matches.sort(key=attrgetter("function_id"))
+        matching_entry.function_matches = list_of_function_matches
         # the filtered_* lists are derived lazily on first access, see their properties
         matching_entry.resetFilters()
         return matching_entry
