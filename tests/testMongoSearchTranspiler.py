@@ -60,3 +60,42 @@ class TestMongoSortableFields(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSubstringSearchOverKnownValues(unittest.TestCase):
+    """A substring condition on a field whose distinct values are known is answered as an
+    $in / $nin of the matching values, so MongoDB uses the index instead of scanning every
+    document with a regex (fkie-cad/mcritweb#76)."""
+
+    NAMES = ["", "main", "WinMain", "decrypt_config", "sub_401000", None]
+
+    def _visit(self, operator, value, field="function_name"):
+        return MongoSearchTranspiler({"function_name": self.NAMES}).visit(SearchConditionNode(field, operator, value))
+
+    def test_a_substring_condition_becomes_the_matching_values(self):
+        self.assertEqual({"function_name": {"$in": ["main", "WinMain"]}}, self._visit("?", "main"))
+
+    def test_the_match_is_case_insensitive_like_the_regex(self):
+        self.assertEqual({"function_name": {"$in": ["main", "WinMain"]}}, self._visit("?", "MAIN"))
+        self.assertEqual({"function_name": {"$in": ["decrypt_config"]}}, self._visit("?", "CRYPT_"))
+
+    def test_nothing_matching_is_an_empty_list(self):
+        # matches no document at all, without MongoDB looking at a single one
+        self.assertEqual({"function_name": {"$in": []}}, self._visit("?", "zzzzq"))
+
+    def test_the_negated_condition_excludes_the_matching_values(self):
+        self.assertEqual({"function_name": {"$nin": ["main", "WinMain"]}}, self._visit("!?", "main"))
+
+    def test_regex_metacharacters_are_literal(self):
+        self.assertEqual({"function_name": {"$in": []}}, self._visit("?", "sub_.*"))
+        self.assertEqual({"function_name": {"$in": ["sub_401000"]}}, self._visit("?", "sub_4"))
+
+    def test_an_empty_term_keeps_the_regex(self):
+        condition = self._visit("?", "")
+        self.assertEqual(["function_name"], list(condition))
+        self.assertTrue(hasattr(condition["function_name"], "search"))
+
+    def test_other_fields_and_operators_keep_their_form(self):
+        self.assertEqual({"function_name": "main"}, self._visit("=", "main"))
+        condition = self._visit("?", "main", field="family")
+        self.assertTrue(hasattr(condition["family"], "search"))
