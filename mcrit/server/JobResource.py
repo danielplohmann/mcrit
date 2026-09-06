@@ -26,6 +26,7 @@ class JobResource:
 
     @timing
     def on_get_count(self, req, resp):
+        """How many jobs match the same ``method``, ``state``, ``filter`` and ``username`` selection ``GET /jobs`` takes, without paging through them. Answers ``count``."""
         count = self.index.getQueueCount(**self._selection(req))
         resp.data = jsonify({"status": "successful", "data": {"count": count}})
         db_log_msg(self.index, req, "JobResource.on_get_count - success.")
