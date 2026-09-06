@@ -36,6 +36,7 @@ class FunctionResource:
 
     @timing
     def on_put(self, req, resp, function_id=None):
+        """Rename a function; JSON body with ``function_name`` (up to 256 printable chars). The name is recorded as a label by the requesting user. Answers 202 on success, 400 for a malformed body, 404 for an unknown id."""
         resp.status = falcon.HTTP_400
         if not req.content_length or not isinstance(req.media, dict):
             resp.data = jsonify({"status": "failed", "data": {"message": "PUT request without body can't be processed."}})
