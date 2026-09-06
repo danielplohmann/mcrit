@@ -723,6 +723,37 @@ class MongoDbStorage(StorageInterface):
             self._updateDbState()
         return True
 
+    def deleteOrphanedQueryData(self) -> Dict[str, int]:
+        """Delete the query functions no query sample refers to and the query disassembly no
+        query function refers to. Both are left behind when a deletion is interrupted halfway,
+        and a query job can be deleted without its sample (#68). The query collections are
+        bounded by the cleanup TTL, so listing their ids is affordable."""
+        db = self._getDb()
+        sample_ids = set(db.query_samples.distinct("sample_id"))
+        orphan_sample_ids = sorted(set(db.query_functions.distinct("sample_id")) - sample_ids)
+        num_functions = 0
+        if orphan_sample_ids:
+            num_functions = db.query_functions.delete_many({"sample_id": {"$in": orphan_sample_ids}}).deleted_count
+        function_ids = db.query_functions.distinct("function_id")
+        num_xcfg = db.query_xcfg.delete_many({"_id": {"$nin": function_ids}}).deleted_count
+        return {"query_functions": num_functions, "query_xcfg": num_xcfg}
+
+    def compactQueryCollections(self) -> Dict[str, Any]:
+        """Run MongoDB's compact on the collections query data and results live in.
+
+        compact needs the compact privilege on the database; a refusal is reported per
+        collection rather than raised, since the cleanup itself has already succeeded."""
+        db = self._getDb()
+        outcome: Dict[str, Any] = {}
+        for collection in ("query_samples", "query_functions", "query_xcfg", "fs.files", "fs.chunks"):
+            try:
+                result = db.command("compact", collection)
+                outcome[collection] = {"ok": result.get("ok"), "bytesFreed": result.get("bytesFreed")}
+            except Exception as error:
+                LOGGER.warning("compact of %s was refused: %s", collection, error)
+                outcome[collection] = {"ok": 0, "error": str(error)}
+        return outcome
+
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         family_entry = self.getFamily(family_id)
         if family_entry is None:

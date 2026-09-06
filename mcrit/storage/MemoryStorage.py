@@ -309,6 +309,15 @@ class MemoryStorage(StorageInterface):
         self._updateDbState()
         return True
 
+    def deleteOrphanedQueryData(self) -> Dict[str, int]:
+        orphan_function_ids = [function_id for function_id, entry in self._functions.items() if function_id < 0 and entry.sample_id not in self._samples]
+        for function_id in orphan_function_ids:
+            del self._functions[function_id]
+        return {"query_functions": len(orphan_function_ids), "query_xcfg": 0}
+
+    def compactQueryCollections(self) -> Dict[str, Any]:
+        return {}
+
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         if family_id not in self._families:
             return False

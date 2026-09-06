@@ -503,6 +503,28 @@ class MongoDbStorageTest(MemoryStorageTest):
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
 
+    def testOrphanedQueryDataIsDeletedAndReferencedDataKept(self):
+        # #68: query functions whose sample is gone, and query disassembly whose function is gone
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        report = SmdaReport.fromFile(self.example_file_path)
+        query_entry = self.storage.addSmdaReport(report, isQuery=True)
+        assert query_entry is not None
+        num_functions = db.query_functions.count_documents({})
+        db.query_functions.insert_many([{"function_id": -1000, "sample_id": -999}, {"function_id": -1001, "sample_id": -999}])
+        db.query_xcfg.insert_many([{"_id": -1000, "_xcfg": "{}"}, {"_id": -5000, "_xcfg": "{}"}])
+        self.assertEqual({"query_functions": 2, "query_xcfg": 2}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(num_functions, db.query_functions.count_documents({}))
+        self.assertEqual(num_functions, db.query_xcfg.count_documents({}))
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+
+    def testCompactingTheQueryCollectionsAnswersPerCollection(self):
+        self.storage.clearStorage()
+        outcome = self.storage.compactQueryCollections()
+        self.assertEqual({"query_samples", "query_functions", "query_xcfg", "fs.files", "fs.chunks"}, set(outcome))
+        for collection, result in outcome.items():
+            self.assertIn("ok", result, collection)
+
     def _createSecondStorage(self):
         mcrit_config = McritConfig()
         mcrit_config.STORAGE_CONFIG = self._storage_config
