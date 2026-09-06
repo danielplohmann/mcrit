@@ -560,6 +560,19 @@ class MongoDbStorageTest(MemoryStorageTest):
         finally:
             MongoDbStorage._DISTINCT_VALUES_CAP = original_cap
 
+    def testSubstringSearchFallsBackToTheRegexAboveTheByteCap(self):
+        # thousands of long mangled symbols stay under the count cap but would not fit one $in
+        self._storageWithNamedFunctions()
+        original_cap = MongoDbStorage._DISTINCT_VALUES_MAX_BYTES
+        try:
+            MongoDbStorage._DISTINCT_VALUES_MAX_BYTES = 16
+            self.assertIsNone(self.storage._getDistinctValues("functions", "function_name"))
+            query = self.storage._get_search_query(["function_name"], SearchQueryParser().parse("qz_alph"), None, distinct_fields={"function_name": "functions"})
+            self.assertTrue(hasattr(query["function_name"], "search"))
+            self.assertEqual(["qz_alpha", "QZ_Alphabet"], self._searchFunctionNames("qz_alph"))
+        finally:
+            MongoDbStorage._DISTINCT_VALUES_MAX_BYTES = original_cap
+
     def testSubstringSearchCombinesWithOtherConditionsAndNegation(self):
         self._storageWithNamedFunctions()
         self.assertEqual(["qz_alpha", "QZ_Alphabet"], self._searchFunctionNames("sample_id:0 qz_alph"))

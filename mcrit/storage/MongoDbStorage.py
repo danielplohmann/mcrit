@@ -161,6 +161,9 @@ class MongoDbStorage(StorageInterface):
     # DISTINCT_SCAN over the function_name index, tens of milliseconds even for millions of
     # functions; above the cap the search falls back to the regex, unbounded as before.
     _DISTINCT_VALUES_CAP = 10000
+    # and at most this many bytes of them in total: the matching values go into one $in, which
+    # must stay well inside MongoDB's 16 MiB command limit even when they are long mangled symbols
+    _DISTINCT_VALUES_MAX_BYTES = 1 << 20
 
     _database: Optional["Database"]
 
@@ -1818,9 +1821,18 @@ class MongoDbStorage(StorageInterface):
         return sort_list
 
     def _getDistinctValues(self, collection: str, field: str) -> Optional[List[Any]]:
-        """All distinct values of the field, or None when there are more than _DISTINCT_VALUES_CAP."""
+        """All distinct values of the field, or None when there are more than _DISTINCT_VALUES_CAP
+        of them or they exceed _DISTINCT_VALUES_MAX_BYTES in total."""
         pipeline = [{"$group": {"_id": "$" + field}}, {"$limit": self._DISTINCT_VALUES_CAP + 1}]
-        values = [document["_id"] for document in self._getDb()[collection].aggregate(pipeline)]
+        values = []
+        total_bytes = 0
+        for document in self._getDb()[collection].aggregate(pipeline):
+            value = document["_id"]
+            if isinstance(value, str):
+                total_bytes += len(value.encode("utf-8"))
+                if total_bytes > self._DISTINCT_VALUES_MAX_BYTES:
+                    return None
+            values.append(value)
         if len(values) > self._DISTINCT_VALUES_CAP:
             return None
         return values
