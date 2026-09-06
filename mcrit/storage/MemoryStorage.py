@@ -224,9 +224,13 @@ class MemoryStorage(StorageInterface):
 
         sample_entry = self.getSampleById(sample_id)
         assert sample_entry is not None
-        self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
+        # by what was actually removed, and an emptied family goes with its last sample, like
+        # the MongoDB backend does (#151)
+        self._updateFamilyStats(sample_entry.family_id, -1, -len(function_ids), -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
+        if sample_entry.family_id != 0 and not any(s.family_id == sample_entry.family_id for s in self._samples.values()):
+            self._families.pop(sample_entry.family_id, None)
         return True
 
     def modifySample(self, sample_id: int, update_information: dict) -> bool:
@@ -308,6 +312,27 @@ class MemoryStorage(StorageInterface):
                     self._pichashes[function_entry.pichash].add((new_family_id, sample_id, function_id))
         self._updateDbState()
         return True
+
+    def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
+        report: Dict[str, Any] = {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}}
+        for sample_entry in self._samples.values():
+            if sample_entry.family_id not in self._families:
+                self._families[sample_entry.family_id] = FamilyEntry(family_name=sample_entry.family, family_id=sample_entry.family_id)
+                report["num_families_created"] += 1
+        functions_by_family: Dict[int, int] = {}
+        for function_entry in self._functions.values():
+            functions_by_family[function_entry.family_id] = functions_by_family.get(function_entry.family_id, 0) + 1
+        for family_id, family_entry in self._families.items():
+            samples = [sample_entry for sample_entry in self._samples.values() if sample_entry.family_id == family_id]
+            actual = {"num_samples": len(samples), "num_functions": functions_by_family.get(family_id, 0), "num_library_samples": len([s for s in samples if s.is_library])}
+            stored = {key: getattr(family_entry, key) for key in actual}
+            report["num_families"] += 1
+            if stored != actual:
+                for key, value in actual.items():
+                    setattr(family_entry, key, value)
+                report["num_families_corrected"] += 1
+                report["corrections"][family_id] = {"before": stored, "after": actual}
+        return report
 
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         if family_id not in self._families:

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from unittest import TestCase, main
+from unittest.mock import patch
 
 import pytest
 from smda.common.SmdaReport import SmdaReport
@@ -109,6 +110,80 @@ class MemoryStorageTest(TestCase):
         # family deletion
         self.storage.deleteFamily(4)
         self.assertEqual(None, self.storage.getFamilyId("family_1a"))
+
+    def _twoReports(self, family="family_1"):
+        with open(self.example_file_path) as fjson:
+            smda_json = json.load(fjson)
+        report_a = SmdaReport.fromDict(smda_json)
+        report_b = SmdaReport.fromDict(smda_json)
+        assert report_a is not None and report_b is not None
+        report_a.family = report_b.family = family
+        report_b.sha256 = 64 * "b"
+        return report_a, report_b
+
+    def _actualFamilyCounts(self, family_id):
+        samples = [s for s in self.storage.getSamples(0, 1000) if s.family_id == family_id]
+        num_functions = sum(len(self.storage.getFunctionsBySampleId(s.sample_id) or []) for s in samples)
+        return {"num_samples": len(samples), "num_functions": num_functions, "num_library_samples": len([s for s in samples if s.is_library])}
+
+    def _storedFamilyCounts(self, family_id):
+        family = self.storage.getFamily(family_id)
+        assert family is not None
+        return {"num_samples": family.num_samples, "num_functions": family.num_functions, "num_library_samples": family.num_library_samples}
+
+    def testFamilyStatsFollowTheSamplesThroughMovesAndDeletions(self):
+        # #151: the per-family counters are what the samples and functions say, after every write path
+        self.storage.clearStorage()
+        report_a, report_b = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        sample_b = self.storage.addSmdaReport(report_b)
+        assert sample_a is not None and sample_b is not None
+        family_1 = sample_a.family_id
+        self.assertEqual({"num_samples": 2, "num_functions": 20, "num_library_samples": 0}, self._storedFamilyCounts(family_1))
+        self.storage.modifySample(sample_a.sample_id, {"is_library": True})
+        self.assertEqual(1, self._storedFamilyCounts(family_1)["num_library_samples"])
+        self.storage.modifySample(sample_a.sample_id, {"is_library": True})  # unchanged: no double count
+        self.assertEqual(1, self._storedFamilyCounts(family_1)["num_library_samples"])
+        # moving a sample moves its counts, and the same family is not a move at all
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_1"})
+        self.assertEqual(self._actualFamilyCounts(family_1), self._storedFamilyCounts(family_1))
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_2"})
+        family_2 = self.storage.getFamilyId("family_2")
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 1}, self._storedFamilyCounts(family_2))
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(family_1))
+        self.assertEqual(self._actualFamilyCounts(family_2), self._storedFamilyCounts(family_2))
+        # deleting the last sample of a family deletes the family; deleting one of two keeps it
+        self.storage.deleteSample(sample_a.sample_id)
+        self.assertIsNone(self.storage.getFamily(family_2))
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(family_1))
+        self.assertEqual(
+            {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}} | {"num_families": len(self.storage.getFamilyIds())},
+            self.storage.recomputeFamilyStats(),
+        )
+
+    def testRecomputeFamilyStatsCorrectsDriftedCounters(self):
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        assert sample_a is not None
+        family_id = sample_a.family_id
+        self._driftFamilyCounters(family_id, num_samples=5, num_functions=3)
+        self.assertEqual({"num_samples": 5, "num_functions": 3, "num_library_samples": 0}, self._storedFamilyCounts(family_id))
+        report = self.storage.recomputeFamilyStats()
+        self.assertEqual(1, report["num_families_corrected"])
+        self.assertEqual(
+            {"before": {"num_samples": 5, "num_functions": 3, "num_library_samples": 0}, "after": {"num_samples": 1, "num_functions": 10, "num_library_samples": 0}},
+            report["corrections"][family_id],
+        )
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(family_id))
+        stats = self.storage.getStats(with_pichash=False)
+        self.assertEqual(1, stats["num_samples"])
+        self.assertEqual(10, stats["num_functions"])
+
+    def _driftFamilyCounters(self, family_id, num_samples, num_functions):
+        family = self.storage._families[family_id]
+        family.num_samples = num_samples
+        family.num_functions = num_functions
 
     def testSampleHandling(self):
         self.storage.clearStorage()
@@ -502,6 +577,40 @@ class MongoDbStorageTest(MemoryStorageTest):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
+
+    def _driftFamilyCounters(self, family_id, num_samples, num_functions):
+        self.storage._getDb().families.update_one({"family_id": family_id}, {"$set": {"num_samples": num_samples, "num_functions": num_functions}})
+
+    def testRecomputeCreatesTheFamilyDocumentSamplesReferenceWithoutOne(self):
+        # the family_id 1908 case of #151: samples carry an id that no family document describes
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        assert sample_a is not None
+        db = self.storage._getDb()
+        db.families.delete_one({"family_id": sample_a.family_id})
+        report = self.storage.recomputeFamilyStats()
+        self.assertEqual(1, report["num_families_created"])
+        self.assertEqual("family_1", self.storage.getFamily(sample_a.family_id).family_name)
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(sample_a.family_id))
+
+    def testImportingASampleEnsuresItsFamilyDocument(self):
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_entry = SampleEntry(report_a, sample_id=0, family_id=77)
+        self.storage.importSampleEntry(sample_entry)
+        family = self.storage.getFamily(77)
+        assert family is not None
+        self.assertEqual("family_1", family.family_name)
+        self.assertEqual(1, family.num_samples)
+        self.assertEqual(10, family.num_functions)
+
+    def testAStatsUpdateAgainstAMissingFamilyIsLogged(self):
+        self.storage.clearStorage()
+        with patch("mcrit.storage.MongoDbStorage.LOGGER") as logger:
+            self.storage._updateFamilyStats(4242, 1, 10, 0)
+        self.assertIn("has no document", logger.warning.call_args.args[0])
+        self.assertEqual(4242, logger.warning.call_args.args[1])
 
     def _createSecondStorage(self):
         mcrit_config = McritConfig()

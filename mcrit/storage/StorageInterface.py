@@ -492,6 +492,11 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
+        """Set every family's sample/function counters from the samples and functions that exist,
+        and report how many families were corrected (#151)."""
+        raise NotImplementedError
+
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         """Delete family if known and return boolean success state
 

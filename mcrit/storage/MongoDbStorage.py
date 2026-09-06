@@ -608,23 +608,36 @@ class MongoDbStorage(StorageInterface):
                 minhashes_to_remove[band_number][band_hash].append(function_minhash["function_id"])
         self._updateBands(minhashes_to_remove, method="pull")
 
-        # update family stats
-        self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
         # remove functions
         self._deleteXcfgForFunctionIds([function_minhash["function_id"] for function_minhash in function_minhashes])
-        self._getDb().functions.delete_many({"sample_id": sample_id})
+        num_functions_deleted = self._getDb().functions.delete_many({"sample_id": sample_id}).deleted_count
         # remove sample
-        self._getDb().samples.delete_one({"sample_id": sample_id})
-        # delete family if empty
-        family_info = self.getFamily(sample_entry.family_id)
-        assert family_info is not None
-        if family_info.num_samples == 0 and family_info.family_id != 0:
-            self._getDb().families.delete_one({"family_id": family_info.family_id})
+        num_samples_deleted = self._getDb().samples.delete_one({"sample_id": sample_id}).deleted_count
+        # update family stats by what was actually removed, not by what the sample claimed (#151)
+        self._updateFamilyStats(sample_entry.family_id, -num_samples_deleted, -num_functions_deleted, -int(sample_entry.is_library and num_samples_deleted))
+        self._deleteFamilyIfEmpty(sample_entry.family_id)
         self._updateDbState()
         return True
 
-    def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
+    def _deleteFamilyIfEmpty(self, family_id: int) -> None:
+        # judged by the samples that exist, not by a counter that may have drifted (#151)
+        if family_id != 0 and self._getDb().samples.count_documents({"family_id": family_id}, limit=1) == 0:
+            self._getDb().families.delete_one({"family_id": family_id})
+
+    def _ensureFamilyDocument(self, family_id: int, family_name: str) -> None:
+        """Create the family document for an id that samples reference but no document describes.
+
+        Imports carry family ids from the exporting instance; a sample whose family document is
+        missing would otherwise have its statistics increments silently discarded (#151).
+        """
         self._getDb().families.update_one(
+            {"family_id": family_id},
+            {"$setOnInsert": FamilyEntry(family_name=family_name, family_id=family_id).toDict()},
+            upsert=True,
+        )
+
+    def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
+        result = self._getDb().families.update_one(
             {"family_id": family_id},
             {
                 "$inc": {
@@ -634,55 +647,36 @@ class MongoDbStorage(StorageInterface):
                 },
             },
         )
+        if result.matched_count == 0:
+            # an increment against a missing family is lost; say so instead of drifting quietly (#151)
+            LOGGER.warning("Family %d has no document, its statistics update (%+d samples, %+d functions) was not applied.", family_id, num_samples_inc, num_functions_inc)
 
     def modifySample(self, sample_id: int, update_information: dict) -> bool:
         if not self.isSampleId(sample_id):
             return False
         sample_entry = self.getSampleById(sample_id)
         assert sample_entry is not None
+        # statistics move by atomic increments: two concurrent relabels of samples in the same
+        # family used to compute from the same pre-read document and lose one update (#151)
+        is_library = sample_entry.is_library
         if "is_library" in update_information:
-            is_library_info_changed = sample_entry.is_library != update_information["is_library"]
-            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": update_information["is_library"]}})
-            family_entry = self.getFamily(sample_entry.family_id)
-            assert family_entry is not None
-            if is_library_info_changed:
-                new_value = family_entry.num_library_samples + (1 if update_information["is_library"] else -1)
-                self._getDb().families.update_one({"family_id": sample_entry.family_id}, {"$set": {"num_library_samples": new_value}})
+            new_is_library = bool(update_information["is_library"])
+            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": new_is_library}})
+            if new_is_library != is_library:
+                self._updateFamilyStats(sample_entry.family_id, 0, 0, 1 if new_is_library else -1)
+            is_library = new_is_library
         if "family_name" in update_information:
-            old_family_entry = self.getFamily(sample_entry.family_id)
-            new_family_entry = self.getFamily(self.addFamily(update_information["family_name"]))
-            assert old_family_entry is not None and new_family_entry is not None
+            old_family_id = sample_entry.family_id
             family_name = update_information["family_name"]
-            family_id = new_family_entry.family_id
-            # update sample_entry and function_entries with new family information
-            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
-            self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}})
-            # update family entry with statistics
-            self._getDb().families.update_one(
-                {"family_id": old_family_entry.family_id},
-                {
-                    "$set": {
-                        "num_samples": old_family_entry.num_samples - 1,
-                        "num_functions": old_family_entry.num_functions - sample_entry.statistics["num_functions"],
-                        "num_library_samples": old_family_entry.num_library_samples - (1 if sample_entry.is_library else 0),
-                    }
-                },
-            )
-            self._getDb().families.update_one(
-                {"family_id": family_id},
-                {
-                    "$set": {
-                        "num_samples": new_family_entry.num_samples + 1,
-                        "num_functions": new_family_entry.num_functions + sample_entry.statistics["num_functions"],
-                        "num_library_samples": new_family_entry.num_library_samples + (1 if sample_entry.is_library else 0),
-                    }
-                },
-            )
-            old_family_entry = self.getFamily(sample_entry.family_id)
-            assert old_family_entry is not None
-            # delete family if empty
-            if old_family_entry.num_samples == 0 and old_family_entry.family_id != 0:
-                self._getDb().families.delete_one({"family_id": old_family_entry.family_id})
+            family_id = self.addFamily(family_name)
+            if family_id != old_family_id:
+                # update sample_entry and function_entries with new family information; the
+                # functions matched are the functions moved, whatever the sample's statistics say
+                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
+                num_functions_moved = self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}}).matched_count
+                self._updateFamilyStats(old_family_id, -1, -num_functions_moved, -int(is_library))
+                self._updateFamilyStats(family_id, +1, num_functions_moved, int(is_library))
+                self._deleteFamilyIfEmpty(old_family_id)
             self._updateDbState()
         if "version" in update_information:
             self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"version": update_information["version"]}})
@@ -722,6 +716,44 @@ class MongoDbStorage(StorageInterface):
             self._getDb().functions.update_many({"family_id": family_id}, {"$set": {"family_id": new_family_id}})
             self._updateDbState()
         return True
+
+    def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
+        """Set every family's counters from the samples and functions that exist (#151).
+
+        The per-family counters are denormalised and incremented on every write path; a lost
+        update anywhere leaves them drifted, and /status sums them as the corpus size. This
+        recomputes them with one aggregation over samples and one over functions, creates a
+        document for any family id that samples reference without one, and reports what changed.
+        """
+        db = self._getDb()
+        samples_by_family: Dict[int, Dict[str, Any]] = {}
+        for row in db.samples.aggregate(
+            [{"$group": {"_id": "$family_id", "num_samples": {"$sum": 1}, "num_library_samples": {"$sum": {"$cond": ["$is_library", 1, 0]}}, "family": {"$first": "$family"}}}]
+        ):
+            samples_by_family[row["_id"]] = row
+        functions_by_family: Dict[int, int] = {}
+        for row in db.functions.aggregate([{"$group": {"_id": "$family_id", "num_functions": {"$sum": 1}}}]):
+            functions_by_family[row["_id"]] = row["num_functions"]
+        report: Dict[str, Any] = {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}}
+        known_family_ids = {document["family_id"] for document in db.families.find({}, {"family_id": 1, "_id": 0})}
+        for family_id, row in samples_by_family.items():
+            if family_id not in known_family_ids:
+                self._ensureFamilyDocument(family_id, str(row.get("family") or ""))
+                report["num_families_created"] += 1
+        for family_document in db.families.find({}, {"_id": 0, "family_id": 1, "num_samples": 1, "num_functions": 1, "num_library_samples": 1}):
+            family_id = family_document["family_id"]
+            actual = {
+                "num_samples": samples_by_family.get(family_id, {}).get("num_samples", 0),
+                "num_functions": functions_by_family.get(family_id, 0),
+                "num_library_samples": samples_by_family.get(family_id, {}).get("num_library_samples", 0),
+            }
+            report["num_families"] += 1
+            stored = {key: family_document.get(key) for key in actual}
+            if stored != actual:
+                db.families.update_one({"family_id": family_id}, {"$set": actual})
+                report["num_families_corrected"] += 1
+                report["corrections"][family_id] = {"before": stored, "after": actual}
+        return report
 
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         family_entry = self.getFamily(family_id)
@@ -846,6 +878,7 @@ class MongoDbStorage(StorageInterface):
             sample_id = self._useCounter("samples")
             sample_entry.sample_id = sample_id
             self._dbInsert("samples", sample_entry.toDict())
+            self._ensureFamilyDocument(sample_entry.family_id, sample_entry.family)
             self._updateFamilyStats(sample_entry.family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             self._updateDbState()
         else:

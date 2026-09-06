@@ -258,6 +258,10 @@ class Worker(QueueRemoteCallee):
     def rebuildIndex(self, progress_reporter=NoProgressReporter()):
         return self._storage.rebuildMinhashBandIndex(progress_reporter=progress_reporter)
 
+    @Remote()
+    def recomputeFamilyStats(self):
+        return self._storage.recomputeFamilyStats()
+
     # Reports PROGRESS
     @Remote(progress=True)
     def recalculatePicHashes(self, progress_reporter=NoProgressReporter()):
