@@ -216,6 +216,8 @@ class WorkerLivenessTest(TestCase):
         self.server = self._worker("index")
 
     def tearDown(self):
+        for queue in (self.worker_a, self.worker_b, self.server):
+            queue._stopHeartbeatThread()
         self.client.drop_database("test_queue")
 
     def _worker(self, consumer_id):
@@ -257,8 +259,36 @@ class WorkerLivenessTest(TestCase):
         self._age_heartbeat("Worker-b", self.timeout + 1)
         self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
         # a registration without any heartbeat is a process from before heartbeats existed
+        # (a rolling upgrade): it is stamped now and gets one timeout of grace before it is
+        # judged like everybody else
         self.worker_a._getQueueCounters().update_one({"name": "workers"}, {"$unset": {"heartbeats.Worker-a": ""}})
+        self.worker_a._stopHeartbeatThread()
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
+        self.assertIsInstance(self._registration()["heartbeats"]["Worker-a"], datetime)
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids(now=datetime.now() + timedelta(seconds=self.timeout - 1)))
+        self.assertEqual(set(), self.server._live_worker_ids(now=datetime.now() + timedelta(seconds=self.timeout + 1)))
+
+    def test_the_heartbeat_keeps_going_while_a_job_runs(self):
+        """jobs run synchronously in the poll loop, so a job longer than the timeout would look
+        like a dead worker without the heartbeat thread"""
+        self.worker_a._getCollection()
+        self.assertTrue(self.worker_a._heartbeat_thread is not None and self.worker_a._heartbeat_thread.is_alive())
+        self._age_heartbeat("Worker-a", self.timeout + 1)
         self.assertEqual(set(), self.server._live_worker_ids())
+        # no poll happens here - the thread alone brings the heartbeat back within one interval
+        time.sleep(self.worker_a.heartbeat_interval + 1)
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
+        # a worker judged dead by mistake was unregistered by the reclaim; its next heartbeat
+        # registers it again, so it keeps serving jobs
+        self.server.release_orphaned_jobs()
+        self._age_heartbeat("Worker-a", self.timeout + 1)
+        self.server.release_orphaned_jobs()
+        self.assertNotIn("Worker-a", self._registration().get("workers", []))
+        time.sleep(self.worker_a.heartbeat_interval + 1)
+        self.assertIn("Worker-a", self._registration()["workers"])
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
+        self.worker_a.unregisterWorker()
+        self.assertIsNone(self.worker_a._heartbeat_thread)
 
     def test_a_dead_workers_job_is_reclaimed_and_a_live_ones_is_kept(self):
         dead_job = self._claimed_by(self.worker_a, "dead")

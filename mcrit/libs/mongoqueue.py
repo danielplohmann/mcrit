@@ -15,6 +15,7 @@
 
 import json
 import logging
+import threading
 import time
 import traceback
 from datetime import datetime, timedelta
@@ -74,6 +75,11 @@ class MongoQueue:
         # the jobs it holds can be reclaimed. Both are throttled off the poll loop.
         self.heartbeat_interval: float = max(1.0, self.timeout / 3)
         self._last_heartbeat: float = 0.0
+        # the heartbeat has to keep going while a job runs, and jobs run synchronously in the
+        # poll loop (a job longer than the timeout would otherwise look dead and be reclaimed):
+        # a daemon thread refreshes it from registration to unregistration
+        self._heartbeat_stop: Optional[threading.Event] = None
+        self._heartbeat_thread: Optional[threading.Thread] = None
         self._last_reclaim: float = 0.0
 
     def _getCollection(self):
@@ -217,9 +223,34 @@ class MongoQueue:
                 upsert=True,
             )
             self._last_heartbeat = time.monotonic()
+            self._startHeartbeatThread()
         self.release_orphaned_jobs()
 
+    def _startHeartbeatThread(self):
+        if self._heartbeat_thread is not None and self._heartbeat_thread.is_alive():
+            return
+        self._heartbeat_stop = threading.Event()
+        self._heartbeat_thread = threading.Thread(target=self._heartbeatLoop, name=f"heartbeat-{self.consumer_id}", daemon=True)
+        self._heartbeat_thread.start()
+
+    def _heartbeatLoop(self):
+        stop = self._heartbeat_stop
+        assert stop is not None
+        while not stop.wait(self.heartbeat_interval):
+            try:
+                self.heartbeat(force=True)
+            except Exception:
+                LOGGER.warning("Heartbeat of %s could not be written.", self.consumer_id, exc_info=True)
+
+    def _stopHeartbeatThread(self):
+        if self._heartbeat_stop is not None:
+            self._heartbeat_stop.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=self.heartbeat_interval + 1)
+        self._heartbeat_thread = None
+
     def unregisterWorker(self):
+        self._stopHeartbeatThread()
         if self.queue_counters is not None:
             self._getQueueCounters().find_one_and_update(
                 {"name": "workers"},
@@ -233,16 +264,22 @@ class MongoQueue:
             return
         if not force and time.monotonic() - self._last_heartbeat < self.heartbeat_interval:
             return
-        self._getQueueCounters().find_one_and_update({"name": "workers"}, {"$set": {f"heartbeats.{self.consumer_id}": datetime.now()}}, upsert=True)
+        # re-adds the registration as well: a worker judged dead by mistake (paused, a stalled
+        # database connection) lost its current job to a reclaim, but must serve the next ones
+        self._getQueueCounters().find_one_and_update(
+            {"name": "workers"}, {"$addToSet": {"workers": self.consumer_id}, "$set": {f"heartbeats.{self.consumer_id}": datetime.now()}}, upsert=True
+        )
         self._last_heartbeat = time.monotonic()
 
     def _live_worker_ids(self, now=None):
         """The registered workers whose heartbeat is younger than the timeout.
 
-        A registered worker without any heartbeat is one that never wrote one, i.e. a
-        process from before heartbeats existed that was not shut down cleanly - it is
-        treated as dead, the same as a heartbeat older than the timeout. A worker killed
-        with SIGKILL never unregisters, so registration alone is not liveness (#150).
+        A registered worker without any heartbeat is either a process from before heartbeats
+        existed (a rolling upgrade: it may well be busy with a job) or one that died before
+        writing its first one. It is given the benefit of the doubt once: a heartbeat is
+        stamped for it now, so it counts as alive for one timeout and is judged like every
+        other worker after that. A worker killed with SIGKILL never unregisters, so
+        registration alone is not liveness (#150).
         """
         now = now or datetime.now()
         registration = self._getQueueCounters().find_one({"name": "workers"}, {"workers": 1, "heartbeats": 1, "_id": 0})
@@ -252,7 +289,11 @@ class MongoQueue:
         live = set()
         for worker_id in registration.get("workers") or []:
             last_seen = heartbeats.get(worker_id)
-            if last_seen is not None and now - last_seen < timedelta(seconds=self.timeout):
+            if last_seen is None:
+                # only if still absent: two pollers must not keep re-stamping each other's view
+                self._getQueueCounters().update_one({"name": "workers", f"heartbeats.{worker_id}": {"$exists": False}}, {"$set": {f"heartbeats.{worker_id}": now}})
+                live.add(worker_id)
+            elif now - last_seen < timedelta(seconds=self.timeout):
                 live.add(worker_id)
         return live
 
