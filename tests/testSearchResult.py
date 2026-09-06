@@ -89,6 +89,14 @@ class McritClientTypedSearchTest(unittest.TestCase):
         self.assertTrue(all(isinstance(entry, FunctionEntry) for entry in typed))
         self.assertEqual(_as_client_answer(wire), typed.toDict())
 
+    def test_raw_responses_answer_the_response_itself(self):
+        client = McritClient("http://mcrit.test", raw_responses=True)
+        response = MagicMock(status_code=400)
+        with patch("mcrit.client.McritClient.requests.get", return_value=response):
+            self.assertIs(response, client.searchFunctions("bad query"))
+            # the dict method is unchanged: it never answered the raw response
+            self.assertIsNone(client.search_functions("bad query"))
+
     def test_a_failed_search_answers_none(self):
         client = McritClient("http://mcrit.test")
         with patch("mcrit.client.McritClient.requests.get", return_value=MagicMock(status_code=400)):

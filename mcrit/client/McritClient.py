@@ -797,7 +797,7 @@ class McritClient:
     # search_term, is_ascending and sort_by value that were used when the cursor was returned from mcrit.
     # If those parameters are altered, mcrit's behavior is undefined.
 
-    def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
+    def _search_request(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
         params = {
             "query": search_term,
             "is_ascending": is_ascending,
@@ -809,8 +809,10 @@ class McritClient:
         if limit is not None:
             params["limit"] = limit
         encoded_params = urllib.parse.urlencode(params)
-        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers)
-        return handle_response(response)
+        return requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers)
+
+    def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
+        return handle_response(self._search_request(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit))
 
     search_families = functools.partialmethod(_search_base, "families")
 
@@ -823,7 +825,11 @@ class McritClient:
     # other accessor of this client. The search_* methods above keep answering the wire dict.
 
     def _typed_search(self, search_kind, entry_class, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
-        data = self._search_base(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
+        response = self._search_request(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
+        if self.raw:
+            # like the other camel-case accessors: the requests.Response itself
+            return response
+        data = handle_response(response)
         if data is None:
             return None
         return SearchResult.fromDict(data, entry_class)
