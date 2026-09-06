@@ -887,10 +887,11 @@ class MongoDbStorage(StorageInterface):
             function_dicts = list(self._getDb().query_functions.find({"sample_id": sample_id}, {"_id": 0}))
         else:
             function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0}))
-        if with_xcfg:
-            self._attachXcfgBlobs(function_dicts)
-        functions = []
+        # one batch read of the split-out disassembly; the entries carry xcfg either way, the
+        # flag only says whether the caller needs it (a second read of every blob is what a
+        # review of #94 caught here)
         self._attachXcfgBlobs(function_dicts)
+        functions = []
         for f in function_dicts:
             self._decodeFunction(f)
             functions.append(FunctionEntry.fromDict(f))
