@@ -29,6 +29,8 @@ class ApiReferenceTest(unittest.TestCase):
         self.assertEqual(["search_functions"], by_route[("GET", "/search/functions")])
         self.assertEqual(["deleteQueueData"], by_route[("DELETE", "/jobs")])
         self.assertEqual(["deleteJob"], by_route[("DELETE", "/jobs/{job_id}")])
+        self.assertEqual(["getJobData"], by_route[("GET", "/jobs/{job_id}")])
+        self.assertEqual(["getQueueStatistics"], by_route[("GET", "/jobs/stats")])
         # only endpoints without a client method may be left blank
         self.assertEqual(
             ["GET /", "GET /config", "GET /matches/function/{function_id:int}", "GET /samples/{sample_id:int}/functions/{function_id:int}"],

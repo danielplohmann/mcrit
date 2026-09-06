@@ -40,13 +40,43 @@ def _is_placeholder(segment: str) -> bool:
     return segment.startswith("{") and segment.endswith("}")
 
 
-def _paths_match(route_path: str, client_path: str) -> bool:
-    """Segment-wise comparison: a placeholder on either side matches any one segment."""
+def _match_quality(route_path: str, client_path: str) -> int:
+    """0 = no match; otherwise 1 plus the number of segments where a placeholder on one side
+    stands for a literal on the other (getJobData's /jobs/{job_id} also fits /jobs/stats and
+    getQueueStatistics' /jobs/stats also fits /jobs/{job_id}; the exact pairing wins)."""
     route_segments = route_path.strip("/").split("/")
     client_segments = client_path.strip("/").split("/")
     if len(route_segments) != len(client_segments):
-        return False
-    return all(a == b or _is_placeholder(a) or _is_placeholder(b) for a, b in zip(route_segments, client_segments))
+        return 0
+    crossings = 0
+    for route_segment, client_segment in zip(route_segments, client_segments):
+        if route_segment == client_segment or (_is_placeholder(route_segment) and _is_placeholder(client_segment)):
+            continue
+        if _is_placeholder(client_segment) or _is_placeholder(route_segment):
+            # one side names a literal the other leaves open: a match, but a weaker one
+            crossings += 1
+        else:
+            return 0
+    return crossings + 1
+
+
+def _clients_for_route(route_path: str, method: str, calls: List[Tuple[str, str, str]]) -> List[str]:
+    """The client methods calling a route; a call that fits some route without crossing a
+    literal is not also attributed to the routes it only fits through a placeholder."""
+    names = set()
+    for verb, path, name in calls:
+        if verb != method:
+            continue
+        quality = _match_quality(route_path, path)
+        if quality == 0:
+            continue
+        best = min(q for q in (_match_quality(other, path) for other in _ROUTE_PATHS) if q)
+        if quality == best:
+            names.add(name)
+    return sorted(names)
+
+
+_ROUTE_PATHS: List[str] = []
 
 
 # f-string placeholders the client appends for query parameters rather than path segments
@@ -113,6 +143,7 @@ def client_calls() -> List[Tuple[str, str, str]]:
 def routes(app) -> List[Dict]:
     info = falcon.inspect.inspect_app(app)
     calls = client_calls()
+    _ROUTE_PATHS[:] = [route.path for route in info.routes]
     result = []
     for route in info.routes:
         for method_info in route.methods:
@@ -121,7 +152,7 @@ def routes(app) -> List[Dict]:
             resource_class = RESOURCE_CLASSES.get(route.class_name)
             responder = getattr(resource_class, method_info.function_name, None) if resource_class else None
             doc = inspect.getdoc(responder) if responder else None
-            clients = sorted({name for verb, path, name in calls if verb == method_info.method and _paths_match(route.path, path)})
+            clients = _clients_for_route(route.path, method_info.method, calls)
             result.append(
                 {
                     "path": route.path,

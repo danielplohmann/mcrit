@@ -21,15 +21,15 @@ Every response is a JSON document `{"status": "successful" | "failed", "data": .
 | `POST` | `/import` | Import the JSON body an export produced. Adds to the instance (ids are remapped, existing samples by sha256 are skipped); it does not replace it. Answers an import report. | `addImportData` |
 | `DELETE` | `/jobs` | Delete jobs matching all given filters: ``method``, ``created_before`` and ``finished_before`` (``YYYY-MM-DD`` or ``YYYY-MM-DDTHH:MM:SS``). Answers ``num_deleted``. | `deleteQueueData` |
 | `GET` | `/jobs` | The queued jobs, newest first unless ``ascending=true``; ``start``, ``limit``, and the filters ``method`` (job method name), ``state`` and ``filter`` (substring of the job descriptor). | `getJobCount`, `getQueueData` |
-| `GET` | `/jobs/stats` | Queue statistics per method and state; ``with_refresh=true`` recounts instead of answering the cached numbers. | `getJobData`, `getQueueStatistics` |
+| `GET` | `/jobs/stats` | Queue statistics per method and state; ``with_refresh=true`` recounts instead of answering the cached numbers. | `getQueueStatistics` |
 | `DELETE` | `/jobs/{job_id}` | Delete one job (and its result) by id. | `deleteJob` |
-| `GET` | `/jobs/{job_id}` | One job by its 24 hex digit id. Malformed ids answer 400, unknown ones 404. | `getJobData`, `getQueueStatistics` |
+| `GET` | `/jobs/{job_id}` | One job by its 24 hex digit id. Malformed ids answer 400, unknown ones 404. | `getJobData` |
 | `GET` | `/jobs/{job_id}/result` | The result of a job by job id, or null while it is not finished; ``compact=true`` strips the per-function matches. | `getResultForJob` |
 | `GET` | `/matches/function/{function_id:int}` | Not implemented; answers 501. | - |
 | `GET` | `/matches/function/{function_id:int}/{function_id_b:int}` | Compare two functions directly: their minhash score, pichash equality and the matched function entry. Unknown ids answer 404. | `getMatchFunctionVs` |
-| `GET` | `/matches/sample/cross/{sample_ids}` | Schedule a cross matching job of the comma separated sample ids against each other (``sample_group_only=true``) or against the corpus; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id. | `requestMatchesCross`, `requestMatchesForSampleVs` |
+| `GET` | `/matches/sample/cross/{sample_ids}` | Schedule a cross matching job of the comma separated sample ids against each other (``sample_group_only=true``) or against the corpus; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id. | `requestMatchesCross` |
 | `GET` | `/matches/sample/{sample_id:int}` | Schedule a matching job of one sample against the whole corpus. Query parameters: ``minhash_score`` (0-100), ``pichash_size``, ``band_matches_required``, ``force_recalculation``. Answers the job id. | `requestMatchesForSample` |
-| `GET` | `/matches/sample/{sample_id:int}/{sample_id_b:int}` | Schedule a matching job of one sample against another; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id. | `requestMatchesCross`, `requestMatchesForSampleVs` |
+| `GET` | `/matches/sample/{sample_id:int}/{sample_id_b:int}` | Schedule a matching job of one sample against another; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id. | `requestMatchesForSampleVs` |
 | `POST` | `/query` | Schedule a matching job for an SMDA report (JSON body) that is not stored; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id. | `requestMatchesForSmdaReport` |
 | `POST` | `/query/binary` | Schedule disassembly and matching of an unmapped binary (request body); matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id. | `requestMatchesForUnmappedBinary` |
 | `POST` | `/query/binary/mapped/{base_address}` | Schedule disassembly and matching of a memory dump (request body) mapped at ``base_address``; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id. | `requestMatchesForMappedBinary` |
@@ -47,11 +47,11 @@ Every response is a JSON document `{"status": "successful" | "failed", "data": .
 | `GET` | `/samples` | All samples keyed by id; optional ``start`` (first sample id) and ``limit``. | `getSamples` |
 | `POST` | `/samples` | Submit a disassembled SMDA report (JSON body) as a new sample. Answers the sample entry and, when hashing was scheduled, the ``job_id`` of the minhash job; an already known sha256 answers the existing entry with ``existed``. | `addReport` |
 | `POST` | `/samples/binary` | Submit a raw binary (request body) for disassembly and insertion. Query parameters: ``filename``, ``family``, ``version``, ``is_dump``, ``base_addr`` (hex) and ``bitness`` (32/64) for memory dumps. Answers the job id of the disassembly job. | `addBinarySample` |
-| `GET` | `/samples/sha256/{sample_sha256}` | One sample by its sha256. Malformed hashes answer 400, unknown ones 404. | `getFunctionsBySampleId`, `getSampleBySha256` |
+| `GET` | `/samples/sha256/{sample_sha256}` | One sample by its sha256. Malformed hashes answer 400, unknown ones 404. | `getSampleBySha256` |
 | `DELETE` | `/samples/{sample_id:int}` | Delete a sample and its functions, minhashes and band entries; a family left without samples is removed as well. | `deleteSample` |
 | `GET` | `/samples/{sample_id:int}` | One sample by id. Unknown ids answer 404. | `getSampleById`, `isSampleId` |
 | `PUT` | `/samples/{sample_id:int}` | Modify a sample; JSON body with ``family_name``, ``version``, ``component`` (1-64 printable chars) and/or ``is_library``. Answers 202 on success, 400 for a malformed body. | `modifySample` |
-| `GET` | `/samples/{sample_id:int}/functions` | All functions of a sample keyed by function id. Unknown sample ids answer 404. | `getFunctionsBySampleId`, `getSampleBySha256` |
+| `GET` | `/samples/{sample_id:int}/functions` | All functions of a sample keyed by function id. Unknown sample ids answer 404. | `getFunctionsBySampleId` |
 | `GET` | `/samples/{sample_id:int}/functions/{function_id:int}` | One function of a sample by ids. Unknown ids answer 404. | - |
 | `GET` | `/search/families` | Search families by name. Query parameters: ``query`` (search term, e.g. ``name:?emotet``), ``sort_by``, ``is_ascending`` (default true), ``limit``, ``cursor`` (forward/backward cursor of a previous page). Answers ``search_results`` keyed by id, a ``cursor`` pair and an ``id_match`` when the term is an id. A field/operator combination the backend cannot serve answers 400. | `search_families` |
 | `GET` | `/search/functions` | Search functions by name (``pichash:``, ``offset:`` and the id/count fields support comparison operators); parameters and answer as for ``/search/families``. | `search_functions` |
