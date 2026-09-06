@@ -196,6 +196,23 @@ class MinHashingTestSuite(unittest.TestCase):
         self.assertEqual("Function: fid(%d)" % flagged.function_id, str(flagged)[: len("Function: fid(%d)" % flagged.function_id)])
         self.assertTrue(str(flagged).endswith("flags(mp.)"))
 
+    def testQueryResultKeepsItsNegativeFunctionIdsOnTheWire(self):
+        """a query result's function ids are negative on the wire; fromDict folds the sign into
+        is_query, so toDict has to put it back for the round trip to hold"""
+        THIS_FILE_PATH = str(os.path.abspath(__file__))
+        PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
+        with open(os.sep.join([PROJECT_ROOT, "tests", "example_matching_report.json"])) as fjson:
+            match_json = json.load(fjson)
+        for summary in match_json["matches"]["functions"]:
+            summary["fid"] = -summary["fid"]
+        query_result = MatchingResult.fromDict(match_json)
+        self.assertTrue(query_result.is_query)
+        wire = query_result.toDict()
+        self.assertTrue(all(summary["fid"] < 0 for summary in wire["matches"]["functions"]))
+        reparsed = MatchingResult.fromDict(wire)
+        self.assertTrue(reparsed.is_query)
+        self.assertEqual([m.function_id for m in query_result.function_matches], [m.function_id for m in reparsed.function_matches])
+
 
 if __name__ == "__main__":
     unittest.main()

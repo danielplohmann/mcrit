@@ -620,11 +620,16 @@ class MatchingResult:
         summaries: List[Dict[str, Any]] = []
         current_function_id = None
         current_matches: List[Any] = []
+        # a query result carries its (temporary) function ids negated; fromDict reads the sign
+        # into is_query and stores the absolute id, so the sign goes back on here
+        fid_sign = -1 if self.is_query else 1
         for function_match_entry in self.function_matches:
             if function_match_entry.function_id != current_function_id:
                 current_function_id = function_match_entry.function_id
                 current_matches = []
-                summaries.append({"num_bytes": function_match_entry.num_bytes, "offset": function_match_entry.offset, "fid": current_function_id, "matches": current_matches})
+                summaries.append(
+                    {"num_bytes": function_match_entry.num_bytes, "offset": function_match_entry.offset, "fid": fid_sign * current_function_id, "matches": current_matches}
+                )
             current_matches.append(function_match_entry.getMatchTuple())
         # build the dictionary
         matching_entry = {
