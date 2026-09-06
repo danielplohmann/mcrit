@@ -303,9 +303,22 @@ class Worker(QueueRemoteCallee):
             "num_functions_dropped": 0,
             "num_functions_rehashed": 0,
         }
+        report["num_samples_skipped"] = 0
         for sample_id in stale_sample_ids:
+            # hash first, drop second: a sample whose disassembly is gone (STORAGE_DROP_DISASSEMBLY)
+            # cannot be rehashed, and its old minhashes are still better than none
+            function_entries = self._storage.getFunctionsBySampleId(sample_id) or []
+            hashable = [function_entry for function_entry in function_entries if function_entry.xcfg]
+            minhashes = self.calculateMinHashes(hashable) if hashable else []
+            if not minhashes:
+                LOGGER.warning("Repairing MinHashes: sample %d has no disassembly to rehash from, keeping its minhashes.", sample_id)
+                report["num_samples_skipped"] += 1
+                progress_reporter.step()
+                continue
             report["num_functions_dropped"] += self._storage.deleteMinHashesForSample(sample_id)
-            report["num_functions_rehashed"] += self.updateMinHashesForSample(sample_id) or 0
+            self._storage.addMinHashes(minhashes)
+            self._storage.setMinHashVersionForSamples(SmdaConfig().VERSION, [sample_id])
+            report["num_functions_rehashed"] += len(minhashes)
             report["num_samples_repaired"] += 1
             progress_reporter.step()
         return report

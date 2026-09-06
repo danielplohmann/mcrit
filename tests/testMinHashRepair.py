@@ -64,6 +64,22 @@ class SelectiveMinHashRepair(unittest.TestCase):
         self.assertEqual([], storage.getSamplesWithStaleMinHashes("4.4.5"))
         self.assertEqual(0, index.getStatus(with_pichash=False)["status"]["num_samples_with_stale_minhashes"])
 
+    def test_a_sample_whose_disassembly_is_gone_keeps_its_minhashes(self):
+        """hash first, drop second: without disassembly nothing could replace the old hashes"""
+        index, sample_entry = self._index_with_report()
+        storage = index.getStorage()
+        hashed_before = self._hashed_function_ids(index, sample_entry.sample_id)
+        storage.setMinHashVersionForSamples("4.0.0", [sample_entry.sample_id])
+        storage.deleteXcfgForSampleId(sample_entry.sample_id)
+        report = index.getResultForJob(index.repairMinHashes(force_recalculation=True))
+        self.assertEqual(1, report["num_samples_stale"])
+        self.assertEqual(1, report["num_samples_skipped"])
+        self.assertEqual(0, report["num_samples_repaired"])
+        self.assertEqual(0, report["num_functions_dropped"])
+        self.assertEqual(hashed_before, self._hashed_function_ids(index, sample_entry.sample_id))
+        # still stale: the next smda with disassembly at hand can repair it
+        self.assertEqual([sample_entry.sample_id], storage.getSamplesWithStaleMinHashes("4.4.5"))
+
     def test_a_sample_without_a_recorded_version_counts_as_stale(self):
         index, sample_entry = self._index_with_report()
         storage = index.getStorage()

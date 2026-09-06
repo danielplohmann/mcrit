@@ -197,6 +197,8 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["samples"].create_index("sample_id")
         self._getDb()["samples"].create_index("sha256")
         self._getDb()["samples"].create_index("family_id")
+        # the stale-minhash count on /status is a distinct plus a count over this field (#142)
+        self._getDb()["samples"].create_index("minhash_smda_version")
         self._getDb()["families"].create_index("family_id")
         self._getDb()["families"].create_index("family_name")
         self._getDb()["functions"].create_index("function_id")
