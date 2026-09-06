@@ -11,9 +11,11 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
+from bson import encode as bson_encode
 from packaging import version
 from picblocks.blockhasher import BlockHasher
 from pymongo import MongoClient, UpdateOne
+from pymongo.errors import BulkWriteError, DocumentTooLarge
 from smda.common.BinaryInfo import BinaryInfo
 from smda.common.SmdaFunction import SmdaFunction
 from smda.SmdaConfig import SmdaConfig
@@ -303,14 +305,65 @@ class MongoDbStorage(StorageInterface):
             )
             raise ValueError("Database insert failed.")
 
+    # MongoDB refuses a document over this size; pymongo raises DocumentTooLarge for the whole
+    # batch before anything is written (#42)
+    _MAX_DOCUMENT_BYTES = 16 * 1024 * 1024
+    # collections whose documents are droppable when oversized: a function without its stored
+    # disassembly is still a function, one that cannot be inserted takes the whole sample down
+    _DROPPABLE_WHEN_OVERSIZED = ("xcfg", "query_xcfg")
+
+    @staticmethod
+    def _describeDocument(document: Dict) -> Dict[str, Any]:
+        keys = ("_id", "function_id", "sample_id", "family_id", "sha256", "offset")
+        return {key: document[key] for key in keys if key in document}
+
+    def _splitOversizedDocuments(self, documents: List[Dict]) -> Tuple[List[Dict], List[Tuple[Dict, int]]]:
+        fitting, oversized = [], []
+        for document in documents:
+            size = len(bson_encode(document))
+            if size > self._MAX_DOCUMENT_BYTES:
+                oversized.append((document, size))
+            else:
+                fitting.append(document)
+        return fitting, oversized
+
+    @staticmethod
+    def _isTooLargeError(error: Exception) -> bool:
+        """pymongo rejects a clearly oversized document itself (DocumentTooLarge); one just over
+        the limit reaches the server, which answers a write error (code 2 or 10334, "too large")."""
+        if isinstance(error, DocumentTooLarge):
+            return True
+        if isinstance(error, BulkWriteError):
+            return any(write_error.get("code") in (2, 10334) or "too large" in str(write_error.get("errmsg", "")) for write_error in error.details.get("writeErrors", []))
+        return False
+
     def _dbInsertMany(self, collection: str, data: List["Dict"]):
         if len(data) == 0:
             return []
+        documents = [self._toBinary(document) for document in data]
         try:
-            insert_result = self._getDb()[collection].insert_many([self._toBinary(document) for document in data])
+            insert_result = self._getDb()[collection].insert_many(documents)
             if insert_result.acknowledged:
                 return insert_result.inserted_ids
             return None
+        except (DocumentTooLarge, BulkWriteError) as error:
+            if not self._isTooLargeError(error):
+                self._dbLogError('Database insert_many for collection "%s" failed.' % collection, details={"traceback": traceback.format_exc().split("\n")})
+                raise ValueError("Database insert failed.")
+            # an ordered insert stops at the first oversized document: what came before it is
+            # in, the rest is not. Find out which documents are too large and say so, since
+            # MongoDB's own message only carries a size (#42)
+            inserted = documents[: error.details.get("nInserted", 0)] if isinstance(error, BulkWriteError) else []
+            fitting, oversized = self._splitOversizedDocuments(documents[len(inserted) :])
+            offenders = [{"document": self._describeDocument(document), "bytes": size} for document, size in oversized]
+            self._dbLogError(
+                'Database insert_many for collection "%s" failed: %d document(s) exceed the 16 MiB limit.' % (collection, len(oversized)),
+                details={"oversized": offenders, "dropped": collection in self._DROPPABLE_WHEN_OVERSIZED},
+            )
+            if collection not in self._DROPPABLE_WHEN_OVERSIZED:
+                raise ValueError(f"Database insert failed: {len(oversized)} document(s) for '{collection}' exceed MongoDB's 16 MiB document limit ({offenders})")
+            LOGGER.warning("Dropping the disassembly of %d function(s) over MongoDB's 16 MiB document limit: %s", len(oversized), offenders)
+            return [document["_id"] for document in inserted] + (self._dbInsertMany(collection, fitting) or [])
         except Exception:
             self._dbLogError(
                 'Database insert_many for collection "%s" failed.' % collection,
