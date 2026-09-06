@@ -341,6 +341,20 @@ class MongoDbStorage(StorageInterface):
         if len(data) == 0:
             return []
         documents = [self._toBinary(document) for document in data]
+        # measure before the first wire batch goes out: once pymongo has sent earlier batches
+        # and then hits an oversized document, DocumentTooLarge carries no nInserted, so the
+        # committed documents could not be told apart from the rest (review of #42)
+        if collection in self._DROPPABLE_WHEN_OVERSIZED:
+            documents, oversized = self._splitOversizedDocuments(documents)
+            if oversized:
+                offenders = [{"document": self._describeDocument(document), "bytes": size} for document, size in oversized]
+                self._dbLogError(
+                    'Database insert_many for collection "%s": %d document(s) exceed the 16 MiB limit and are dropped.' % (collection, len(oversized)),
+                    details={"oversized": offenders, "dropped": True},
+                )
+                LOGGER.warning("Dropping the disassembly of %d function(s) over MongoDB's 16 MiB document limit: %s", len(oversized), offenders)
+                if not documents:
+                    return []
         try:
             insert_result = self._getDb()[collection].insert_many(documents)
             if insert_result.acknowledged:
@@ -354,7 +368,12 @@ class MongoDbStorage(StorageInterface):
             # in, the rest is not. Find out which documents are too large and say so, since
             # MongoDB's own message only carries a size (#42)
             inserted = documents[: error.details.get("nInserted", 0)] if isinstance(error, BulkWriteError) else []
-            fitting, oversized = self._splitOversizedDocuments(documents[len(inserted) :])
+            if "_id" in documents[0]:
+                # whatever earlier wire batches committed is in; never retry those ids
+                present = set(document["_id"] for document in self._getDb()[collection].find({"_id": {"$in": [document["_id"] for document in documents]}}, {"_id": 1}))
+                inserted = [document for document in documents if document["_id"] in present]
+            remaining = [document for document in documents if document not in inserted]
+            fitting, oversized = self._splitOversizedDocuments(remaining)
             offenders = [{"document": self._describeDocument(document), "bytes": size} for document, size in oversized]
             self._dbLogError(
                 'Database insert_many for collection "%s" failed: %d document(s) exceed the 16 MiB limit.' % (collection, len(oversized)),
