@@ -131,6 +131,27 @@ class PichashPaddingTest(TestCase):
             self.assertFalse(self.storage.isPicHash(0x1234567))
             self.assertEqual(set(), self.storage.getMatchesForPicHash(0x1234567))
 
+    def test_the_aggregation_readers_see_both_widths_while_unpadded(self):
+        """getPicHashMatchesByFunctionId(s) group functions by equal pichash; during a migration
+        the same value may be stored in either width and must still land in one group"""
+        self._make_legacy()
+        first, second = self.differing[0]["function_id"], self.differing[1]["function_id"]
+        # give both functions the same pichash, one in each width
+        value = 0x4D2
+        self.db.functions.update_one({"function_id": first}, {"$set": {"_pichash": hex(value)}})
+        self.db.functions.update_one({"function_id": second}, {"$set": {"_pichash": encode_pichash_value(value, padded=True)}})
+        by_one = self.storage.getPicHashMatchesByFunctionId(first)
+        self.assertEqual({first, second}, {t[2] for t in by_one[value]})
+        by_many = self.storage.getPicHashMatchesByFunctionIds([first, second])
+        self.assertEqual({first, second}, {t[2] for t in by_many[value]})
+        self.assertEqual(1, len(by_many))
+
+    def test_the_migration_connects_with_the_configured_credentials(self):
+        self.assertEqual("mongodb://h:27017/db", migrate_pichash_padding.build_mongo_uri("h", 27017, "db", None, None, ""))
+        self.assertEqual(
+            "mongodb://u%40x:p%3Aw@h:27017/db?authSource=admin&tls=true", migrate_pichash_padding.build_mongo_uri("h", 27017, "db", "u@x", "p:w", "authSource=admin&tls=true")
+        )
+
     def test_a_legacy_instance_in_the_middle_of_a_migration_misses_nothing(self):
         self._make_legacy()
         # half the documents padded by hand: a `pad` run that was interrupted before the flag

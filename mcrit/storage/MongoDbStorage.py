@@ -56,6 +56,7 @@ if TYPE_CHECKING:  # pragma: no cover
 # values ("0x4d2") until migrate_pichash_padding has run; the settings flag "pichash_padded"
 # says which shape an instance holds, and every reader below honours both until it is set.
 PICHASH_HEX_DIGITS = 16
+PICHASH_MAX_VALUE = (1 << (4 * PICHASH_HEX_DIGITS)) - 1
 
 
 def encode_pichash_value(value: int, padded: bool) -> str:
@@ -121,9 +122,13 @@ class MongoSearchTranspiler(BaseVisitor):
             except Exception:
                 pass
         mongo_operator = operator_to_mongo[node.operator]
-        if node.field == "pichash" and mongo_operator in ("$lt", "$lte", "$gt", "$gte") and not self.pichash_padded:
-            # on variable-width hex strings a range comparison answers a plausible but wrong set
-            raise ValueError("Range operators on the field 'pichash' need zero-padded pichashes; run migrate_pichash_padding first.")
+        if node.field == "pichash" and mongo_operator in ("$lt", "$lte", "$gt", "$gte"):
+            if not self.pichash_padded:
+                # on variable-width hex strings a range comparison answers a plausible but wrong set
+                raise ValueError("Range operators on the field 'pichash' need zero-padded pichashes; run migrate_pichash_padding first.")
+            if not isinstance(value, int) or not 0 <= value <= PICHASH_MAX_VALUE:
+                # a bound outside the 64 bit domain formats wider than 16 digits and would not compare
+                raise ValueError("A pichash bound must be an integer between 0 and 0xffffffffffffffff.")
         if mongo_operator is None:
             condition = {node.field: value}
         else:
@@ -998,7 +1003,6 @@ class MongoDbStorage(StorageInterface):
         if query_result is None or "_pichash" not in query_result:
             return None
         self._decodePichash(query_result, delete_old=False)
-        encoded_pichash = query_result["_pichash"]
         decoded_pichash = query_result["pichash"]
         if decoded_pichash is None:
             return None
@@ -1006,7 +1010,7 @@ class MongoDbStorage(StorageInterface):
         sample_and_function_ids = set(
             map(
                 lambda x: (x["family_id"], x["sample_id"], x["function_id"]),
-                list(self._getDb().functions.find({"_pichash": encoded_pichash}, {"family_id": 1, "sample_id": 1, "function_id": 1, "_id": 0})),
+                list(self._getDb().functions.find(self._pichashLookupCondition("_pichash", decoded_pichash), {"family_id": 1, "sample_id": 1, "function_id": 1, "_id": 0})),
             )
         )
 
@@ -1030,8 +1034,15 @@ class MongoDbStorage(StorageInterface):
         # one $in over all distinct pichashes instead of one query per pichash (N+1, #111);
         # grouping client-side by the returned _pichash reproduces the per-query sets exactly
         if encoded_to_decoded:
+            # while the instance is not padded, either spelling of a value may be stored (#145)
+            lookup = set(encoded_to_decoded)
+            if not self.isPichashPadded():
+                for decoded_pichash in list(encoded_to_decoded.values()):
+                    for variant in pichash_value_variants(decoded_pichash):
+                        encoded_to_decoded[variant] = decoded_pichash
+                        lookup.add(variant)
             fields_to_fetch = {"_pichash": 1, "family_id": 1, "sample_id": 1, "function_id": 1, "_id": 0}
-            for hit in self._getDb().functions.find({"_pichash": {"$in": list(encoded_to_decoded)}}, fields_to_fetch):
+            for hit in self._getDb().functions.find({"_pichash": {"$in": sorted(lookup)}}, fields_to_fetch):
                 decoded_pichash = encoded_to_decoded[hit.get("_pichash")]
                 pichashes[decoded_pichash].add((hit["family_id"], hit["sample_id"], hit["function_id"]))
         return pichashes

@@ -28,6 +28,13 @@ class TestMongoSearchTranspiler(unittest.TestCase):
         self.assertEqual(self._visit("pichash", "<", "0x99", padded=True), {"_pichash": {"$lt": "0x0000000000000099"}})
         self.assertEqual(self._visit("pichash", ">=", "0x99", padded=True), {"_pichash": {"$gte": "0x0000000000000099"}})
 
+    def test_pichash_bounds_outside_64_bits_are_rejected(self):
+        # a wider bound would format to more than 16 digits and not compare lexicographically
+        for value in ("0x10000000000000000", "-1"):
+            with self.assertRaises(ValueError):
+                self._visit("pichash", "<", value, padded=True)
+        self.assertEqual({"_pichash": {"$lte": "0xffffffffffffffff"}}, self._visit("pichash", "<=", "0xffffffffffffffff", padded=True))
+
     def test_padded_hex_orders_like_the_numbers(self):
         values = [0x99, 0x1000, 0x4D2, 0xFFFFFFFFFFFFFFFF, 0]
         encoded = [self._visit("pichash", "=", str(v), padded=True)["_pichash"] for v in values]

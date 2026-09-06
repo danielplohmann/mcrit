@@ -36,6 +36,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote_plus
 
 from pymongo import ASCENDING, MongoClient, UpdateOne
 
@@ -45,6 +46,12 @@ from mcrit.storage.MongoDbStorage import PICHASH_HEX_DIGITS, encode_pichash_valu
 STATE_COLLECTION = "pichash_padding_state"
 COLLECTIONS = ("functions", "query_functions")
 PROJECTION = {"function_id": 1, "_pichash": 1, "_picblockhashes.hash": 1, "_id": 0}
+
+
+def build_mongo_uri(host: str, port: int, db_name: str, username: Optional[str], password: Optional[str], flags: Optional[str]) -> str:
+    credentials = "%s:%s@" % (quote_plus(username), quote_plus(password)) if username and password else ""
+    query = "?%s" % flags if flags else ""
+    return "mongodb://%s%s:%d/%s%s" % (credentials, host, port, db_name, query)
 
 
 def log(message):
@@ -187,11 +194,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--host", default=storage_config.STORAGE_SERVER)
     parser.add_argument("--port", type=int, default=int(storage_config.STORAGE_PORT))
     parser.add_argument("--db", default=storage_config.STORAGE_MONGODB_DBNAME)
+    parser.add_argument("--uri", default=None, help="complete MongoDB URI; overrides host/port and the configured credentials and flags")
     parser.add_argument("--batch", type=int, default=2000)
     parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
 
-    db = MongoClient("mongodb://%s:%d" % (args.host, args.port), connect=True)[args.db]
+    # the same credentials and connection flags MongoDbStorage connects with (STORAGE_MONGODB_*),
+    # so a secured deployment needs nothing beyond its mcrit configuration
+    uri = args.uri or build_mongo_uri(
+        args.host, args.port, args.db, storage_config.STORAGE_MONGODB_USERNAME, storage_config.STORAGE_MONGODB_PASSWORD, storage_config.STORAGE_MONGODB_FLAGS
+    )
+    db = MongoClient(uri, connect=True)[args.db]
     result = run(db, args.mode, args.batch)
     print(json.dumps(result, indent=2, default=str))
     if args.out:
