@@ -131,12 +131,26 @@ available, none of them automatic and none required for correct serving:
 |---|---|
 | `rebuild_picblockhash_index` | enables the fast `getUniqueBlocks`; until it runs, the previous full scan is used |
 | `recompute_family_stats` | corrects counters that have already drifted |
-| `repair_minhashes` | rehashes only the samples an older escaper hashed |
+| `repair_minhashes` | rehashes only the samples an older escaper hashed - **read the note below first** |
 | `purgeEmptyBandDocuments()` | clears the band tombstones older deletions left |
 | `db.functions.dropIndex("_picblockhashes.offset_1")` | reclaims the index above on an existing instance |
 
 The new endpoints mean MCRITweb needs a matching release to *use* them; MCRITweb works unchanged
 against this version either way.
+
+**A corpus that upgrades into this version reports every one of its samples as having stale
+minhashes, and that is usually wrong.** Staleness is decided by a per-sample `minhash_smda_version`
+that did not exist before 1.9.0, and a sample without one counts as stale - so `/status` shows
+`num_samples_with_stale_minhashes` equal to the whole corpus on the first look, whatever the true
+state. Running `repair_minhashes` in response rehashes everything, which on a multi-million-function
+corpus is hours of work and a long stretch of degraded matching for no gain.
+
+Check first whether the minhashes actually are stale - `escaper_fingerprint` in `/status` against
+what produced them, or a sample rehashed by hand and compared. If they are current, record that
+instead of recomputing it: `setMinHashVersionForSamples(<running smda version>)` sets the field for
+every sample in one update (storage-level; there is no route for it, since it asserts something only
+an operator can know). If they genuinely are stale, `repair_minhashes` is the cheap way to fix them
+and the reason it exists.
 
 ## Older releases
 
