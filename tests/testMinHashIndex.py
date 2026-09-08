@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import json
 import logging
 import os
 import unittest
@@ -63,6 +64,36 @@ class MalformedSearchQueryTestSuite(unittest.TestCase):
         self.assertIn("search_results", index.getFamilySearchResults("foo"))
         self.assertIn("search_results", index.getSampleSearchResults("family:foo"))
         self.assertIn("search_results", index.getFunctionSearchResults("offset:>0x100"))
+
+
+class SearchByIdentifierTestSuite(unittest.TestCase):
+    """An identifier that looks valid but is not stored is an empty match, not a server fault (#158)"""
+
+    def testUnknownSha256IsNotAMatch(self):
+        index = MinHashIndex(config)
+        results = index.getSampleSearchResults("a" * 64)
+        self.assertIsNone(results["sha_match"])
+        self.assertIsNone(results["id_match"])
+        self.assertEqual({}, results["search_results"])
+
+    def testKnownSha256IsAMatch(self):
+        index = MinHashIndex(config)
+        this_file_path = str(os.path.abspath(__file__))
+        example_file_path = os.sep.join([os.path.dirname(this_file_path), "example_report.smda"])
+        with open(example_file_path) as fjson:
+            smda_report = SmdaReport.fromDict(json.load(fjson))
+        assert smda_report is not None
+        index.addReport(smda_report)
+        sample_entry = index.getStorage().getSampleBySha256(smda_report.sha256)
+        results = index.getSampleSearchResults(smda_report.sha256)
+        self.assertEqual(sample_entry.sample_id, results["sha_match"]["sample_id"])
+
+    def testUnknownIdsAreNotAMatch(self):
+        index = MinHashIndex(config)
+        self.assertIsNone(index.getFamilySearchResults("12345")["id_match"])
+        self.assertIsNone(index.getSampleSearchResults("12345")["id_match"])
+        self.assertIsNone(index.getFunctionSearchResults("12345")["id_match"])
+        self.assertIsNone(index.getFunctionSearchResults("0xffffffffff")["id_match"])
 
 
 class UniqueBlocksCoverTestSuite(unittest.TestCase):
