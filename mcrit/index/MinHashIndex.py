@@ -339,6 +339,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     """
     def updateMinHashes(self, function_ids):
     def rebuildIndex(self):
+    def recomputeFamilyStats(self):
     def recalculatePicHashes(self):
     def recalculateMinHashes(self):
     def getMatchesForReport(self, report):

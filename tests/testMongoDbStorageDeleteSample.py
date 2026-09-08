@@ -19,11 +19,23 @@ class FakeCollection:
         self.find_calls.append((query, projection))
         return list(self.documents)
 
+    def _matching(self, query):
+        return [document for document in self.documents if all(document.get(key) == value for key, value in query.items())]
+
     def delete_many(self, query):
         self.delete_many_calls.append(query)
+        matching = self._matching(query)
+        self.documents = [document for document in self.documents if document not in matching]
+        return SimpleNamespace(deleted_count=len(matching))
 
     def delete_one(self, query):
         self.delete_one_calls.append(query)
+        matching = self._matching(query)[:1]
+        self.documents = [document for document in self.documents if document not in matching]
+        return SimpleNamespace(deleted_count=len(matching))
+
+    def count_documents(self, query, limit=None):
+        return len(self._matching(query))
 
 
 class FakeDb(dict):
@@ -43,11 +55,11 @@ class MongoDbStorageDeleteSampleTest(TestCase):
     def testDeleteSampleUsesProjectedFunctionFields(self):
         functions = FakeCollection(
             [
-                {"function_id": 10, "minhash": bytes(range(40)).hex()},
-                {"function_id": 11, "minhash": bytes(range(40, 80)).hex()},
+                {"sample_id": 7, "function_id": 10, "minhash": bytes(range(40)).hex()},
+                {"sample_id": 7, "function_id": 11, "minhash": bytes(range(40, 80)).hex()},
             ]
         )
-        samples = FakeCollection()
+        samples = FakeCollection([{"sample_id": 7, "family_id": 1}])
         families = FakeCollection()
         # deleting a sample also removes the disassembly split out of the function documents (#137)
         xcfg = FakeCollection()
@@ -110,7 +122,10 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         )
         self.assertEqual([{"sample_id": 7}], functions.delete_many_calls)
         self.assertEqual([{"sample_id": 7}], samples.delete_one_calls)
+        # decremented by what was deleted (two function documents, one sample), and the family
+        # deleted because no sample references it any more (#151)
         self.assertEqual([(1, -1, -2, 0)], family_updates)
+        self.assertEqual([{"family_id": 1}], families.delete_one_calls)
         self.assertEqual(1, len(band_updates))
         self.assertEqual("pull", band_updates[0][1])
 

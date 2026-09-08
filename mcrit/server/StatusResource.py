@@ -95,6 +95,14 @@ class StatusResource:
         return
 
     @timing
+    def on_post_recompute_family_stats(self, req, resp):
+        """Schedule a job that sets every family's sample, function and library counters from the collections, recreating missing family documents. Answers the job id."""
+        job_id = self.index.recomputeFamilyStats(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": job_id})
+        db_log_msg(self.index, req, "StatusResource.on_post_recompute_family_stats - success.")
+        return
+
+    @timing
     def on_get_recalculate_pichashes(self, req, resp):
         index_report = self.index.recalculatePicHashes(force_recalculation=True)
         resp.data = jsonify({"status": "successful", "data": index_report})
