@@ -8,6 +8,7 @@ from copy import deepcopy
 
 from smda.common.SmdaReport import SmdaReport
 
+import mcrit.matchers.MatcherFlags as MatcherFlags
 from mcrit.minhash.MinHash import MinHash
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.MatchingResult import MatchingResult
@@ -159,6 +160,58 @@ class MinHashingTestSuite(unittest.TestCase):
         assert matching_result.toDict() == before
         assert len(matching_result.function_matches) == 719
         assert len(matching_result.filtered_function_matches) == 719
+
+    def testMatchingResultRoundTripsThroughItsWireFormat(self):
+        """toDict must hand back the shape the matchers produce and fromDict reads: a list of
+        per-function summaries. It used to emit a dict keyed by function_id, which fromDict could
+        not read back (#44)."""
+        THIS_FILE_PATH = str(os.path.abspath(__file__))
+        PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
+        example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_matching_report.json"])
+        with open(example_file_path) as fjson:
+            match_json = json.load(fjson)
+
+        matching_result = MatchingResult.fromDict(match_json)
+        wire = matching_result.toDict()
+        self.assertIsInstance(wire["matches"]["functions"], list)
+        # function_matches is kept sorted by function_id, so the summaries come out in that order
+        by_fid = lambda summary: summary["fid"]  # noqa: E731
+        self.assertEqual(sorted(match_json["matches"]["functions"], key=by_fid), wire["matches"]["functions"])
+        self.assertEqual(match_json["matches"]["aggregation"], wire["matches"]["aggregation"])
+        # the sample entry's own serialisation may carry more fields than the example file
+        self.assertEqual(SampleEntry.fromDict(match_json["info"]["sample"]).toDict(), wire["info"]["sample"])
+
+        reparsed = MatchingResult.fromDict(wire)
+        self.assertEqual(len(matching_result.function_matches), len(reparsed.function_matches))
+        self.assertEqual([m.getMatchTuple() for m in matching_result.function_matches], [m.getMatchTuple() for m in reparsed.function_matches])
+        self.assertEqual(matching_result.function_id_to_family_ids_matched, reparsed.function_id_to_family_ids_matched)
+        self.assertEqual(matching_result.library_matches, reparsed.library_matches)
+        self.assertEqual(matching_result.is_query, reparsed.is_query)
+        # the flag booleans are views on the flags integer the wire format carries
+        flagged = next(m for m in matching_result.function_matches if m.match_is_minhash and m.match_is_pichash and not m.match_is_library)
+        expected_flags = MatcherFlags.IS_MINHASH_FLAG | MatcherFlags.IS_PICHASH_FLAG
+        self.assertEqual(expected_flags, flagged.match_flags)
+        self.assertFalse(flagged.match_is_library)
+        self.assertEqual(expected_flags, flagged.getMatchTuple()[4])
+        self.assertEqual("Function: fid(%d)" % flagged.function_id, str(flagged)[: len("Function: fid(%d)" % flagged.function_id)])
+        self.assertTrue(str(flagged).endswith("flags(mp.)"))
+
+    def testQueryResultKeepsItsNegativeFunctionIdsOnTheWire(self):
+        """a query result's function ids are negative on the wire; fromDict folds the sign into
+        is_query, so toDict has to put it back for the round trip to hold"""
+        THIS_FILE_PATH = str(os.path.abspath(__file__))
+        PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
+        with open(os.sep.join([PROJECT_ROOT, "tests", "example_matching_report.json"])) as fjson:
+            match_json = json.load(fjson)
+        for summary in match_json["matches"]["functions"]:
+            summary["fid"] = -summary["fid"]
+        query_result = MatchingResult.fromDict(match_json)
+        self.assertTrue(query_result.is_query)
+        wire = query_result.toDict()
+        self.assertTrue(all(summary["fid"] < 0 for summary in wire["matches"]["functions"]))
+        reparsed = MatchingResult.fromDict(wire)
+        self.assertTrue(reparsed.is_query)
+        self.assertEqual([m.function_id for m in query_result.function_matches], [m.function_id for m in reparsed.function_matches])
 
 
 if __name__ == "__main__":
