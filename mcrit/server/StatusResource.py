@@ -95,6 +95,13 @@ class StatusResource:
         return
 
     @timing
+    def on_get_rebuild_picblockhash_index(self, req, resp):
+        """Schedule a job that rebuilds the inverted picblockhash index getUniqueBlocks reads. Answers the job id."""
+        index_report = self.index.rebuildPicBlockHashIndex(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": index_report})
+        db_log_msg(self.index, req, "StatusResource.on_get_rebuild_picblockhash_index - success.")
+        return
+
     def on_post_recompute_family_stats(self, req, resp):
         """Schedule a job that sets every family's sample, function and library counters from the collections, recreating missing family documents. Answers the job id."""
         job_id = self.index.recomputeFamilyStats(force_recalculation=True)
