@@ -113,6 +113,12 @@ reported numbers; see `Changed`.
 - `deleteSample` left an emptied band posting list behind, and its `upsert` on the pull path could
   *create* band documents - so a delete could grow the index ([#149]).
 - A sample search for an unknown sha256 answers with no match instead of HTTP 500 ([#158]).
+- `renderRule` tested the `wrap_string` *function* for truthiness where it meant the `wrap_at`
+  parameter, so `wrap_at` was never read: YARA rules were always wrapped, always at a hardcoded 80
+  columns, and the single-line branch was unreachable. MCRITweb had been asking for `wrap_at=40` and
+  silently getting 80. `wrap_at` is now both the switch and the width - `0` keeps the hex on one
+  line, `N` wraps at `N` - and its default moves from `0` to `80`, the width callers were already
+  getting, so output changes only for callers that ask ([#186]).
 - `STORAGE_BAND_STRATEGY` carried no type annotation, so it was not a dataclass field and could not
   be set through `StorageConfig(...)` like every neighbouring setting ([#147]).
 
@@ -278,3 +284,4 @@ date, the version, and what changed.
 [#156]: https://github.com/danielplohmann/mcrit/issues/156
 [#157]: https://github.com/danielplohmann/mcrit/issues/157
 [#158]: https://github.com/danielplohmann/mcrit/issues/158
+[#186]: https://github.com/danielplohmann/mcrit/issues/186
