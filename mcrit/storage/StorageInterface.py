@@ -2,6 +2,8 @@ import datetime
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
+from packaging import version
+
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import NodeType
 from mcrit.minhash.MinHash import MinHash
@@ -723,6 +725,35 @@ class StorageInterface:
             the number of minhashes indexed
         """
         raise NotImplementedError
+
+    @staticmethod
+    def _isStaleMinHashVersion(recorded_version: Optional[str], threshold) -> bool:
+        """A sample's minhashes are stale when the smda that escaped them is older than the
+        escaper compatibility threshold, or when no version was recorded at all (#142)."""
+        if not recorded_version:
+            return True
+        try:
+            return version.parse(recorded_version) < threshold
+        except Exception:
+            return True
+
+    def deleteMinHashesForSample(self, sample_id: int) -> int:
+        """Drop the minhashes of one sample's functions and their band entries, without touching
+        the rest of the index; how many functions had one (#142)."""
+        raise NotImplementedError
+
+    def setMinHashVersionForSamples(self, smda_version: str, sample_ids: Optional[List[int]] = None) -> None:
+        """Record which smda escaped the minhashes of the samples (all when None) (#142)."""
+        raise NotImplementedError
+
+    def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
+        """The samples whose minhashes were escaped by an smda older than the threshold, or
+        by an unrecorded one (#142)."""
+        raise NotImplementedError
+
+    def countSamplesWithStaleMinHashes(self, threshold_version: str) -> int:
+        """How many samples getSamplesWithStaleMinHashes would answer, for /status (#142)."""
+        return len(self.getSamplesWithStaleMinHashes(threshold_version))
 
     def deleteAllMinHashes(self, progress_reporter=None) -> int:
         """drop every minhash in all function_entries as a preparation for a full rebuild

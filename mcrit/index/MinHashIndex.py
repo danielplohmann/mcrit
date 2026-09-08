@@ -342,6 +342,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def recomputeFamilyStats(self):
     def recalculatePicHashes(self):
     def recalculateMinHashes(self):
+    def repairMinHashes(self):
     def getMatchesForReport(self, report):
     def getMatchesForSmdaReport(self, report_json, minhash_threshold=None):
     def getMatchesForMappedBinary(self, binary, base_address, minhash_threshold=None):
@@ -517,6 +518,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         inline_xcfg_remaining = storage.hasInlineXcfgRemaining()
         if inline_xcfg_remaining is not None:
             status["status"]["inline_xcfg_remaining"] = inline_xcfg_remaining
+        # how many samples' minhashes an older escaper produced; repairMinHashes rehashes them (#142)
+        threshold = Worker.getMinHashCompatibilityThreshold()
+        status["status"]["minhash_compatibility_threshold"] = threshold
+        status["status"]["num_samples_with_stale_minhashes"] = storage.countSamplesWithStaleMinHashes(threshold)
         return status
 
     def getVersion(self):

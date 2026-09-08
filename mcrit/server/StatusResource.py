@@ -110,6 +110,14 @@ class StatusResource:
         return
 
     @timing
+    def on_post_repair_minhashes(self, req, resp):
+        """Schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (see ``num_samples_with_stale_minhashes`` in the status). Answers the job id."""
+        job_id = self.index.repairMinHashes(force_recalculation=True)
+        resp.data = jsonify({"status": "successful", "data": job_id})
+        db_log_msg(self.index, req, "StatusResource.on_post_repair_minhashes - success.")
+        return
+
+    @timing
     def on_get_recalculate_minhashes(self, req, resp):
         index_report = self.index.recalculateMinHashes(force_recalculation=True)
         resp.data = jsonify({"status": "successful", "data": index_report})

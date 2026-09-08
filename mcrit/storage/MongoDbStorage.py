@@ -197,6 +197,8 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["samples"].create_index("sample_id")
         self._getDb()["samples"].create_index("sha256")
         self._getDb()["samples"].create_index("family_id")
+        # the stale-minhash count on /status is a distinct plus a count over this field (#142)
+        self._getDb()["samples"].create_index("minhash_smda_version")
         self._getDb()["families"].create_index("family_id")
         self._getDb()["families"].create_index("family_name")
         self._getDb()["functions"].create_index("function_id")
@@ -592,21 +594,7 @@ class MongoDbStorage(StorageInterface):
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
             return True
         function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
-
-        # collect all band entries that need updating and pull all function_ids at once.
-        # might need to batch this into slices of function_ids again
-        minhashes_to_remove = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
-        for function_minhash in function_minhashes:
-            minhash = self._getMinHashFromStorage(function_minhash)
-            # remove minhash entries, if necessary
-            if not minhash or not minhash.hasMinHash():
-                continue
-            band_hashes = self.getBandHashesForMinHash(minhash)
-            for band_number, band_hash in sorted(band_hashes.items()):
-                if band_hash not in minhashes_to_remove[band_number]:
-                    minhashes_to_remove[band_number][band_hash] = []
-                minhashes_to_remove[band_number][band_hash].append(function_minhash["function_id"])
-        self._updateBands(minhashes_to_remove, method="pull")
+        self._pullBandEntries(function_minhashes)
 
         # remove functions
         self._deleteXcfgForFunctionIds([function_minhash["function_id"] for function_minhash in function_minhashes])
@@ -637,6 +625,53 @@ class MongoDbStorage(StorageInterface):
         )
         # the id came from elsewhere (an import): the counter must never hand it out again
         self._getDb().counters.update_one({"name": "families"}, {"$max": {"value": family_id + 1}}, upsert=True)
+
+    def _pullBandEntries(self, function_minhashes: List[Dict[str, Any]]) -> int:
+        """Take the given functions' minhashes out of the band index; how many had one."""
+        # collect all band entries that need updating and pull all function_ids at once.
+        # might need to batch this into slices of function_ids again
+        minhashes_to_remove: Dict[int, Dict[int, List[int]]] = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        num_hashed = 0
+        for function_minhash in function_minhashes:
+            minhash = self._getMinHashFromStorage(function_minhash)
+            # remove minhash entries, if necessary
+            if not minhash or not minhash.hasMinHash():
+                continue
+            num_hashed += 1
+            band_hashes = self.getBandHashesForMinHash(minhash)
+            for band_number, band_hash in sorted(band_hashes.items()):
+                if band_hash not in minhashes_to_remove[band_number]:
+                    minhashes_to_remove[band_number][band_hash] = []
+                minhashes_to_remove[band_number][band_hash].append(function_minhash["function_id"])
+        self._updateBands(minhashes_to_remove, method="pull")
+        return num_hashed
+
+    def deleteMinHashesForSample(self, sample_id: int) -> int:
+        if not self.isSampleId(sample_id) or sample_id < 0:
+            return 0
+        function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
+        num_hashed = self._pullBandEntries(function_minhashes)
+        self._getDb().functions.update_many({"sample_id": sample_id, "minhash": {"$ne": ""}}, {"$set": {"minhash": "", "minhash_shingle_composition": {}}})
+        self._getDb().samples.update_one({"sample_id": sample_id}, {"$unset": {"minhash_smda_version": ""}})
+        return num_hashed
+
+    def setMinHashVersionForSamples(self, smda_version: str, sample_ids: Optional[List[int]] = None) -> None:
+        query = {} if sample_ids is None else {"sample_id": {"$in": list(sample_ids)}}
+        self._getDb().samples.update_many(query, {"$set": {"minhash_smda_version": smda_version}})
+
+    def _staleMinHashVersionQuery(self, threshold_version: str) -> Dict[str, Any]:
+        """Samples carry few distinct recorded versions, so compare those instead of every document."""
+        threshold = version.parse(threshold_version)
+        recorded = self._getDb().samples.distinct("minhash_smda_version")
+        stale_values = [value for value in recorded if self._isStaleMinHashVersion(value, threshold)]
+        return {"$or": [{"minhash_smda_version": {"$exists": False}}, {"minhash_smda_version": {"$in": stale_values}}]}
+
+    def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
+        query = self._staleMinHashVersionQuery(threshold_version)
+        return sorted(document["sample_id"] for document in self._getDb().samples.find(query, {"sample_id": 1, "_id": 0}))
+
+    def countSamplesWithStaleMinHashes(self, threshold_version: str) -> int:
+        return self._getDb().samples.count_documents(self._staleMinHashVersionQuery(threshold_version))
 
     def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
         result = self._getDb().families.update_one(

@@ -9,6 +9,7 @@ from copy import deepcopy
 from itertools import zip_longest
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
+from packaging import version as packaging_version
 from picblocks.blockhasher import BlockHasher
 
 from mcrit.index.SearchCursor import FullSearchCursor
@@ -151,6 +152,7 @@ class MemoryStorage(StorageInterface):
         self._query_functions = {}
         self._pichashes = {}
         self._bands = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        self._minhash_versions: Dict[int, str] = {}
         self._counters = defaultdict(lambda: 0)
         # initialize query sample/function ids
         if self._counters["query_samples"] == 0:
@@ -333,6 +335,42 @@ class MemoryStorage(StorageInterface):
                 report["num_families_corrected"] += 1
                 report["corrections"][family_id] = {"before": stored, "after": actual}
         return report
+
+    def deleteMinHashesForSample(self, sample_id: int) -> int:
+        if not self.isSampleId(sample_id) or sample_id < 0:
+            return 0
+        num_hashed = 0
+        for function_id in self._sample_id_to_function_ids[sample_id]:
+            function_entry = self._functions[function_id]
+            minhash = function_entry.getMinHash(self._minhash_config.MINHASH_SIGNATURE_BITS)
+            if not minhash or not minhash.hasMinHash():
+                continue
+            num_hashed += 1
+            for band_number, band_hash in sorted(self.getBandHashesForMinHash(minhash).items()):
+                if band_hash in self._bands[band_number]:
+                    self._bands[band_number][band_hash] = [fid for fid in self._bands[band_number][band_hash] if fid != function_id]
+                    if not self._bands[band_number][band_hash]:
+                        del self._bands[band_number][band_hash]
+            function_entry.minhash = b""
+            function_entry.shingler_composition = {}
+        self._minhash_versions.pop(sample_id, None)
+        return num_hashed
+
+    def deleteAllMinHashes(self, progress_reporter=None) -> int:
+        num_deleted = 0
+        for sample_id in list(self._samples):
+            num_deleted += self.deleteMinHashesForSample(sample_id)
+        self._bands = {band_number: {} for band_number in self._bands}
+        return num_deleted
+
+    def setMinHashVersionForSamples(self, smda_version: str, sample_ids: Optional[List[int]] = None) -> None:
+        for sample_id in list(self._samples) if sample_ids is None else sample_ids:
+            if sample_id in self._samples:
+                self._minhash_versions[sample_id] = smda_version
+
+    def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
+        threshold = packaging_version.parse(threshold_version)
+        return sorted(sample_id for sample_id in self._samples if self._isStaleMinHashVersion(self._minhash_versions.get(sample_id), threshold))
 
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         if family_id not in self._families:
