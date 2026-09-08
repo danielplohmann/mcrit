@@ -606,6 +606,46 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual(len(minhashes), rebuild_result["minhash_functions_indexed"])
         self.assertEqual(bands_before, dumpBands())
 
+    def _storageWithBandedSample(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        sample_entry = self.storage.addSmdaReport(smda_report)
+        minhashes = [MinHash(function_id=function_id, minhash_signature=[0x30 + function_id + index for index in range(10)], minhash_bits=8) for function_id in [0, 2, 3, 5, 7, 8]]
+        self.storage.addMinHashes(minhashes)
+        return sample_entry, ["band_%d" % band_id for band_id in range(self.storage._storage_config.STORAGE_NUM_BANDS)]
+
+    def testDeleteSampleLeavesNoEmptyBandDocuments(self):
+        # #149: a pull that empties a posting list removes the document, and a pull on a
+        # band hash without a document does not create one
+        sample_entry, band_collections = self._storageWithBandedSample()
+        db = self.storage._getDb()
+        self.assertGreater(sum(db[c].count_documents({}) for c in band_collections), 0)
+        self.storage.deleteSample(sample_entry.sample_id)
+        for collection in band_collections:
+            self.assertEqual(0, db[collection].count_documents({}), collection)
+        # the same pull again, against an index that no longer holds the hashes: nothing appears
+        self.storage._updateBands({0: {12345: [1, 2]}, 1: {67890: [3]}}, method="pull")
+        self.assertEqual(0, db.band_0.count_documents({}))
+        self.assertEqual(0, db.band_1.count_documents({}))
+
+    def testPullingKeepsTheOtherMembersOfABand(self):
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.band_0.insert_one({"band_hash": 4242, "function_ids": [1, 2, 3]})
+        db.band_0.insert_one({"band_hash": 4343, "function_ids": [1]})
+        self.storage._updateBands({0: {4242: [1], 4343: [1]}}, method="pull")
+        self.assertEqual([2, 3], db.band_0.find_one({"band_hash": 4242})["function_ids"])
+        self.assertIsNone(db.band_0.find_one({"band_hash": 4343}))
+
+    def testPurgeEmptyBandDocumentsRemovesOnlyTheTombstones(self):
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.band_0.insert_many([{"band_hash": 1, "function_ids": []}, {"band_hash": 2}, {"band_hash": 3, "function_ids": [7]}])
+        db.band_1.insert_one({"band_hash": 9, "function_ids": []})
+        self.assertEqual(3, self.storage.purgeEmptyBandDocuments())
+        self.assertEqual([3], [d["band_hash"] for d in db.band_0.find({}, {"band_hash": 1})])
+        self.assertEqual(0, db.band_1.count_documents({}))
+
 
 @pytest.mark.mongo
 class MongoDbXcfgSplitTest(TestCase):
