@@ -34,11 +34,12 @@ class UniqueBlocksResult:
     def __init__(self) -> None:
         pass
 
-    def generateYaraRule(self, min_ins=None, max_ins=None, min_bytes=None, max_bytes=None, required_per_sample=10, condition_required=7, wrap_at=0):
+    def generateYaraRule(self, min_ins=None, max_ins=None, min_bytes=None, max_bytes=None, required_per_sample=10, condition_required=7, wrap_at=80):
         cover = self.generateBlockCover(min_ins=min_ins, max_ins=max_ins, min_bytes=min_bytes, max_bytes=max_bytes, required_per_sample=required_per_sample)
         return self.renderRule(cover, condition_required, wrap_at=wrap_at)
 
-    def renderRule(self, block_cover, condition_required, wrap_at=0):
+    def renderRule(self, block_cover, condition_required, wrap_at=80):
+        """Render the YARA rule. wrap_at is the column to wrap the hex at; 0 keeps it on one line."""
         yara_blocks = block_cover["block_hashes"]
         block_hash_string = ",".join([pic_hash for pic_hash in yara_blocks])
         rule_identifier = hashlib.sha256(block_hash_string.encode()).hexdigest()[:16]
@@ -60,9 +61,9 @@ class UniqueBlocksResult:
             for ins in result["instructions"]:
                 yarafied += f"         * {ins[1]:{maxlen_ins}} | {ins[2]} {ins[3]}\n"
             yarafied += "         */\n"
-            if wrap_string:
+            if wrap_at:
                 yarafied += f"        $blockhash_{pichash} = {{\n"
-                yarafied += "            " + wrap_string(result["escaped_sequence"], max_column_length=80, padding=12) + "\n"
+                yarafied += "            " + wrap_string(result["escaped_sequence"], max_column_length=wrap_at, padding=12) + "\n"
                 yarafied += "        }\n"
             else:
                 yarafied += f"        $blockhash_{pichash} = {{ " + result["escaped_sequence"] + " }\n"
