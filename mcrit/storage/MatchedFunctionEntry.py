@@ -1,16 +1,35 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import List, Optional
 
 import mcrit.matchers.MatcherFlags as MatcherFlags
 
-if TYPE_CHECKING:  # pragma: no cover
-    pass
-
-# Dataclass, post init
-# constructor -> .fromSmdaFunction
-# assume sample_entry, smda_function always available
+_ALL_MATCH_FLAGS = MatcherFlags.IS_MINHASH_FLAG | MatcherFlags.IS_PICHASH_FLAG | MatcherFlags.IS_LIBRARY_FLAG
 
 
 class MatchedFunctionEntry:
+    """One (own function, matched function) pair of a MatchingResult.
+
+    A large result holds hundreds of thousands of these, so the class is kept lean (#44):
+    slots instead of a per-instance dict, and the match flags are kept as the integer the
+    wire format carries, with the match_is_* booleans derived from it on access. That also
+    makes the round trip exact by construction: getMatchTuple hands the flags back as they
+    came in (#155).
+    """
+
+    __slots__ = (
+        "function_id",
+        "num_bytes",
+        "offset",
+        "matched_family_id",
+        "matched_family",
+        "matched_sample_id",
+        "matched_function_id",
+        "matched_score",
+        "matched_link_score",
+        "matched_unique",
+        "matched_offset",
+        "match_flags",
+    )
+
     # basic information
     function_id: int
     num_bytes: int
@@ -23,9 +42,7 @@ class MatchedFunctionEntry:
     matched_link_score: float
     matched_unique: Optional[bool]
     matched_offset: Optional[int]
-    match_is_minhash: bool
-    match_is_pichash: bool
-    match_is_library: bool
+    match_flags: int
 
     def __init__(self, function_id: int, num_bytes: int, offset: int, match_tuple: List) -> None:
         self.function_id = function_id
@@ -35,22 +52,26 @@ class MatchedFunctionEntry:
         self.matched_sample_id = match_tuple[1]
         self.matched_function_id = match_tuple[2]
         self.matched_score = match_tuple[3]
-        self.match_is_minhash = match_tuple[4] & MatcherFlags.IS_MINHASH_FLAG
-        self.match_is_pichash = match_tuple[4] & MatcherFlags.IS_PICHASH_FLAG
-        self.match_is_library = match_tuple[4] & MatcherFlags.IS_LIBRARY_FLAG
+        self.match_flags = match_tuple[4] & _ALL_MATCH_FLAGS
         self.matched_family = None
         self.matched_link_score = 0
         self.matched_unique = None
         self.matched_offset = None
 
-    def getMatchTuple(self):
-        return [
-            self.matched_family_id,
-            self.matched_sample_id,
-            self.matched_function_id,
-            self.matched_score,
-            self.match_is_minhash * MatcherFlags.IS_MINHASH_FLAG + self.match_is_pichash * MatcherFlags.IS_PICHASH_FLAG + self.match_is_library * MatcherFlags.IS_LIBRARY_FLAG,
-        ]
+    @property
+    def match_is_minhash(self) -> bool:
+        return bool(self.match_flags & MatcherFlags.IS_MINHASH_FLAG)
+
+    @property
+    def match_is_pichash(self) -> bool:
+        return bool(self.match_flags & MatcherFlags.IS_PICHASH_FLAG)
+
+    @property
+    def match_is_library(self) -> bool:
+        return bool(self.match_flags & MatcherFlags.IS_LIBRARY_FLAG)
+
+    def getMatchTuple(self) -> List:
+        return [self.matched_family_id, self.matched_sample_id, self.matched_function_id, self.matched_score, self.match_flags]
 
     def toDict(self):
         matching_entry = {"fid": self.function_id, "num_bytes": self.num_bytes, "offset": self.offset, "matches": self.getMatchTuple()}

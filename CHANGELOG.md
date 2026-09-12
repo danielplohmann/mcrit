@@ -1,6 +1,161 @@
 # Changelog
 
-Newest first. Entries carry the release date, the version, and what changed.
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) over **the REST API, the
+configuration surface and the stored data shape**. Python object internals - the classes in
+`mcrit.storage` and friends - may change in a minor release; where that is expected to break a
+consumer, the entry says so.
+
+Entries carry the measurement, the caveat and the failure mode, not just the change: a line that
+says what moved without saying what it cost, what it cannot see, or how it would be noticed is
+worth less than the space it takes. Add yours to `[Unreleased]` when the change merges, while the
+reasoning is still at hand, rather than reconstructing it from the commit log at release time.
+
+## [Unreleased]
+
+## [1.9.0] - 2026-09-08
+
+Correctness and operator-recovery release, plus a large `getUniqueBlocks` speedup. **Matching
+results are unchanged at default configuration** - a reference digest over an 11.6M-function corpus
+reproduced byte-for-byte against v1.8.1 (8,125,782 bytes of match payload, 5,523 sample matches) -
+and the database shape is unchanged, so no migration is required. Two fixes below *can* change
+reported numbers; see `Changed`.
+
+### Added
+
+- `explicit` band projection strategy, stating each band's signature offsets directly via
+  `STORAGE_BAND_PROJECTION` or a name from `STORAGE_BAND_PRESET`, instead of deriving them from a
+  seed (`random`) or a stride (`linear`). It allows what neither can express: bands of differing
+  size, overlapping bands, and bands confined to one shingler's segment of the signature. That last
+  is the point - `generate_segmented_sequence` puts metric fields at offsets 0-15 and block fields
+  at 16-63, a band matches only if *all* its fields match, and the two segments move independently:
+  recompilation shifts metrics while block structure survives, and the SMDA 4.4.5 escaper change
+  moved block fields on ~20% of a real corpus while metrics stayed put. `random` remains the
+  default, and `legacy-random-20x4` / `legacy-linear-16x4` reproduce the derived strategies exactly,
+  so an instance can adopt `explicit` without reindexing - asserted in tests and verified on an
+  11.6M-function corpus where a reference digest reproduced byte-for-byte against an index built
+  under the seed-derived projection ([#147]).
+- `getBandProjectionFingerprint`, identifying the projection an index was built under. Band keys are
+  derived data exactly like minhashes, so changing the projection without rebuilding leaves an index
+  that still resolves, still returns candidates, and is quietly wrong. NOTE that offset *order
+  within a band* is significant - a band hash concatenates field values in projection order - so
+  neither the presets nor the fingerprint normalise it ([#147]).
+- Inverted `picblockhashes` collection answering `getUniqueBlocks`: **92 s -> 0.11 s for one sample
+  and 107 s -> 2.9 s for five** on the reference corpus, reading one document per candidate hash
+  instead of every function carrying block hashes (9,088,495 documents, 51,364,030 block entries,
+  and a cost independent of how many samples were requested). It is read only when a completeness
+  flag vouches for it, so an existing database keeps using the old scan - retained, not deleted -
+  until `rebuild_picblockhash_index` has run once: upgrading changes performance, never results
+  ([#154]).
+- `POST /repair_minhashes`, rehashing only the samples an older SMDA escaper hashed, one sample at a
+  time and with the index serving throughout, where `recalculateMinHashes` drops every band
+  collection and rehashes the whole corpus. Each sample records which SMDA version escaped its
+  minhashes, and `/status` reports `minhash_compatibility_threshold` and
+  `num_samples_with_stale_minhashes` ([#142]).
+- `POST /recompute_family_stats`, setting every family's counters from the collections, recreating
+  family documents that samples reference but no document describes, and reporting every correction
+  ([#151]).
+- `GET /rebuild_picblockhash_index` ([#154]) and `purgeEmptyBandDocuments()` ([#149]), both for an
+  operator to run once after upgrading.
+
+### Changed
+
+- **BREAKING for Python consumers:** `MatchedFunctionEntry.match_is_minhash`, `match_is_pichash` and
+  `match_is_library` are now `bool` properties over the stored flag integer rather than the masked
+  integer itself. Truthiness is unaffected - `if entry.match_is_pichash` behaves as before - but
+  code comparing them to `2` or `4` must change. The wire format is unchanged ([#155]).
+- The percentage denominator is sized by what the request can actually match. This differs from
+  before **only** when a request passes a `pichash_size` other than the configured
+  `MINHASH_FN_MIN_INS`; where the two agree, reported percentages are unchanged ([#156]).
+- A function unique to one family is weighted by its best match rather than whichever match came
+  last ([#157]).
+- Stored results are served as the bytes they were stored with rather than parsed and immediately
+  re-serialised, which was **0.66 s of a 1.03 s report open** on an 8 MB report. `compact=true`
+  keeps the parsing path, since it edits the result ([#152]).
+- `getUnhashedFunctions` selects in the database and skips functions that can never be hashed. Its
+  work set was "minhash is empty", which on a real corpus included 4.16M functions below
+  `MINHASH_FN_MIN_INS` whose disassembly it re-fetched on every invocation - which is what made a
+  minhash repair impractical to run at all.
+- `MatchedFunctionEntry` uses `__slots__`: 217 -> 145 bytes retained per matched pair, measured on a
+  240k-pair report ([#44]).
+- `rebuildMinhashBandIndex` drops every `band_*` collection present, not only
+  `band_0..STORAGE_NUM_BANDS-1`; lowering the band count previously stranded the surplus
+  collections, invisible to matching and consuming disk ([#147]).
+
+### Removed
+
+- The `_picblockhashes.offset` index is no longer created. No query can use it - the only reference
+  to that field is a `$project`, which an index cannot serve - and it held 0.678 GB, **27% of the
+  `functions` collection's index footprint**, plus a multikey write per block per function on every
+  insert. Existing instances keep their copy until it is dropped explicitly; see `Upgrading`.
+
+### Fixed
+
+- `getMatchTuple()` corrupted the match flags on a served route, multiplying already-masked bits by
+  their flag a second time: a pichash-only match round-tripped as `IS_LIBRARY` (2 -> 4) and a
+  library match lost its flag entirely (4 -> 16) ([#155]).
+- `MatchingResult.toDict()` emitted `matches.functions` as a dict keyed by function id where
+  `fromDict` reads a list, so `fromDict(toDict())` raised `TypeError` ([#44]).
+- A worker killed without unwinding - the OOM killer's way - stranded its job forever: `next()` only
+  hands out unlocked jobs and nothing cleared the lock, and `get_cached_job_id()` then served that
+  dead job's id to every identical resubmission, which waited on work that could never run. Workers
+  now carry a heartbeat, a registered worker whose heartbeat is older than the queue timeout is
+  treated as dead and its unfinished jobs are reclaimed with one attempt fewer, and the cached-job
+  lookup only serves a job that is finished, waiting, or in flight on a live worker ([#150]).
+- The per-family counters `/status` sums drifted from the collections they summarise: increments
+  against a missing family were silently discarded, imports did not create the family document their
+  sample references, `modifySample` used read-modify-write where concurrent relabels lose an update,
+  `deleteSample` decremented by the sample's stored statistics rather than by what it removed, and
+  family deletion was judged by a counter that may have drifted rather than by whether any sample
+  still references the family ([#151]).
+- `deleteSample` left an emptied band posting list behind, and its `upsert` on the pull path could
+  *create* band documents - so a delete could grow the index ([#149]).
+- A sample search for an unknown sha256 answers with no match instead of HTTP 500 ([#158]).
+- `renderRule` tested the `wrap_string` *function* for truthiness where it meant the `wrap_at`
+  parameter, so `wrap_at` was never read: YARA rules were always wrapped, always at a hardcoded 80
+  columns, and the single-line branch was unreachable. MCRITweb had been asking for `wrap_at=40` and
+  silently getting 80. `wrap_at` is now both the switch and the width - `0` keeps the hex on one
+  line, `N` wraps at `N` - and its default moves from `0` to `80`, the width callers were already
+  getting, so output changes only for callers that ask ([#186]).
+- `STORAGE_BAND_STRATEGY` carried no type annotation, so it was not a dataclass field and could not
+  be set through `StorageConfig(...)` like every neighbouring setting ([#147]).
+
+### Upgrading
+
+No database-shape change, so **no migration is required**. Five one-time operator actions are
+available, none of them automatic and none required for correct serving:
+
+| action | effect |
+|---|---|
+| `rebuild_picblockhash_index` | enables the fast `getUniqueBlocks`; until it runs, the previous full scan is used |
+| `recompute_family_stats` | corrects counters that have already drifted |
+| `repair_minhashes` | rehashes only the samples an older escaper hashed - **read the note below first** |
+| `purgeEmptyBandDocuments()` | clears the band tombstones older deletions left |
+| `db.functions.dropIndex("_picblockhashes.offset_1")` | reclaims the index above on an existing instance |
+
+The new endpoints mean MCRITweb needs a matching release to *use* them; MCRITweb works unchanged
+against this version either way.
+
+**A corpus that upgrades into this version reports every one of its samples as having stale
+minhashes, and that is usually wrong.** Staleness is decided by a per-sample `minhash_smda_version`
+that did not exist before 1.9.0, and a sample without one counts as stale - so `/status` shows
+`num_samples_with_stale_minhashes` equal to the whole corpus on the first look, whatever the true
+state. Running `repair_minhashes` in response rehashes everything, which on a multi-million-function
+corpus is hours of work and a long stretch of degraded matching for no gain.
+
+Check first whether the minhashes actually are stale - `escaper_fingerprint` in `/status` against
+what produced them, or a sample rehashed by hand and compared. If they are current, record that
+instead of recomputing it: `setMinHashVersionForSamples(<running smda version>)` sets the field for
+every sample in one update (storage-level; there is no route for it, since it asserts something only
+an operator can know). If they genuinely are stale, `repair_minhashes` is the cheap way to fix them
+and the reason it exists.
+
+## Older releases
+
+Entries below predate this format and are kept verbatim, newest first. Each carries the release
+date, the version, and what changed.
 
  * 2026-08-25 v1.8.1:  Declares `packaging` as a dependency, which `MongoDbStorage` has imported all along without it ever being listed - not in `pyproject.toml` and not in the `requirements.txt` it replaced. It was satisfied by accident, because that file also listed `pytest`, which depends on packaging; 1.8.0 correctly moved the test tooling to the `dev` extra and took packaging with it, so **`mcrit server` and `mcrit worker` cannot start on a clean 1.8.0 install** - `ModuleNotFoundError: No module named 'packaging'` from `MongoDbStorage.py`. Anyone on 1.8.0 should upgrade; an environment that happens to carry packaging (a dev checkout, or anything with pytest installed) is unaffected either way. The CI build job now installs the built wheel into a venv with nothing else in it and imports the server, the storage factory and the CLI from outside the checkout, so an undeclared runtime dependency or a wheel missing code fails the build - every other job installs the `dev` extra and can therefore never see it.
  * 2026-08-25 v1.8.0:  Packaging, tooling and latent-bug release; matching results, configuration and database shape are unchanged from v1.7.1, and no re-index or migration is required. BREAKING (build only): `requirements.txt` and `requirements-dev.txt` are gone - dependencies live in `pyproject.toml`, so install with `pip install -e .` and `pip install -e ".[dev]"` for the development tooling (docker-mcrit is updated to match). `setup.py`, `pytest.ini`, `.coveragerc`, `ruff.toml` and `.pylintrc` collapse into that one file as well, which also stops `pytest`, `pytest-cov` and `coverage` from being installed as *runtime* dependencies of the wheel (#101, THX to @r0ny123!). CI pins every action to a commit SHA, drops its token permissions to the minimum per job, adds timeouts and Dependabot, tests 3.11 through 3.14, and gates on the `ty` type checker next to `ruff`. Adopting `ty` is what makes this more than a tooling release: it surfaced eleven latent bugs, all fixed here (#102, THX to @r0ny123!). Five `MemoryStorage` methods raised on every call - `modifyFamily(is_library=...)`, `deleteFamily(keep_samples=True)`, `getUniqueBlocks`, `getMatchesForPicBlockHash` and the query-sample accessors, which did not accept `is_query` and so broke `Worker`'s query-sample cleanup on that backend; `addStorageContent` wrote a 2-tuple into the pichash index where every other site writes `(family_id, sample_id, function_id)`, silently corrupting it on import. `mcrit server` could not start where gunicorn is absent (i.e. on Windows, where the dependency marker excludes it), `MongoDbStorage.deleteSample` reported a successful query-sample deletion as a failure, `getCandidatesForMinHash` returned `None` where the memory backend returns an empty set, and `LocalQueue._file_to_grid` raised on `str` input. The `AUTH_TOKEN` can now be supplied via the `MCRIT_AUTH_TOKEN` environment variable instead of being edited into the installed config, the API token is compared in constant time, and a server that serves an unprotected API says so in its log (#96, THX to @r0ny123!). Malformed search queries - an unbalanced parenthesis, a dangling operator - are answered with HTTP 400 and the parser's message instead of a 500 and a traceback (#146). `getUniqueBlocks` reports `yara_covers` for real rather than always `0`, and its block entries now carry the same fields on both storage backends, which is what the block cover needs to run on the memory backend at all (#144).
@@ -128,3 +283,19 @@ Newest first. Entries carry the release date, the version, and what changed.
  * 2022-02-09  v0.9.0: Added PicBlocks to MCRIT.
  * 2022-01-19  v0.8.0: Migrated the client and the examples into the primary MCRIT repository.
  * 2021-12-16  v0.7.0: Initial private release.
+
+[Unreleased]: https://github.com/danielplohmann/mcrit/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/danielplohmann/mcrit/compare/v1.8.1...v1.9.0
+[#44]: https://github.com/danielplohmann/mcrit/issues/44
+[#142]: https://github.com/danielplohmann/mcrit/issues/142
+[#147]: https://github.com/danielplohmann/mcrit/pull/147
+[#149]: https://github.com/danielplohmann/mcrit/issues/149
+[#150]: https://github.com/danielplohmann/mcrit/issues/150
+[#151]: https://github.com/danielplohmann/mcrit/issues/151
+[#152]: https://github.com/danielplohmann/mcrit/issues/152
+[#154]: https://github.com/danielplohmann/mcrit/pull/154
+[#155]: https://github.com/danielplohmann/mcrit/issues/155
+[#156]: https://github.com/danielplohmann/mcrit/issues/156
+[#157]: https://github.com/danielplohmann/mcrit/issues/157
+[#158]: https://github.com/danielplohmann/mcrit/issues/158
+[#186]: https://github.com/danielplohmann/mcrit/issues/186

@@ -1,5 +1,6 @@
 #!/usr/bin/python
 
+import json
 import logging
 import os
 import unittest
@@ -10,6 +11,7 @@ from mcrit.index.MinHashIndex import MinHashIndex
 from mcrit.index.SearchQueryParser import SearchQueryParser
 from mcrit.libs.utility import generate_unique_pairs
 from mcrit.minhash.EscaperFingerprint import getEscaperFingerprint
+from mcrit.storage.UniqueBlocksResult import UniqueBlocksResult
 
 from .context import config
 
@@ -65,6 +67,36 @@ class MalformedSearchQueryTestSuite(unittest.TestCase):
         self.assertIn("search_results", index.getFunctionSearchResults("offset:>0x100"))
 
 
+class SearchByIdentifierTestSuite(unittest.TestCase):
+    """An identifier that looks valid but is not stored is an empty match, not a server fault (#158)"""
+
+    def testUnknownSha256IsNotAMatch(self):
+        index = MinHashIndex(config)
+        results = index.getSampleSearchResults("a" * 64)
+        self.assertIsNone(results["sha_match"])
+        self.assertIsNone(results["id_match"])
+        self.assertEqual({}, results["search_results"])
+
+    def testKnownSha256IsAMatch(self):
+        index = MinHashIndex(config)
+        this_file_path = str(os.path.abspath(__file__))
+        example_file_path = os.sep.join([os.path.dirname(this_file_path), "example_report.smda"])
+        with open(example_file_path) as fjson:
+            smda_report = SmdaReport.fromDict(json.load(fjson))
+        assert smda_report is not None
+        index.addReport(smda_report)
+        sample_entry = index.getStorage().getSampleBySha256(smda_report.sha256)
+        results = index.getSampleSearchResults(smda_report.sha256)
+        self.assertEqual(sample_entry.sample_id, results["sha_match"]["sample_id"])
+
+    def testUnknownIdsAreNotAMatch(self):
+        index = MinHashIndex(config)
+        self.assertIsNone(index.getFamilySearchResults("12345")["id_match"])
+        self.assertIsNone(index.getSampleSearchResults("12345")["id_match"])
+        self.assertIsNone(index.getFunctionSearchResults("12345")["id_match"])
+        self.assertIsNone(index.getFunctionSearchResults("0xffffffffff")["id_match"])
+
+
 class UniqueBlocksCoverTestSuite(unittest.TestCase):
     """yara_covers used to be written once as 0 and never assigned again (#144)"""
 
@@ -84,6 +116,35 @@ class UniqueBlocksCoverTestSuite(unittest.TestCase):
         self.assertEqual(1, statistics["num_samples_covered"])
         self.assertEqual(10, statistics["yara_covers"])
         self.assertEqual(len(result["yara_rule"]), statistics["yara_covers"])
+
+    def testWrapAtControlsTheRuleWidth(self):
+        # #186: renderRule tested the wrap_string *function* for truthiness instead of the
+        # wrap_at parameter, so the parameter did nothing and the hex was always wrapped at a
+        # hardcoded 80 columns - the single-line branch was unreachable.
+        index = MinHashIndex(config)
+        worker = index.queue._worker
+        report = SmdaReport.fromFile(EXAMPLE_REPORT)
+        assert report is not None
+        sample_entry = index._storage.addSmdaReport(report)
+        assert sample_entry is not None
+
+        # through the wire shape the real caller sees: MCRITweb feeds fromDict a result that has
+        # been through JSON, so the block-hash keys are strings by then
+        result = json.loads(json.dumps(worker.getUniqueBlocks([sample_entry.sample_id])))
+        blocks = UniqueBlocksResult.fromDict(result)
+
+        unwrapped = blocks.generateYaraRule(wrap_at=0)
+        narrow = blocks.generateYaraRule(wrap_at=40)
+        default = blocks.generateYaraRule()
+
+        # 0 keeps each pattern on one line; a width wraps it
+        self.assertNotIn("= {\n", unwrapped)
+        self.assertIn("= {\n", narrow)
+        # the width is honoured rather than ignored, so a narrower wrap yields more lines
+        self.assertGreater(len(narrow.splitlines()), len(unwrapped.splitlines()))
+        self.assertGreater(len(narrow.splitlines()), len(default.splitlines()))
+        # the default reproduces the width that used to be hardcoded
+        self.assertEqual(default, blocks.generateYaraRule(wrap_at=80))
 
     def testCoversRequiredShapesTheRule(self):
         index = MinHashIndex(config)
