@@ -648,6 +648,39 @@ class MatcherTestSuite(unittest.TestCase):
             ],
         )
 
+    def testPercentagesUseTheRequestsOwnThresholds(self):
+        # #156: with pichash_size below MINHASH_FN_MIN_INS the small functions match by
+        # PicHash but used to be missing from the denominator, so a sample matched against
+        # an identical copy of itself scored above 100 %
+        index = MinHashIndex(config=config)
+        worker = index.queue._worker
+        # the pristine report: the suite's copy has its 2-instruction function swapped out
+        # for a self match, and that tiny function is exactly what this test is about
+        this_file_path = str(os.path.abspath(__file__))
+        report = SmdaReport.fromFile(os.sep.join([os.path.dirname(this_file_path), "example_report.smda"]))
+        assert report is not None
+        entry_a = index._storage.addSmdaReport(report)
+        twin = SmdaReport.fromDict(report.toDict())
+        assert twin is not None
+        twin.sha256 = "ff" * 32
+        twin.family = "twin_family"
+        entry_b = index._storage.addSmdaReport(twin)
+        worker.updateMinHashesForSample(entry_a.sample_id)
+        worker.updateMinHashesForSample(entry_b.sample_id)
+        small_functions = [f for f in index._storage.getFunctionsBySampleId(entry_a.sample_id) if f.num_instructions < config.MINHASH_CONFIG.MINHASH_FN_MIN_INS]
+        self.assertGreater(len(small_functions), 0, "the fixture needs functions below MINHASH_FN_MIN_INS to be meaningful")
+        for pichash_size in (1, config.MINHASH_CONFIG.PICHASH_SIZE):
+            with self.subTest(pichash_size=pichash_size):
+                matcher = MatcherVs(worker, pichash_size=pichash_size)
+                result = matcher.getMatchesForSample(entry_a.sample_id, entry_b.sample_id)
+                summary = [s for s in result["matches"]["samples"] if s["sample_id"] == entry_b.sample_id][0]
+                matchable = [f for f in index._storage.getFunctionsBySampleId(entry_a.sample_id) if f.num_instructions >= pichash_size]
+                expected_bytes = sum(f.binweight for f in matchable)
+                self.assertEqual(expected_bytes, summary["matched"]["bytes"]["unweighted"])
+                self.assertAlmostEqual(100.0, summary["matched"]["percent"]["unweighted"])
+                for kind, value in summary["matched"]["percent"].items():
+                    self.assertLessEqual(value, 100.0 + 1e-9, kind)
+
     def testMatcherQuery(self):
         index = MinHashIndex(config=config)
         worker = index.queue._worker
