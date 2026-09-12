@@ -7,7 +7,7 @@ name = "mcrit"
 version = "1.9.0"
 description = "MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity."
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 authors = [
@@ -20,7 +20,6 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -71,6 +70,7 @@ dev = [
 Homepage = "https://github.com/danielplohmann/mcrit"
 Repository = "https://github.com/danielplohmann/mcrit"
 Issues = "https://github.com/danielplohmann/mcrit/issues"
+Changelog = "https://github.com/danielplohmann/mcrit/blob/main/CHANGELOG.md"
 
 [project.scripts]
 mcrit = "mcrit.__main__:main"
@@ -90,7 +90,7 @@ exclude = ["tests*", "data*", "docs*", "examples*", "plugins*"]
 mcrit = ["cache/*.json"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 180
 
 [tool.ruff.lint]

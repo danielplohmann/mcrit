@@ -33,7 +33,7 @@ advice that had stopped being true.
 
 ## Development setup
 
-Requires **Python 3.11 or newer** (`pyproject.toml` sets `requires-python = ">=3.11"` with no upper bound). CI exercises 3.11 through 3.14.
+Requires **Python 3.12 or newer** (`pyproject.toml` sets `requires-python = ">=3.12"` with no upper bound). CI exercises 3.12 through 3.14.
 
 ```bash
 pip install -e ".[dev]"
@@ -113,8 +113,8 @@ mcrit client submit <file> -f <family_name>
 
 - Lint/format: `ruff` (line-length 180, `target-version = "py311"`, selects `E4/E7/E9/F/I/UP`). Run `ruff format .` to auto-format. Note most `UP` rules are explicitly ignored in `[tool.ruff.lint]`, so the existing `Dict`/`Optional` typing style is intentional — do not "modernize" it.
 - Type checking: `ty` (`make typecheck` / `ty check`), enforced in CI next to ruff and currently at **zero diagnostics**. There are no suppressions in the tree — fix the code or the annotation instead of adding `ty: ignore`.
-- Supported Python: 3.11+ (`requires-python = ">=3.11"`).
-- License: GPL-3.0-only. The version is bumped manually in **three** places that must agree — `pyproject.toml`, `McritConfig.VERSION` (served by the `/version` endpoint), and the newest entry in `CHANGELOG.md` — do not change unless asked.
+- Supported Python: 3.12+ (`requires-python = ">=3.12"`).
+- License: GPL-3.0-only. The version is bumped manually in **three** places that must agree — `pyproject.toml`, `McritConfig.VERSION` (served by the `/version` endpoint), and the newest entry in `CHANGELOG.md` — do not change unless asked. `tests/testReleaseGuard.py` asserts the first two agree, and the release workflow refuses a tag that does not match all three. Every PR that changes `mcrit/` adds an entry under `## [Unreleased]` or carries the `no-changelog` label. How a release is cut is in [`RELEASING.md`](RELEASING.md).
 - Never introduce or log secrets/API tokens/keys.
 
 ## Agent guardrails
