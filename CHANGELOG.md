@@ -15,6 +15,27 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ## [Unreleased]
 
+### Added
+
+- Pushing a `vX.Y.Z` tag now publishes the release. The workflow refuses to continue unless the tag
+  matches `pyproject.toml` and `McritConfig.VERSION`, `CHANGELOG.md` has a section for it, the commit
+  is on `main` and CI passed there; it then builds the sdist and wheel in an isolated environment,
+  installs the wheel into a clean environment to import it and run `mcrit --help`, uploads to PyPI
+  through trusted publishing with signed provenance, and creates the GitHub release from that
+  version's changelog section with the generated contributor list appended. Pre-release tags
+  (`v1.10.0rc1`) are marked as such, and a manual run rehearses the same path against TestPyPI.
+  Before, publishing was `make publish` with an API token, GitHub releases stopped at v1.3.0, and
+  nothing checked that the three version strings agreed. See `RELEASING.md`; the trusted publisher
+  and the `pypi` and `testpypi` environments are configured once by a maintainer.
+- A pull request that changes `mcrit/` or `pyproject.toml` has to add a `CHANGELOG.md` entry or
+  carry the `no-changelog` label; CI checks it.
+
+### Removed
+
+- **Python 3.11 is no longer supported**; `requires-python` is `>=3.12`. Nothing in MCRIT needed
+  3.12 - the MCRIT ecosystem now shares a 3.12 floor so one interpreter serves every component. The
+  reference `docker-mcrit` deployment already runs 3.12.
+
 ## [1.9.0] - 2026-09-08
 
 Correctness and operator-recovery release, plus a large `getUniqueBlocks` speedup. **Matching
