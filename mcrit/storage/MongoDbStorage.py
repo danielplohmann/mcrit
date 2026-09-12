@@ -121,6 +121,19 @@ class MongoSearchTranspiler(BaseVisitor):
 class MongoDbStorage(StorageInterface):
     _DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
+    # Inverted index over picblockhashes: {_id: <block hash>, sample_ids: [<sample_id>, ...]}.
+    # getUniqueBlocks only ever asks "does this block hash occur outside the requested samples?",
+    # so the sample list is all it needs - deliberately not function ids or offsets, which would
+    # multiply the document count by the ~5.6 blocks each function averages, and not family ids,
+    # which would make a family reassignment invalidate the index for no gain.
+    _PICBLOCKHASH_INDEX_COLLECTION = "picblockhashes"
+    # settings flag: the index is only trusted when something has vouched that it is complete.
+    # An index that is merely *present* is not safe to read - a half-filled one would report
+    # blocks as unique that are not.
+    _PICBLOCKHASH_INDEX_SETTING = "picblockhash_index_complete"
+    # candidate hashes per $in when querying the index; the same slicing the band index uses
+    _PICBLOCKHASH_INDEX_QUERY_SLICE = 20000
+
     _database: Optional["Database"]
 
     def __init__(self, config: "McritConfig") -> None:
@@ -194,9 +207,19 @@ class MongoDbStorage(StorageInterface):
     def _ensureIndexAndUnknownFamily(self) -> None:
         if "settings" not in self._getDb().list_collection_names():
             self._getDb()["settings"].insert_one({"mcrit_db_id": str(uuid.uuid4()), "db_state": 0})
+        # A database holding no functions has a trivially complete picblockhash index, so a fresh
+        # instance - or one just cleared - maintains it from the first submit and never needs a
+        # rebuild. An existing database carrying functions does *not* get the flag when it upgrades
+        # into this code: it keeps using the scan until an operator rebuilds. Correctness first;
+        # an index that is merely present would report blocks as unique that are not.
+        # find_one is used rather than a count because this runs on every storage construction.
+        if not self._isPicBlockHashIndexComplete() and self._getDb()["functions"].find_one({}, {"_id": 1}) is None:
+            self._setPicBlockHashIndexComplete(True)
         self._getDb()["samples"].create_index("sample_id")
         self._getDb()["samples"].create_index("sha256")
         self._getDb()["samples"].create_index("family_id")
+        # the stale-minhash count on /status is a distinct plus a count over this field (#142)
+        self._getDb()["samples"].create_index("minhash_smda_version")
         self._getDb()["families"].create_index("family_id")
         self._getDb()["families"].create_index("family_name")
         self._getDb()["functions"].create_index("function_id")
@@ -205,7 +228,6 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["functions"].create_index("function_name")
         self._getDb()["functions"].create_index("_pichash")
         self._getDb()["functions"].create_index("_picblockhashes.hash")
-        self._getDb()["functions"].create_index("_picblockhashes.offset")
         # stored without guarantee of existence
         self._getDb()["query_samples"].create_index("sample_id")
         self._getDb()["query_samples"].create_index("sha256")
@@ -592,39 +614,89 @@ class MongoDbStorage(StorageInterface):
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
             return True
         function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
+        self._pullBandEntries(function_minhashes)
+        # drop this sample from the picblockhash index while its functions still exist to be read
+        self._removeSampleFromPicBlockHashIndex(sample_id)
 
+        # remove functions
+        self._deleteXcfgForFunctionIds([function_minhash["function_id"] for function_minhash in function_minhashes])
+        num_functions_deleted = self._getDb().functions.delete_many({"sample_id": sample_id}).deleted_count
+        # remove sample
+        num_samples_deleted = self._getDb().samples.delete_one({"sample_id": sample_id}).deleted_count
+        # update family stats by what was actually removed, not by what the sample claimed (#151)
+        self._updateFamilyStats(sample_entry.family_id, -num_samples_deleted, -num_functions_deleted, -int(sample_entry.is_library and num_samples_deleted))
+        self._deleteFamilyIfEmpty(sample_entry.family_id)
+        self._updateDbState()
+        return True
+
+    def _deleteFamilyIfEmpty(self, family_id: int) -> None:
+        # judged by the samples that exist, not by a counter that may have drifted (#151)
+        if family_id != 0 and self._getDb().samples.count_documents({"family_id": family_id}, limit=1) == 0:
+            self._getDb().families.delete_one({"family_id": family_id})
+
+    def _ensureFamilyDocument(self, family_id: int, family_name: str) -> None:
+        """Create the family document for an id that samples reference but no document describes.
+
+        Imports carry family ids from the exporting instance; a sample whose family document is
+        missing would otherwise have its statistics increments silently discarded (#151).
+        """
+        self._getDb().families.update_one(
+            {"family_id": family_id},
+            {"$setOnInsert": FamilyEntry(family_name=family_name, family_id=family_id).toDict()},
+            upsert=True,
+        )
+        # the id came from elsewhere (an import): the counter must never hand it out again
+        self._getDb().counters.update_one({"name": "families"}, {"$max": {"value": family_id + 1}}, upsert=True)
+
+    def _pullBandEntries(self, function_minhashes: List[Dict[str, Any]]) -> int:
+        """Take the given functions' minhashes out of the band index; how many had one."""
         # collect all band entries that need updating and pull all function_ids at once.
         # might need to batch this into slices of function_ids again
-        minhashes_to_remove = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        minhashes_to_remove: Dict[int, Dict[int, List[int]]] = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        num_hashed = 0
         for function_minhash in function_minhashes:
             minhash = self._getMinHashFromStorage(function_minhash)
             # remove minhash entries, if necessary
             if not minhash or not minhash.hasMinHash():
                 continue
+            num_hashed += 1
             band_hashes = self.getBandHashesForMinHash(minhash)
             for band_number, band_hash in sorted(band_hashes.items()):
                 if band_hash not in minhashes_to_remove[band_number]:
                     minhashes_to_remove[band_number][band_hash] = []
                 minhashes_to_remove[band_number][band_hash].append(function_minhash["function_id"])
         self._updateBands(minhashes_to_remove, method="pull")
+        return num_hashed
 
-        # update family stats
-        self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
-        # remove functions
-        self._deleteXcfgForFunctionIds([function_minhash["function_id"] for function_minhash in function_minhashes])
-        self._getDb().functions.delete_many({"sample_id": sample_id})
-        # remove sample
-        self._getDb().samples.delete_one({"sample_id": sample_id})
-        # delete family if empty
-        family_info = self.getFamily(sample_entry.family_id)
-        assert family_info is not None
-        if family_info.num_samples == 0 and family_info.family_id != 0:
-            self._getDb().families.delete_one({"family_id": family_info.family_id})
-        self._updateDbState()
-        return True
+    def deleteMinHashesForSample(self, sample_id: int) -> int:
+        if not self.isSampleId(sample_id) or sample_id < 0:
+            return 0
+        function_minhashes = self._getFunctionMinHashesBySampleId(sample_id)
+        num_hashed = self._pullBandEntries(function_minhashes)
+        self._getDb().functions.update_many({"sample_id": sample_id, "minhash": {"$ne": ""}}, {"$set": {"minhash": "", "minhash_shingle_composition": {}}})
+        self._getDb().samples.update_one({"sample_id": sample_id}, {"$unset": {"minhash_smda_version": ""}})
+        return num_hashed
+
+    def setMinHashVersionForSamples(self, smda_version: str, sample_ids: Optional[List[int]] = None) -> None:
+        query = {} if sample_ids is None else {"sample_id": {"$in": list(sample_ids)}}
+        self._getDb().samples.update_many(query, {"$set": {"minhash_smda_version": smda_version}})
+
+    def _staleMinHashVersionQuery(self, threshold_version: str) -> Dict[str, Any]:
+        """Samples carry few distinct recorded versions, so compare those instead of every document."""
+        threshold = version.parse(threshold_version)
+        recorded = self._getDb().samples.distinct("minhash_smda_version")
+        stale_values = [value for value in recorded if self._isStaleMinHashVersion(value, threshold)]
+        return {"$or": [{"minhash_smda_version": {"$exists": False}}, {"minhash_smda_version": {"$in": stale_values}}]}
+
+    def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
+        query = self._staleMinHashVersionQuery(threshold_version)
+        return sorted(document["sample_id"] for document in self._getDb().samples.find(query, {"sample_id": 1, "_id": 0}))
+
+    def countSamplesWithStaleMinHashes(self, threshold_version: str) -> int:
+        return self._getDb().samples.count_documents(self._staleMinHashVersionQuery(threshold_version))
 
     def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
-        self._getDb().families.update_one(
+        result = self._getDb().families.update_one(
             {"family_id": family_id},
             {
                 "$inc": {
@@ -634,55 +706,42 @@ class MongoDbStorage(StorageInterface):
                 },
             },
         )
+        if result.matched_count == 0:
+            # an increment against a missing family is lost; say so instead of drifting quietly (#151)
+            LOGGER.warning("Family %d has no document, its statistics update (%+d samples, %+d functions) was not applied.", family_id, num_samples_inc, num_functions_inc)
 
     def modifySample(self, sample_id: int, update_information: dict) -> bool:
         if not self.isSampleId(sample_id):
             return False
         sample_entry = self.getSampleById(sample_id)
         assert sample_entry is not None
+        # statistics move by atomic increments: two concurrent relabels of samples in the same
+        # family used to compute from the same pre-read document and lose one update (#151)
+        is_library = sample_entry.is_library
         if "is_library" in update_information:
-            is_library_info_changed = sample_entry.is_library != update_information["is_library"]
-            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"is_library": update_information["is_library"]}})
-            family_entry = self.getFamily(sample_entry.family_id)
-            assert family_entry is not None
-            if is_library_info_changed:
-                new_value = family_entry.num_library_samples + (1 if update_information["is_library"] else -1)
-                self._getDb().families.update_one({"family_id": sample_entry.family_id}, {"$set": {"num_library_samples": new_value}})
+            new_is_library = bool(update_information["is_library"])
+            # the counter follows the transition this write performs, not the value read
+            # before it: two concurrent identical requests would otherwise both count
+            transition = self._getDb().samples.update_one({"sample_id": sample_id, "is_library": {"$ne": new_is_library}}, {"$set": {"is_library": new_is_library}})
+            if transition.modified_count:
+                self._updateFamilyStats(sample_entry.family_id, 0, 0, 1 if new_is_library else -1)
+            is_library = new_is_library
         if "family_name" in update_information:
-            old_family_entry = self.getFamily(sample_entry.family_id)
-            new_family_entry = self.getFamily(self.addFamily(update_information["family_name"]))
-            assert old_family_entry is not None and new_family_entry is not None
+            old_family_id = sample_entry.family_id
             family_name = update_information["family_name"]
-            family_id = new_family_entry.family_id
-            # update sample_entry and function_entries with new family information
-            self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"family_id": family_id, "family": family_name}})
-            self._getDb().functions.update_many({"sample_id": sample_id}, {"$set": {"family_id": family_id}})
-            # update family entry with statistics
-            self._getDb().families.update_one(
-                {"family_id": old_family_entry.family_id},
-                {
-                    "$set": {
-                        "num_samples": old_family_entry.num_samples - 1,
-                        "num_functions": old_family_entry.num_functions - sample_entry.statistics["num_functions"],
-                        "num_library_samples": old_family_entry.num_library_samples - (1 if sample_entry.is_library else 0),
-                    }
-                },
-            )
-            self._getDb().families.update_one(
-                {"family_id": family_id},
-                {
-                    "$set": {
-                        "num_samples": new_family_entry.num_samples + 1,
-                        "num_functions": new_family_entry.num_functions + sample_entry.statistics["num_functions"],
-                        "num_library_samples": new_family_entry.num_library_samples + (1 if sample_entry.is_library else 0),
-                    }
-                },
-            )
-            old_family_entry = self.getFamily(sample_entry.family_id)
-            assert old_family_entry is not None
-            # delete family if empty
-            if old_family_entry.num_samples == 0 and old_family_entry.family_id != 0:
-                self._getDb().families.delete_one({"family_id": old_family_entry.family_id})
+            family_id = self.addFamily(family_name)
+            if family_id != old_family_id:
+                # gated on the family the sample was read in: of two concurrent moves only the
+                # one that performs the transition adjusts the counters. The functions moved
+                # are the ones still carrying the old family, whatever the sample's statistics say
+                moved = self._getDb().samples.update_one({"sample_id": sample_id, "family_id": old_family_id}, {"$set": {"family_id": family_id, "family": family_name}})
+                if moved.modified_count:
+                    num_functions_moved = (
+                        self._getDb().functions.update_many({"sample_id": sample_id, "family_id": old_family_id}, {"$set": {"family_id": family_id}}).modified_count
+                    )
+                    self._updateFamilyStats(old_family_id, -1, -num_functions_moved, -int(is_library))
+                    self._updateFamilyStats(family_id, +1, num_functions_moved, int(is_library))
+                    self._deleteFamilyIfEmpty(old_family_id)
             self._updateDbState()
         if "version" in update_information:
             self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"version": update_information["version"]}})
@@ -723,6 +782,89 @@ class MongoDbStorage(StorageInterface):
             self._updateDbState()
         return True
 
+    def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
+        """Set every family's counters from the samples and functions that exist (#151).
+
+        The per-family counters are denormalised and incremented on every write path; a lost
+        update anywhere leaves them drifted, and /status sums them as the corpus size. This
+        recomputes them with one aggregation over samples and one over functions, creates a
+        document for any family id that samples reference without one, and reports what changed.
+        """
+        db = self._getDb()
+        samples_by_family: Dict[int, Dict[str, Any]] = {}
+        for row in db.samples.aggregate(
+            [{"$group": {"_id": "$family_id", "num_samples": {"$sum": 1}, "num_library_samples": {"$sum": {"$cond": ["$is_library", 1, 0]}}, "family": {"$first": "$family"}}}]
+        ):
+            samples_by_family[row["_id"]] = row
+        functions_by_family: Dict[int, int] = {}
+        for row in db.functions.aggregate([{"$group": {"_id": "$family_id", "num_functions": {"$sum": 1}}}]):
+            functions_by_family[row["_id"]] = row["num_functions"]
+        report: Dict[str, Any] = {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}}
+        known_family_ids = {document["family_id"] for document in db.families.find({}, {"family_id": 1, "_id": 0})}
+        for family_id, row in samples_by_family.items():
+            if family_id not in known_family_ids:
+                self._ensureFamilyDocument(family_id, str(row.get("family") or ""))
+                report["num_families_created"] += 1
+        # a counter is only replaced while it still holds what was read next to the aggregate:
+        # a concurrent ingest, move or deletion that incremented it in between fails the filter,
+        # and the family is aggregated again. Increments landing after the write are consistent
+        # with it (their sample is not in the aggregate either way), so two passes converge.
+        pending = {document["family_id"] for document in db.families.find({}, {"_id": 0, "family_id": 1})}
+        for _ in range(3):
+            if not pending:
+                break
+            retry = set()
+            for family_document in db.families.find(
+                {"family_id": {"$in": sorted(pending)}}, {"_id": 0, "family_id": 1, "num_samples": 1, "num_functions": 1, "num_library_samples": 1}
+            ):
+                family_id = family_document["family_id"]
+                actual = {
+                    "num_samples": samples_by_family.get(family_id, {}).get("num_samples", 0),
+                    "num_functions": functions_by_family.get(family_id, 0),
+                    "num_library_samples": samples_by_family.get(family_id, {}).get("num_library_samples", 0),
+                }
+                if family_id not in report["corrections"]:
+                    report["num_families"] += 1
+                stored = {key: family_document.get(key) for key in actual}
+                if stored == actual:
+                    continue
+                written = db.families.update_one({"family_id": family_id, **stored}, {"$set": actual})
+                if written.modified_count:
+                    if family_id not in report["corrections"]:
+                        report["num_families_corrected"] += 1
+                    report["corrections"][family_id] = {"before": stored, "after": actual}
+                else:
+                    retry.add(family_id)
+            if not retry:
+                break
+            # re-aggregate only the families a concurrent write touched
+            samples_by_family.update(
+                {
+                    row["_id"]: row
+                    for row in db.samples.aggregate(
+                        [
+                            {"$match": {"family_id": {"$in": sorted(retry)}}},
+                            {
+                                "$group": {
+                                    "_id": "$family_id",
+                                    "num_samples": {"$sum": 1},
+                                    "num_library_samples": {"$sum": {"$cond": ["$is_library", 1, 0]}},
+                                    "family": {"$first": "$family"},
+                                }
+                            },
+                        ]
+                    )
+                }
+            )
+            functions_by_family.update(
+                {
+                    row["_id"]: row["num_functions"]
+                    for row in db.functions.aggregate([{"$match": {"family_id": {"$in": sorted(retry)}}}, {"$group": {"_id": "$family_id", "num_functions": {"$sum": 1}}}])
+                }
+            )
+            pending = retry
+        return report
+
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         family_entry = self.getFamily(family_id)
         if family_entry is None:
@@ -762,7 +904,9 @@ class MongoDbStorage(StorageInterface):
     def clearStorage(self) -> None:
         # "xcfg"/"query_xcfg" hold the disassembly split out of the function documents (#137);
         # leaving them behind while the counters reset would collide on _id at the next insert
-        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions", "xcfg", "query_xcfg"]
+        # "picblockhashes" is the inverted block-hash index; leaving it behind would keep asserting
+        # that hashes are held by samples that no longer exist, and getUniqueBlocks would believe it
+        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions", "xcfg", "query_xcfg", "picblockhashes"]
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
@@ -835,6 +979,7 @@ class MongoDbStorage(StorageInterface):
                     function_dicts.append(self._getFunctionDocument(sample_entry, smda_function, function_id))
                 self._insertXcfgDocuments(function_dicts)
                 self._dbInsertMany("functions", function_dicts)
+                self._addToPicBlockHashIndex(function_dicts)
                 self._updateFamilyStats(family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
                 self._updateDbState()
             else:
@@ -846,6 +991,7 @@ class MongoDbStorage(StorageInterface):
             sample_id = self._useCounter("samples")
             sample_entry.sample_id = sample_id
             self._dbInsert("samples", sample_entry.toDict())
+            self._ensureFamilyDocument(sample_entry.family_id, sample_entry.family)
             self._updateFamilyStats(sample_entry.family_id, +1, sample_entry.statistics["num_functions"], int(sample_entry.is_library))
             self._updateDbState()
         else:
@@ -862,6 +1008,7 @@ class MongoDbStorage(StorageInterface):
         self._encodeFunction(function_dict)
         self._insertXcfgDocuments([function_dict])
         self._dbInsert("functions", function_dict)
+        self._addToPicBlockHashIndex([function_dict])
         return function_entry
 
     def importFunctionEntries(self, function_entries: List["FunctionEntry"]) -> Optional[List["FunctionEntry"]]:
@@ -878,6 +1025,7 @@ class MongoDbStorage(StorageInterface):
             functions_as_dicts.append(function_dict)
         self._insertXcfgDocuments(functions_as_dicts)
         self._dbInsertMany("functions", functions_as_dicts)
+        self._addToPicBlockHashIndex(functions_as_dicts)
         return function_entries
 
     def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
@@ -1061,6 +1209,10 @@ class MongoDbStorage(StorageInterface):
                     band_hashes[band_number][band_hash].append(minhash.function_id)
         self._updateBands(band_hashes)
 
+    # a band document whose posting list is empty (or missing) holds nothing a candidate
+    # lookup could find; it is residue, not index (#149)
+    _EMPTY_BAND_DOCUMENT = {"$or": [{"function_ids": {"$size": 0}}, {"function_ids": {"$exists": False}}]}
+
     def _updateBands(self, band_hashes: Dict[int, Dict[int, List[int]]], method="push") -> int:
         if method not in ["push", "pull"]:
             raise ValueError(f"MongoDbStorage._updateBands() can only do 'push' and 'pull', not '{method}'.")
@@ -1071,14 +1223,27 @@ class MongoDbStorage(StorageInterface):
                 if len(function_ids) < 1:
                     continue
                 if method == "push":
-                    update_command = {"$push": {"function_ids": {"$each": function_ids}}}
+                    # a band hash seen for the first time gets its document here
+                    band_updates.append(UpdateOne({"band_hash": band_hash}, {"$push": {"function_ids": {"$each": function_ids}}}, upsert=True))
                 else:
-                    update_command = {"$pull": {"function_ids": {"$in": function_ids}}}
-                band_updates.append(UpdateOne({"band_hash": band_hash}, update_command, upsert=True))
+                    # pulling from a band hash that has no document must not create one (#149)
+                    band_updates.append(UpdateOne({"band_hash": band_hash}, {"$pull": {"function_ids": {"$in": function_ids}}}))
             if band_updates:
-                self._getDb()["band_%d" % band_number].bulk_write(band_updates, ordered=False)
+                collection = self._getDb()["band_%d" % band_number]
+                collection.bulk_write(band_updates, ordered=False)
+                if method == "pull":
+                    # a posting list the pull emptied is removed, not kept as a tombstone; scoped to
+                    # the hashes just touched, so it is one indexed delete per band (#149)
+                    collection.delete_many({"band_hash": {"$in": list(band_data)}, **self._EMPTY_BAND_DOCUMENT})
             num_band_updates += len(band_updates)
         return num_band_updates
+
+    def purgeEmptyBandDocuments(self) -> int:
+        """Remove the empty band documents that deletions left behind before #149; returns how many."""
+        removed = 0
+        for band_number in range(self._storage_config.STORAGE_NUM_BANDS):
+            removed += self._getDb()["band_%d" % band_number].delete_many(self._EMPTY_BAND_DOCUMENT).deleted_count
+        return removed
 
     def _collectBandHashTargets(self, function_id_to_minhash: Dict[int, "MinHash"]):
         """band_number -> set(band_hash) to query, and band_number -> band_hash -> query function_ids."""
@@ -1506,15 +1671,41 @@ class MongoDbStorage(StorageInterface):
             stats["num_functions"] += family_document["num_functions"]
         return stats
 
+    def _hashableSizeQuery(self) -> Optional[Dict]:
+        """Query fragment for "this function is large enough to receive a MinHash".
+
+        Mirrors StorageInterface.isHashableBySize. Returns None when no threshold is active, in
+        which case nothing is hashable and the caller should not query at all.
+        """
+        clauses = []
+        if self._minhash_config.MINHASH_FN_MIN_BLOCKS:
+            clauses.append({"num_blocks": {"$gt": self._minhash_config.MINHASH_FN_MIN_BLOCKS}})
+        if self._minhash_config.MINHASH_FN_MIN_INS:
+            clauses.append({"num_instructions": {"$gt": self._minhash_config.MINHASH_FN_MIN_INS}})
+        if not clauses:
+            return None
+        return clauses[0] if len(clauses) == 1 else {"$or": clauses}
+
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
-        unhashed_functions = []
-        search_query = {}
+        # Select in the database rather than in Python. Both filters matter on a large corpus:
+        # "minhash is empty" is trivially indexable work the server should not ship to the client,
+        # and the size filter keeps functions that can never BE hashed out of the result. Without
+        # it, every caller re-fetches the disassembly of every sub-threshold function to rediscover
+        # it is too small - on an 11.6M-function corpus that was 4.16M of the 10.01M functions with
+        # an empty minhash, on every invocation, which is enough to stall a repair and exhaust the
+        # memory of the process pool that consumes the result.
+        hashable_query = self._hashableSizeQuery()
+        if hashable_query is None:
+            return []
+        search_query = {"minhash": "", **hashable_query}
         if function_ids is not None:
-            search_query = {"function_id": {"$in": list(function_ids)}}
+            search_query["function_id"] = {"$in": list(function_ids)}
+        # only_function_ids wants exactly one field; projecting it keeps the scan from dragging
+        # every other field of every matching document across the wire for nothing.
+        projection = {"function_id": 1, "_id": 0} if only_function_ids else {"_id": 0}
+        unhashed_functions = []
         pending_documents = []
-        for function_document in self._getDb().functions.find(search_query, {"_id": 0}):
-            if function_document["minhash"] != "":
-                continue
+        for function_document in self._getDb().functions.find(search_query, projection):
             if only_function_ids:
                 unhashed_functions.append(function_document["function_id"])
             else:
@@ -1527,13 +1718,20 @@ class MongoDbStorage(StorageInterface):
         return unhashed_functions
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):
-        # drop band collections
+        # Drop every band_<n> present, not just the ones the current config expects. An explicit
+        # projection makes changing the band count easy, and dropping only band_0..NUM_BANDS-1
+        # would leave the surplus collections behind holding entries under the previous
+        # projection. Matching never reads them - it only iterates band_0..NUM_BANDS-1 - so they
+        # would sit there consuming disk until someone raised the band count again and started
+        # reading stale keys.
+        existing_bands = [name for name in self._getDb().list_collection_names() if re.match(r"^band_\d+$", name)]
+        for c in existing_bands:
+            self._getDb()[c].drop()
         # recreate collections and their indices
         collections = []
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:
-            self._getDb()[c].drop()
             self._getDb()[c].create_index("band_hash")
         # re-add minhashes in batches
         total_functions = self._getDb().functions.count_documents(filter={})
@@ -1661,6 +1859,14 @@ class MongoDbStorage(StorageInterface):
         )
         if xcfg_missing:
             LOGGER.warning(f"{xcfg_missing} functions could not be updated as there was not CFG available.")
+        if picblockhashes_updated:
+            # block hashes were rewritten in place, so the inverted index no longer describes the
+            # corpus. Marking it incomplete makes getUniqueBlocks fall back to the scan - slow but
+            # correct - until rebuildPicBlockHashIndex runs. Updating it incrementally here would
+            # mean diffing old against new hashes per function, which is what the rebuild does
+            # anyway and does in one pass.
+            self._setPicBlockHashIndexComplete(False)
+            LOGGER.warning("picblockhash index invalidated by the recalculation - run rebuildPicBlockHashIndex().")
         return {
             "outdated_samples": total_samples,
             "functions_updatable": functions_updatable,
@@ -1669,6 +1875,130 @@ class MongoDbStorage(StorageInterface):
             "picblockhashes_updated": picblockhashes_updated,
             "xcfg_missing": xcfg_missing,
         }
+
+    ##### picblockhash inverted index #####
+    #
+    # getUniqueBlocks used to answer "is this block hash unique to the requested samples?" by
+    # reading every function in the database that has picblockhashes - 9.1M documents and 51.4M
+    # block entries on a Malpedia-sized instance, ~92 s per call, and that cost does not depend on
+    # how many samples were asked about. The inverted index answers the same question by reading
+    # one document per candidate hash.
+    #
+    # Why not the existing `_picblockhashes.hash` index instead: it works, but the $in fan-out
+    # pulls whole function documents, so it degrades as the request grows - measured 12.7x for one
+    # sample but only 2.3x for five, where this index is 407x and 37x. The multi-sample case is the
+    # one that matters, since a sample *set* is what the feature is for.
+
+    def _picBlockHashesOfDocuments(self, function_documents: List[Dict]) -> List[str]:
+        """The distinct block hashes carried by already-encoded function documents."""
+        hashes = set()
+        for function_document in function_documents:
+            for block_entry in function_document.get("_picblockhashes") or []:
+                hashes.add(block_entry["hash"])
+        return sorted(hashes)
+
+    def _isPicBlockHashIndexComplete(self) -> bool:
+        settings_document = self._getDb().settings.find_one({}, {self._PICBLOCKHASH_INDEX_SETTING: 1})
+        return bool(settings_document and settings_document.get(self._PICBLOCKHASH_INDEX_SETTING))
+
+    def _setPicBlockHashIndexComplete(self, is_complete: bool) -> None:
+        self._getDb().settings.update_one({}, {"$set": {self._PICBLOCKHASH_INDEX_SETTING: bool(is_complete)}})
+
+    def _addToPicBlockHashIndex(self, function_documents: List[Dict]) -> int:
+        """Record, for every block hash these functions carry, that their sample holds it.
+
+        $addToSet with upsert is deliberate: it has set semantics, so a retried or replayed insert
+        converges on the same state instead of drifting. That is the difference between this and
+        the counters in #151 ($inc, where a lost or repeated update is permanent) - it is what
+        makes maintaining this index on the write path defensible rather than another thing that
+        silently goes wrong.
+        """
+        if not self._isPicBlockHashIndexComplete():
+            # nothing reads the index while it is not trusted, so there is nothing to keep current;
+            # rebuildPicBlockHashIndex() will pick these functions up when it runs
+            return 0
+        updates = []
+        for sample_id in sorted({document["sample_id"] for document in function_documents}):
+            of_sample = [document for document in function_documents if document["sample_id"] == sample_id]
+            updates.extend(UpdateOne({"_id": block_hash}, {"$addToSet": {"sample_ids": sample_id}}, upsert=True) for block_hash in self._picBlockHashesOfDocuments(of_sample))
+        if updates:
+            self._getDb()[self._PICBLOCKHASH_INDEX_COLLECTION].bulk_write(updates, ordered=False)
+        return len(updates)
+
+    def _removeSampleFromPicBlockHashIndex(self, sample_id: int) -> int:
+        """Drop a sample from the posting lists of the block hashes it holds.
+
+        Scoped by _id rather than by a query on sample_ids: the sample's own functions are one
+        indexed read, whereas finding its hashes through the index would need a multikey index on
+        sample_ids costing 0.24 GB over 12.1M documents. Must therefore run *before* the sample's
+        function documents are deleted.
+
+        Emptied documents are deleted rather than left behind. An empty posting list would in fact
+        be read correctly here - it means "held by nobody", so the candidate survives - but #149 is
+        the same residue in the band index and there is no reason to repeat it.
+        """
+        if not self._isPicBlockHashIndexComplete():
+            return 0
+        hashes = self._picBlockHashesOfDocuments(
+            list(
+                self._getDb().functions.find(
+                    {"sample_id": sample_id, "_picblockhashes": {"$exists": True, "$ne": []}},
+                    {"_picblockhashes": 1, "_id": 0},
+                )
+            )
+        )
+        if not hashes:
+            return 0
+        collection = self._getDb()[self._PICBLOCKHASH_INDEX_COLLECTION]
+        collection.update_many({"_id": {"$in": hashes}}, {"$pull": {"sample_ids": sample_id}})
+        collection.delete_many({"_id": {"$in": hashes}, "sample_ids": []})
+        return len(hashes)
+
+    def rebuildPicBlockHashIndex(self, progress_reporter=None) -> int:
+        """Rebuild the picblockhash index from the functions collection and mark it trustworthy.
+
+        This is the repair path, not the construction path - the write hooks keep the index current
+        in normal operation. It exists because every denormalised structure in this storage needs a
+        way to be reconstructed when it is wrong (cf. #142, #149, #151), and because
+        recalculateAllPicHashes rewrites block hashes wholesale and invalidates it by design.
+        """
+        pipeline = [
+            {"$match": {"_picblockhashes": {"$exists": True, "$ne": []}}},
+            {"$unwind": "$_picblockhashes"},
+            {"$group": {"_id": "$_picblockhashes.hash", "sample_ids": {"$addToSet": "$sample_id"}}},
+            {"$out": self._PICBLOCKHASH_INDEX_COLLECTION},
+        ]
+        self._getDb().functions.aggregate(pipeline, allowDiskUse=True)
+        self._setPicBlockHashIndexComplete(True)
+        num_hashes = self._getDb()[self._PICBLOCKHASH_INDEX_COLLECTION].count_documents({})
+        LOGGER.info("Rebuilt picblockhash index over %d distinct block hashes.", num_hashes)
+        return num_hashes
+
+    def _reduceToUniqueBlocksUsingIndex(self, candidate_picblockhashes: Dict, sample_ids: List[int]) -> None:
+        """Drop every candidate the index shows in a sample outside the request."""
+        requested_sample_ids = set(sample_ids)
+        collection = self._getDb()[self._PICBLOCKHASH_INDEX_COLLECTION]
+        candidate_hashes = list(candidate_picblockhashes)
+        for offset in range(0, len(candidate_hashes), self._PICBLOCKHASH_INDEX_QUERY_SLICE):
+            hash_slice = candidate_hashes[offset : offset + self._PICBLOCKHASH_INDEX_QUERY_SLICE]
+            for document in collection.find({"_id": {"$in": hash_slice}}, {"sample_ids": 1}):
+                if any(sample_id not in requested_sample_ids for sample_id in document["sample_ids"]):
+                    candidate_picblockhashes.pop(document["_id"], None)
+
+    def _reduceToUniqueBlocksByScan(self, candidate_picblockhashes: Dict, sample_ids: List[int], progress_reporter=None) -> None:
+        """The pre-index elimination: read every function that has block hashes.
+
+        Kept as the fallback for an instance whose index has not been built yet, so that upgrading
+        never silently changes results - it only stays slow until rebuildPicBlockHashIndex runs.
+        """
+        if progress_reporter is not None:
+            progress_reporter.set_total(self._getDb().functions.count_documents(filter={}))
+        for entry in self._getDb().functions.find({"_picblockhashes": {"$exists": True, "$ne": []}}, {"sample_id": 1, "_picblockhashes": 1, "_id": 0}):
+            if progress_reporter is not None:
+                progress_reporter.step()
+            if entry["sample_id"] not in sample_ids:
+                for block_entry in entry["_picblockhashes"]:
+                    candidate_picblockhashes.pop(block_entry["hash"], None)
 
     def getUniqueBlocks(self, sample_ids: List[int], progress_reporter=None) -> Dict:
         # query once to get all blocks from the functions of our samples
@@ -1701,16 +2031,15 @@ class MongoDbStorage(StorageInterface):
             for sample_id in entry["samples"]:
                 block_statistics["by_sample_id"][sample_id]["total_blocks"] += 1
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
-        if progress_reporter is not None:
-            progress_reporter.set_total(self._getDb().functions.count_documents(filter={}))
         # remove those that are not unique
-        for entry in self._getDb().functions.find({"_picblockhashes": {"$exists": True, "$ne": []}}, {"sample_id": 1, "_picblockhashes": 1, "_id": 0}):
-            if progress_reporter is not None:
-                progress_reporter.step()
-            sample_id = entry["sample_id"]
-            if sample_id not in sample_ids:
-                for block_entry in entry["_picblockhashes"]:
-                    candidate_picblockhashes.pop(block_entry["hash"], None)
+        if self._isPicBlockHashIndexComplete():
+            self._reduceToUniqueBlocksUsingIndex(candidate_picblockhashes, sample_ids)
+        else:
+            LOGGER.warning(
+                "picblockhash index is not built - falling back to a full scan of the functions collection. "
+                "Run rebuildPicBlockHashIndex() (Worker.rebuildPicBlockHashIndex) to enable the indexed path."
+            )
+            self._reduceToUniqueBlocksByScan(candidate_picblockhashes, sample_ids, progress_reporter=progress_reporter)
         # update statistics again after having reduced to results
         for picblockhash, entry in candidate_picblockhashes.items():
             if len(entry["samples"]) == 1:

@@ -568,6 +568,24 @@ class MatcherInterface:
 
         return matches_function_list, match_function_mapping, aggregation, num_library_match_bytes
 
+    def _isMatchableFunction(self, function_entry) -> bool:
+        """Whether this request can match the function at all, i.e. whether it belongs in the
+        denominator of the percentages: by PicHash when it reaches the request's pichash_size,
+        or by MinHash when the minhasher produces a signature for it (#156).
+
+        Both thresholds are the ones the numerator uses - pichash_size is per request, the
+        MinHash limits are the configured ones - so a request with a small pichash_size
+        widens the denominator along with the matches instead of exceeding 100 %.
+        """
+        if function_entry.num_instructions >= self._pichash_size:
+            return True
+        minhash_config = self._worker._minhash_config
+        if minhash_config.MINHASH_FN_MIN_INS and function_entry.num_instructions > minhash_config.MINHASH_FN_MIN_INS:
+            return True
+        if minhash_config.MINHASH_FN_MIN_BLOCKS and function_entry.num_blocks > minhash_config.MINHASH_FN_MIN_BLOCKS:
+            return True
+        return False
+
     def _get_family_adjustment(self, match_report) -> Dict[int, float]:
         adjustments: Dict[int, float] = {}
         for fid, function_data in match_report.items():
@@ -585,7 +603,7 @@ class MatcherInterface:
         else:
             own_sample_function_entries = self._storage.getFunctionsBySampleId(own_sample_info["sample_id"])
         for function_entry in own_sample_function_entries:
-            if function_entry.num_instructions >= self._worker._minhash_config.MINHASH_FN_MIN_INS:
+            if self._isMatchableFunction(function_entry):
                 own_sample_num_matchable_bytes += function_entry.binweight
         own_sample_num_nonlibrary_bytes = own_sample_num_matchable_bytes - num_library_bytes
         # aggregate sample byte sizes

@@ -1,7 +1,15 @@
 import datetime
+import logging
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
 
+from packaging import version
+
+from mcrit.config.BandPresets import (
+    describeBandProjection,
+    getBandProjectionFingerprint,
+    validateBandProjection,
+)
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import NodeType
 from mcrit.minhash.MinHash import MinHash
@@ -14,6 +22,8 @@ if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
     from mcrit.storage.SampleEntry import SampleEntry
+
+LOGGER = logging.getLogger(__name__)
 
 SampleId = int
 FunctionId = int
@@ -492,6 +502,11 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
+        """Set every family's sample/function counters from the samples and functions that exist,
+        and report how many families were corrected (#151)."""
+        raise NotImplementedError
+
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         """Delete family if known and return boolean success state
 
@@ -637,6 +652,22 @@ class StorageInterface:
         """
         return None
 
+    def isHashableBySize(self, num_instructions: int, num_blocks: int) -> bool:
+        """Whether a function of this size can receive a MinHash at all.
+
+        Mirrors MinHasher.isMinHashableFunction, but from the counts stored on a function document,
+        so a caller can decide before paying to load and parse the disassembly. Note that a
+        threshold of 0 is falsy and therefore disables its clause rather than meaning "no minimum" -
+        with both thresholds at 0 nothing is hashable, which is what isMinHashableFunction does too.
+        """
+        min_blocks = self._minhash_config.MINHASH_FN_MIN_BLOCKS
+        min_instructions = self._minhash_config.MINHASH_FN_MIN_INS
+        if min_blocks and num_blocks > min_blocks:
+            return True
+        if min_instructions and num_instructions > min_instructions:
+            return True
+        return False
+
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
         """Given a list of function_ids, return all FunctionEntry objects corresponding to these IDs if they do not have a minhash yet.
         Otherwise, return all FunctionEntry objects that do not have a minhash.
@@ -701,6 +732,15 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def rebuildPicBlockHashIndex(self, progress_reporter=None) -> int:
+        """Rebuild the inverted picblockhash index used by getUniqueBlocks
+        Args:
+            progress_reporter: optional callable invoked with progress updates
+        Returns:
+            the number of distinct block hashes indexed
+        """
+        raise NotImplementedError
+
     def rebuildMinhashBandIndex(self, progress_reporter=None) -> int:
         """Drop the current band index and rebuild it from scratch
         Args:
@@ -718,6 +758,35 @@ class StorageInterface:
             the number of minhashes indexed
         """
         raise NotImplementedError
+
+    @staticmethod
+    def _isStaleMinHashVersion(recorded_version: Optional[str], threshold) -> bool:
+        """A sample's minhashes are stale when the smda that escaped them is older than the
+        escaper compatibility threshold, or when no version was recorded at all (#142)."""
+        if not recorded_version:
+            return True
+        try:
+            return version.parse(recorded_version) < threshold
+        except Exception:
+            return True
+
+    def deleteMinHashesForSample(self, sample_id: int) -> int:
+        """Drop the minhashes of one sample's functions and their band entries, without touching
+        the rest of the index; how many functions had one (#142)."""
+        raise NotImplementedError
+
+    def setMinHashVersionForSamples(self, smda_version: str, sample_ids: Optional[List[int]] = None) -> None:
+        """Record which smda escaped the minhashes of the samples (all when None) (#142)."""
+        raise NotImplementedError
+
+    def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
+        """The samples whose minhashes were escaped by an smda older than the threshold, or
+        by an unrecorded one (#142)."""
+        raise NotImplementedError
+
+    def countSamplesWithStaleMinHashes(self, threshold_version: str) -> int:
+        """How many samples getSamplesWithStaleMinHashes would answer, for /status (#142)."""
+        return len(self.getSamplesWithStaleMinHashes(threshold_version))
 
     def deleteAllMinHashes(self, progress_reporter=None) -> int:
         """drop every minhash in all function_entries as a preparation for a full rebuild
@@ -765,9 +834,35 @@ class StorageInterface:
                     index_sequence.append(index_num * step_size + band_index)
                 band_projection[band_index] = index_sequence
                 band_index += 1
+        elif banding_strategy == "explicit":
+            projection = self._storage_config.getBandProjection()
+            errors, warnings = validateBandProjection(projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH)
+            if errors:
+                raise AttributeError("invalid STORAGE_BAND_PROJECTION: " + "; ".join(errors))
+            for warning in warnings:
+                LOGGER.warning("band projection: %s", warning)
+            description = describeBandProjection(projection, signature_length=self._minhash_config.MINHASH_SIGNATURE_LENGTH)
+            LOGGER.info(
+                "band projection %s: %d bands, sizes %s, covering %d of %d fields, %d bands free of the metric segment",
+                getBandProjectionFingerprint(projection, self._minhash_config.MINHASH_SIGNATURE_LENGTH),
+                description["num_bands"],
+                description["band_sizes"],
+                description["coverage"],
+                description["signature_length"],
+                description["pure_block_bands"],
+            )
+            for band_index, band in enumerate(projection):
+                band_projection[band_index] = list(band)
         else:
             raise AttributeError("unrecognized STORAGE_BAND_STRATEGY in STORAGE_CONFIG")
         return band_projection
+
+    def getBandProjectionFingerprint(self):
+        """Fingerprint of the projection this instance would index under, or None for strategies
+        whose projection is derived rather than stated."""
+        if getattr(self._storage_config, "STORAGE_BAND_STRATEGY", "random") != "explicit":
+            return None
+        return getBandProjectionFingerprint(self._storage_config.getBandProjection(), self._minhash_config.MINHASH_SIGNATURE_LENGTH)
 
     # -> Dict[BandIndex, BandHash]
     def getBandHashesForMinHash(self, minhash: "MinHash") -> Dict[int, int]:

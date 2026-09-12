@@ -9,6 +9,7 @@ from copy import deepcopy
 from itertools import zip_longest
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
+from packaging import version as packaging_version
 from picblocks.blockhasher import BlockHasher
 
 from mcrit.index.SearchCursor import FullSearchCursor
@@ -151,6 +152,7 @@ class MemoryStorage(StorageInterface):
         self._query_functions = {}
         self._pichashes = {}
         self._bands = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
+        self._minhash_versions: Dict[int, str] = {}
         self._counters = defaultdict(lambda: 0)
         # initialize query sample/function ids
         if self._counters["query_samples"] == 0:
@@ -224,9 +226,13 @@ class MemoryStorage(StorageInterface):
 
         sample_entry = self.getSampleById(sample_id)
         assert sample_entry is not None
-        self._updateFamilyStats(sample_entry.family_id, -1, -sample_entry.statistics["num_functions"], -int(sample_entry.is_library))
+        # by what was actually removed, and an emptied family goes with its last sample, like
+        # the MongoDB backend does (#151)
+        self._updateFamilyStats(sample_entry.family_id, -1, -len(function_ids), -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
+        if sample_entry.family_id != 0 and not any(s.family_id == sample_entry.family_id for s in self._samples.values()):
+            self._families.pop(sample_entry.family_id, None)
         return True
 
     def modifySample(self, sample_id: int, update_information: dict) -> bool:
@@ -308,6 +314,63 @@ class MemoryStorage(StorageInterface):
                     self._pichashes[function_entry.pichash].add((new_family_id, sample_id, function_id))
         self._updateDbState()
         return True
+
+    def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
+        report: Dict[str, Any] = {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}}
+        for sample_entry in self._samples.values():
+            if sample_entry.family_id not in self._families:
+                self._families[sample_entry.family_id] = FamilyEntry(family_name=sample_entry.family, family_id=sample_entry.family_id)
+                report["num_families_created"] += 1
+        functions_by_family: Dict[int, int] = {}
+        for function_entry in self._functions.values():
+            functions_by_family[function_entry.family_id] = functions_by_family.get(function_entry.family_id, 0) + 1
+        for family_id, family_entry in self._families.items():
+            samples = [sample_entry for sample_entry in self._samples.values() if sample_entry.family_id == family_id]
+            actual = {"num_samples": len(samples), "num_functions": functions_by_family.get(family_id, 0), "num_library_samples": len([s for s in samples if s.is_library])}
+            stored = {key: getattr(family_entry, key) for key in actual}
+            report["num_families"] += 1
+            if stored != actual:
+                for key, value in actual.items():
+                    setattr(family_entry, key, value)
+                report["num_families_corrected"] += 1
+                report["corrections"][family_id] = {"before": stored, "after": actual}
+        return report
+
+    def deleteMinHashesForSample(self, sample_id: int) -> int:
+        if not self.isSampleId(sample_id) or sample_id < 0:
+            return 0
+        num_hashed = 0
+        for function_id in self._sample_id_to_function_ids[sample_id]:
+            function_entry = self._functions[function_id]
+            minhash = function_entry.getMinHash(self._minhash_config.MINHASH_SIGNATURE_BITS)
+            if not minhash or not minhash.hasMinHash():
+                continue
+            num_hashed += 1
+            for band_number, band_hash in sorted(self.getBandHashesForMinHash(minhash).items()):
+                if band_hash in self._bands[band_number]:
+                    self._bands[band_number][band_hash] = [fid for fid in self._bands[band_number][band_hash] if fid != function_id]
+                    if not self._bands[band_number][band_hash]:
+                        del self._bands[band_number][band_hash]
+            function_entry.minhash = b""
+            function_entry.shingler_composition = {}
+        self._minhash_versions.pop(sample_id, None)
+        return num_hashed
+
+    def deleteAllMinHashes(self, progress_reporter=None) -> int:
+        num_deleted = 0
+        for sample_id in list(self._samples):
+            num_deleted += self.deleteMinHashesForSample(sample_id)
+        self._bands = {band_number: {} for band_number in self._bands}
+        return num_deleted
+
+    def setMinHashVersionForSamples(self, smda_version: str, sample_ids: Optional[List[int]] = None) -> None:
+        for sample_id in list(self._samples) if sample_ids is None else sample_ids:
+            if sample_id in self._samples:
+                self._minhash_versions[sample_id] = smda_version
+
+    def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
+        threshold = packaging_version.parse(threshold_version)
+        return sorted(sample_id for sample_id in self._samples if self._isStaleMinHashVersion(self._minhash_versions.get(sample_id), threshold))
 
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         if family_id not in self._families:
@@ -751,18 +814,24 @@ class MemoryStorage(StorageInterface):
         return valid_candidates
 
     def getUnhashedFunctions(self, function_ids: Optional[List[int]] = None, only_function_ids=False) -> List[Union[int, "FunctionEntry"]]:
-        result: List[Union[int, FunctionEntry]] = []
+        # Same selection as the MongoDB backend: needs a MinHash, and is large enough to receive
+        # one. Functions below the size thresholds can never be hashed, so returning them only
+        # makes every caller rediscover that after loading their disassembly.
+        candidates = [
+            function_entry
+            for _, function_entry in self._functions.items()
+            if not function_entry.minhash and self.isHashableBySize(function_entry.num_instructions, function_entry.num_blocks)
+        ]
         if function_ids is None:
-            if only_function_ids:
-                result = [function_entry.function_id for _, function_entry in self._functions.items() if function_entry.xcfg and not function_entry.minhash]
-            else:
-                result = [function_entry for _, function_entry in self._functions.items() if function_entry.xcfg and not function_entry.minhash]
-            return result
-        if only_function_ids:
-            result = [function_entry.function_id for _, function_entry in self._functions.items() if (not function_entry.minhash and function_entry.function_id in function_ids)]
+            # the None case additionally requires disassembly to be present, since without it there
+            # is nothing to hash from
+            candidates = [function_entry for function_entry in candidates if function_entry.xcfg]
         else:
-            result = [function_entry for _, function_entry in self._functions.items() if (not function_entry.minhash and function_entry.function_id in function_ids)]
-        return result
+            wanted = set(function_ids)
+            candidates = [function_entry for function_entry in candidates if function_entry.function_id in wanted]
+        if only_function_ids:
+            return [function_entry.function_id for function_entry in candidates]
+        return list(candidates)
 
     def deleteXcfgData(self) -> None:
         for function_id, function_entry in self._functions.items():
@@ -894,6 +963,12 @@ class MemoryStorage(StorageInterface):
                     continue
                 candidate_picblockhashes[picblockhash]["instructions"] = block_instructions
         return {"statistics": block_statistics, "unique_blocks": candidate_picblockhashes}
+
+    def rebuildPicBlockHashIndex(self, progress_reporter=None) -> int:
+        # MemoryStorage holds every function in a dict already, so getUniqueBlocks' elimination is
+        # an in-memory pass with nothing to index. Implemented rather than left to raise, so the
+        # backends stay interchangeable for callers that offer the rebuild unconditionally.
+        return 0
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):
         # TODO while minhashes are considerably small, there is a still chance that the
