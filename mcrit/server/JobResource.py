@@ -111,6 +111,31 @@ class JobResource:
         resp.data = jsonify({"status": "successful", "data": {"num_deleted": result}})
         db_log_msg(self.index, req, "JobResource.on_delete - success.")
 
+    @staticmethod
+    def _wants_compact(req):
+        return "compact" in req.params and req.params["compact"].lower().strip() == "true"
+
+    def _respond_with_result(self, resp, job_data, compact, result_bytes, parse_result):
+        """Answer a stored result inside the success envelope.
+
+        The result is stored as JSON, so unless the caller wants the compact form (which
+        drops the function matches and therefore needs the parsed dict) the stored bytes go
+        into the envelope as they are, instead of being parsed and serialised again - which
+        cost more than reading the report for an 8 MB result (#152).
+        """
+        if compact:
+            data = parse_result()
+            if job_data and data is not None:
+                job_info = Job(job_data, None)
+                if job_info.is_matching_job or job_info.is_query_job:
+                    data["matches"].pop("functions")
+            resp.data = jsonify({"status": "successful", "data": data})
+            return
+        if result_bytes is None:
+            resp.data = jsonify({"status": "successful", "data": None})
+            return
+        resp.data = b'{"status": "successful", "data": ' + result_bytes + b"}"
+
     @timing
     def on_get_results(self, req, resp, result_id=None):
         # validate that we only allow hexstrings with 24 chars
@@ -121,15 +146,10 @@ class JobResource:
             return
         job_id = self.index.getJobIdForResult(result_id)
         job_data = self.index.getJobData(job_id)
-        data = self.index.getResult(result_id)
-        if "compact" in req.params and req.params["compact"].lower().strip() == "true":
-            if job_data:
-                job_info = Job(job_data, None)
-                if job_info.is_matching_job or job_info.is_query_job:
-                    data["matches"].pop("functions")
+        compact = self._wants_compact(req)
         # TODO throw 404 if job_id is unknown
         # resp.status = falcon.HTTP_404
-        resp.data = jsonify({"status": "successful", "data": data})
+        self._respond_with_result(resp, job_data, compact, None if compact else self.index.getResultBytes(result_id), lambda: self.index.getResult(result_id))
         db_log_msg(self.index, req, "JobResource.on_get_results - success.")
 
     @timing
@@ -141,15 +161,10 @@ class JobResource:
             db_log_msg(self.index, req, "JobResource.on_get_job_result - failed - invalid job_id.")
             return
         job_data = self.index.getJobData(job_id)
-        data = self.index.getResultForJob(job_id)
-        if "compact" in req.params and req.params["compact"].lower().strip() == "true":
-            if job_data:
-                job_info = Job(job_data, None)
-                if job_info.is_matching_job or job_info.is_query_job:
-                    data["matches"].pop("functions")
+        compact = self._wants_compact(req)
         # TODO throw 404 if job_id is unknown
         # resp.status = falcon.HTTP_404
-        resp.data = jsonify({"status": "successful", "data": data})
+        self._respond_with_result(resp, job_data, compact, None if compact else self.index.getResultBytesForJob(job_id), lambda: self.index.getResultForJob(job_id))
         db_log_msg(self.index, req, "JobResource.on_get_job_result - success.")
 
     @timing
