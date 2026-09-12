@@ -39,8 +39,11 @@ Every response is a JSON document `{"status": "successful" | "failed", "data": .
 | `GET` | `/query/pichash/{pichash}` | The functions with the given pichash (16 hex digits) as (family_id, sample_id, function_id) tuples. Malformed hashes answer 400. | `getMatchesForPicHash` |
 | `GET` | `/query/pichash/{pichash}/summary` | Counts of families, samples and functions with the given pichash (16 hex digits). | `getMatchesForPicHash` |
 | `GET` | `/rebuild_index` | Schedule a job that drops the band index and rebuilds it from the stored minhashes. Answers the job id. | `rebuildIndex` |
+| `GET` | `/rebuild_picblockhash_index` | Schedule a job that rebuilds the inverted picblockhash index getUniqueBlocks reads. Answers the job id. | `rebuildPicBlockHashIndex` |
 | `GET` | `/recalculate_minhashes` | Schedule a job that drops every minhash and recalculates all of them. Answers the job id. | `recalculateMinHashes` |
 | `GET` | `/recalculate_pichashes` | Schedule a job that recalculates the pichashes of every sample hashed with an older smda. Answers the job id. | `recalculatePicHashes` |
+| `POST` | `/recompute_family_stats` | Schedule a job that sets every family's sample, function and library counters from the collections, recreating missing family documents. Answers the job id. | `recomputeFamilyStats` |
+| `POST` | `/repair_minhashes` | Schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (see ``num_samples_with_stale_minhashes`` in the status). Answers the job id. | `repairMinHashes` |
 | `POST` | `/respawn` | Drop the whole database and set up a fresh, empty instance. | `respawn` |
 | `GET` | `/results/{result_id}` | The result stored under a 24 hex digit result id; ``compact=true`` strips the per-function matches. | `getResult` |
 | `GET` | `/results/{result_id}/job` | The job that produced the result with the given id. | `getJobForResult` |

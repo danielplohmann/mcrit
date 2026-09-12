@@ -134,6 +134,27 @@ class McritClient:
             return self._passthrough(response)
         return handle_response(response)
 
+    def rebuildPicBlockHashIndex(self) -> Optional[str]:
+        """GET /rebuild_picblockhash_index: schedule a job that rebuilds the inverted picblockhash index getUniqueBlocks reads. Answers the job id."""
+        response = requests.get(f"{self.mcrit_server}/rebuild_picblockhash_index", headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
+        return handle_response(response)
+
+    def repairMinHashes(self) -> Optional[str]:
+        """POST /repair_minhashes: schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (#142). Answers the job id."""
+        response = requests.post(f"{self.mcrit_server}/repair_minhashes", headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
+        return handle_response(response)
+
+    def recomputeFamilyStats(self) -> Optional[str]:
+        """POST /recompute_family_stats: schedule a job that sets every family's sample/function counters from the collections (#151). Answers the job id."""
+        response = requests.post(f"{self.mcrit_server}/recompute_family_stats", headers=self.headers)
+        if self.raw:
+            return self._passthrough(response)
+        return handle_response(response)
+
     def recalculatePicHashes(self) -> Optional[str]:
         """GET /recalculate_pichashes: schedule a job that recalculates the pichashes of samples hashed with an older smda. Answers the job id."""
         response = requests.get(f"{self.mcrit_server}/recalculate_pichashes", headers=self.headers)
