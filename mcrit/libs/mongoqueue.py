@@ -586,8 +586,16 @@ class MongoQueue:
         return entry.metadata
 
     def get_cached_job_id(self, payload):
-        # a job is only worth handing out again when it is finished, waiting, or actually
-        # in flight on a live worker - not when a dead worker still holds its lock (#150)
+        """The job whose result a repeated request with the same descriptor should reuse.
+
+        Two things decide that. What is eligible: a job is only worth handing out again when
+        it is finished, waiting, or actually in flight on a live worker - not when a dead
+        worker still holds its lock (#150), and never when it failed (no attempts left) or
+        was terminated. Which of the eligible ones wins: a finished job is preferred over one
+        still queued or running, and among several of the same kind the newest. Sorting by
+        finished_at descending puts the finished jobs first, because a descending sort places
+        null (unfinished) after every date (fkie-cad/mcritweb#47).
+        """
         job = self._wrap_one(
             self._getCollection().find_one(
                 {
@@ -600,7 +608,7 @@ class MongoQueue:
                         {"locked_by": {"$in": sorted(self._live_worker_ids())}},
                     ],
                 },
-                sort=[("created_at", pymongo.DESCENDING)],
+                sort=[("finished_at", pymongo.DESCENDING), ("created_at", pymongo.DESCENDING)],
             )
         )
         return job and job.job_id or None
