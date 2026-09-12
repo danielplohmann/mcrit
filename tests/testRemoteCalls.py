@@ -232,6 +232,22 @@ class LocalQueueRemoteCallTest(TestCase):
         with self.assertRaises(AttributeError):
             self.caller.function_that_doesnt_exist(1, 2, 3)
 
+    def test_job_records_who_asked(self):
+        # fkie-cad/mcritweb#37: the user a job was requested for is stored on the job, is not part of the
+        # descriptor (another user's identical request is still served from the cache), and
+        # is None when nobody was named
+        kwparams = {"test_job_owner": True}
+        job_id = self.caller.test(username="alice", **kwparams)
+        self.assertEqual("alice", self.queue.get_job(job_id).username)
+        self.assertEqual("alice", self.queue.get_job(job_id)._data["username"])
+        self.assertEqual(job_id, self.caller.test(username="bob", **kwparams))
+        self.assertEqual("alice", self.queue.get_job(job_id).username)
+        forced_job_id = self.caller.test(username="bob", force_recalculation=True, **kwparams)
+        self.assertEqual("bob", self.queue.get_job(forced_job_id).username)
+        anonymous_job_id = self.caller.test(test_job_owner_anonymous=True)
+        self.assertIsNone(self.queue.get_job(anonymous_job_id).username)
+        self.queue.clear()
+
     def test_file_access(self):
         params = []
         kwparams = {"foo": {"test_file_access": True}}

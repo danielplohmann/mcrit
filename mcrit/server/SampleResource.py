@@ -4,7 +4,7 @@ import re
 import falcon
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, jsonify, timing
 
 
 class SampleResource:
@@ -57,7 +57,7 @@ class SampleResource:
 
     @timing
     def on_delete(self, req, resp, sample_id=None):
-        successful = self.index.deleteSample(sample_id, force_recalculation=True)
+        successful = self.index.deleteSample(sample_id, force_recalculation=True, username=get_username(req))
         if successful:
             resp.data = jsonify({"status": "successful", "data": successful})
             resp.status = falcon.HTTP_202
@@ -98,7 +98,7 @@ class SampleResource:
                 information_update["is_library"] = True
             elif information_update["is_library"] in ["False", "false", "0", 0]:
                 information_update["is_library"] = False
-        successful = self.index.modifySample(sample_id, information_update, force_recalculation=True)
+        successful = self.index.modifySample(sample_id, information_update, force_recalculation=True, username=get_username(req))
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Sample modified."}})
             resp.status = falcon.HTTP_202
@@ -158,7 +158,7 @@ class SampleResource:
         binary_sha256 = hashlib.sha256(binary).hexdigest()
         sample_entry = self.index.getSampleBySha256(binary_sha256)
         if sample_entry is None:
-            job_id = self.index.addBinarySample(binary, filename, family, version, is_dump, base_address, bitness, force_recalculation=True)
+            job_id = self.index.addBinarySample(binary, filename, family, version, is_dump, base_address, bitness, force_recalculation=True, username=get_username(req))
             resp.data = jsonify({"status": "successful", "data": job_id})
             resp.status = falcon.HTTP_202
             db_log_msg(self.index, req, f"SampleResource.on_post_submit_binary - success - with job_id: {job_id}.")

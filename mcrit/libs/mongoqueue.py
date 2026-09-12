@@ -345,13 +345,14 @@ class MongoQueue:
         """ """
         self._getCollection().find_one_and_update({"attempts_left": {"$lte": 0}}, remove=True)
 
-    def put(self, payload, priority=0, await_jobs: List[str] = []):
-        """Place a job into the queue"""
+    def put(self, payload, priority=0, await_jobs: List[str] = [], username=None):
+        """Place a job into the queue; username records who asked for it (fkie-cad/mcritweb#37)"""
         job = dict(self._default_insert)
         job["number"] = _useCounter(self._getCollection().database, "job")
         job["created_at"] = datetime.now()
         job["priority"] = priority
         job["payload"] = payload
+        job["username"] = username
         await_jobs_set = set(await_jobs)
         job["unfinished_dependencies"] = list(await_jobs_set)
         job["all_dependencies"] = list(await_jobs_set)
@@ -739,6 +740,11 @@ class Job:
     @property
     def priority(self):
         return self._data["priority"]
+
+    @property
+    def username(self):
+        # absent on jobs created before the field existed
+        return self._data.get("username")
 
     @property
     def attempts_left(self):

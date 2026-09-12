@@ -176,6 +176,15 @@ class MongoQueueTest(TestCase):
         self.assertEqual(1, len(jobs_in_progress))
         self.assertEqual(job.job_id, jobs_in_progress[0]["_id"])
 
+    def test_put_records_username(self):
+        with_user = self.queue.put({"method": "test_method"}, username="alice")
+        without_user = self.queue.put({"method": "test_method"})
+        self.assertEqual("alice", self.queue.get_job(with_user).username)
+        self.assertIsNone(self.queue.get_job(without_user).username)
+        # a document from before the field existed
+        self.queue._getCollection().update_one({"_id": without_user}, {"$unset": {"username": ""}})
+        self.assertIsNone(self.queue.get_job(without_user).username)
+
     def test_context_manager_error(self):
         self.queue.put({"method": "test_method", "context_id": "alpha", "data": [1, 2, 3], "more-data": time.time()})
         job = self.queue.next()

@@ -1,7 +1,7 @@
 import falcon
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, getMatchingParams, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, getMatchingParams, jsonify, timing
 
 
 class MatchResource:
@@ -22,7 +22,7 @@ class MatchResource:
             db_log_msg(self.index, req, "MatchResource.on_get_sample - failed - unknown sample_id.")
             return
 
-        sample_matches = self.index.getMatchesForSample(sample_id, **parameters)
+        sample_matches = self.index.getMatchesForSample(sample_id, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": sample_matches})
         db_log_msg(self.index, req, "MatchResource.on_get_sample - success.")
         # resp.status = falcon.HTTP_202
@@ -38,7 +38,7 @@ class MatchResource:
             db_log_msg(self.index, req, "MatchResource.on_get_sample_cross - failed - no sample_ids.")
             return
         sample_ids_list = [int(id) for id in sample_ids.split(",")]
-        cross_matches = self.index.getMatchesCross(sample_ids_list, **parameters)
+        cross_matches = self.index.getMatchesCross(sample_ids_list, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": cross_matches})
         db_log_msg(self.index, req, "MatchResource.on_get_sample_cross - success.")
 
@@ -56,7 +56,7 @@ class MatchResource:
             resp.status = falcon.HTTP_404
             db_log_msg(self.index, req, "MatchResource.on_get_sample_vs - failed - unknown sample_id.")
             return
-        sample_matches = self.index.getMatchesForSampleVs(sample_id, sample_id_b, **parameters)
+        sample_matches = self.index.getMatchesForSampleVs(sample_id, sample_id_b, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": sample_matches})
         db_log_msg(self.index, req, "MatchResource.on_get_sample_vs - success.")
 

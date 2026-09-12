@@ -3,7 +3,7 @@ import re
 import falcon
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, jsonify, timing
 
 
 class FamilyResource:
@@ -58,7 +58,7 @@ class FamilyResource:
                 information_update["is_library"] = True
             elif information_update["is_library"] in ["False", "false", "0", 0]:
                 information_update["is_library"] = False
-        successful = self.index.modifyFamily(family_id, information_update, force_recalculation=True)
+        successful = self.index.modifyFamily(family_id, information_update, force_recalculation=True, username=get_username(req))
         if successful:
             resp.data = jsonify({"status": "successful", "data": {"message": "Family modified."}})
             resp.status = falcon.HTTP_202
@@ -83,7 +83,7 @@ class FamilyResource:
         keep_samples = False
         if "keep_samples" in req.params:
             keep_samples = req.params["keep_samples"].lower().strip() == "true"
-        successful = self.index.deleteFamily(family_id, keep_samples=keep_samples, force_recalculation=True)
+        successful = self.index.deleteFamily(family_id, keep_samples=keep_samples, force_recalculation=True, username=get_username(req))
         if successful:
             db_log_msg(self.index, req, f"FamilyResource.on_delete - success - family_id: {family_id}, keep_samples={keep_samples}")
             resp.data = jsonify({"status": "successful", "data": successful})
