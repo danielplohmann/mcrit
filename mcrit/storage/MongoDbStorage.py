@@ -1028,15 +1028,18 @@ class MongoDbStorage(StorageInterface):
         self._addToPicBlockHashIndex(functions_as_dicts)
         return function_entries
 
-    def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
+    def getFunctionsBySampleId(self, sample_id: int, with_xcfg: bool = False) -> Optional[List["FunctionEntry"]]:
         if not self.isSampleId(sample_id):
             return None
         if sample_id < 0:
             function_dicts = list(self._getDb().query_functions.find({"sample_id": sample_id}, {"_id": 0}))
         else:
             function_dicts = list(self._getDb().functions.find({"sample_id": sample_id}, {"_id": 0}))
-        functions = []
+        # one batch read of the split-out disassembly; the entries carry xcfg either way, the
+        # flag only says whether the caller needs it (a second read of every blob is what a
+        # review of #94 caught here)
         self._attachXcfgBlobs(function_dicts)
+        functions = []
         for f in function_dicts:
             self._decodeFunction(f)
             functions.append(FunctionEntry.fromDict(f))

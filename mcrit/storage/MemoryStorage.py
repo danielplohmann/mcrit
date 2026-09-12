@@ -663,7 +663,7 @@ class MemoryStorage(StorageInterface):
         return None
 
     # TODO does this need to be more efficient?
-    def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
+    def getFunctionsBySampleId(self, sample_id: int, with_xcfg: bool = False) -> Optional[List["FunctionEntry"]]:
         if sample_id in self._samples or sample_id in self._query_samples:
             function_ids = self._sample_id_to_function_ids[sample_id]
             function_entries = []
