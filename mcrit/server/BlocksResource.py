@@ -1,7 +1,7 @@
 import re
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, getUniqueBlocksParams, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, getUniqueBlocksParams, jsonify, timing
 
 
 class BlocksResource:
@@ -15,7 +15,7 @@ class BlocksResource:
         blocks_result = {}
         samples = self.index.getSamplesByFamilyId(family_id)
         target_sample_ids = [sample.sample_id for sample in samples]
-        blocks_result = self.index.getUniqueBlocks(target_sample_ids, family_id=family_id, **parameters)
+        blocks_result = self.index.getUniqueBlocks(target_sample_ids, family_id=family_id, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": blocks_result})
 
     @timing
@@ -25,5 +25,5 @@ class BlocksResource:
         blocks_result = {}
         if comma_separated_sample_ids is not None and re.match(r"^\d+(?:[\s]*,[\s]*\d+)*$", comma_separated_sample_ids):
             target_sample_ids = [int(sample_id) for sample_id in comma_separated_sample_ids.split(",")]
-            blocks_result = self.index.getUniqueBlocks(target_sample_ids, **parameters)
+            blocks_result = self.index.getUniqueBlocks(target_sample_ids, username=get_username(req), **parameters)
         resp.data = jsonify({"status": "successful", "data": blocks_result})

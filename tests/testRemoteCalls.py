@@ -232,6 +232,58 @@ class LocalQueueRemoteCallTest(TestCase):
         with self.assertRaises(AttributeError):
             self.caller.function_that_doesnt_exist(1, 2, 3)
 
+    def test_job_records_who_asked(self):
+        # fkie-cad/mcritweb#37: the user a job was requested for is stored on the job, is not part of the
+        # descriptor (another user's identical request is still served from the cache), and
+        # is None when nobody was named
+        kwparams = {"test_job_owner": True}
+        job_id = self.caller.test(username="alice", **kwparams)
+        self.assertEqual("alice", self.queue.get_job(job_id).username)
+        self.assertEqual("alice", self.queue.get_job(job_id)._data["username"])
+        self.assertEqual(job_id, self.caller.test(username="bob", **kwparams))
+        self.assertEqual("alice", self.queue.get_job(job_id).username)
+        forced_job_id = self.caller.test(username="bob", force_recalculation=True, **kwparams)
+        self.assertEqual("bob", self.queue.get_job(forced_job_id).username)
+        anonymous_job_id = self.caller.test(test_job_owner_anonymous=True)
+        self.assertIsNone(self.queue.get_job(anonymous_job_id).username)
+
+    def test_queue_listing_filters_before_paging(self):
+        # fkie-cad/mcritweb#57: a text filter, a user and a state select the jobs first, and only then is the
+        # page cut; the count is the count of that same selection
+        for i in range(6):
+            self.caller.test(needle="apple", index=i, username="alice" if i % 2 else "bob")
+            self.caller.test(needle="pear", index=i, username="alice")
+        for job in self.queue.get_jobs(0, 0):
+            self.caller.awaitResult(str(job.job_id))
+        self.assertEqual(12, self.caller.getQueueCount())
+        self.assertEqual(6, self.caller.getQueueCount(filter="APPLE"))
+        self.assertEqual(9, self.caller.getQueueCount(username="alice"))
+        self.assertEqual(3, self.caller.getQueueCount(filter="apple", username="alice"))
+        self.assertEqual(0, self.caller.getQueueCount(filter="banana"))
+        self.assertEqual(12, self.caller.getQueueCount(state="finished"))
+        self.assertEqual(0, self.caller.getQueueCount(state="queued"))
+        self.assertEqual(0, self.caller.getQueueCount(state="no-such-state"))
+        page_1 = self.caller.getQueueData(0, 4, filter="apple")
+        page_2 = self.caller.getQueueData(4, 4, filter="apple")
+        self.assertEqual(4, len(page_1))
+        self.assertEqual(2, len(page_2))
+        self.assertTrue(all("apple" in job["payload"]["params"] for job in page_1 + page_2))
+        self.assertEqual(6, len({str(job["_id"]) for job in page_1 + page_2}))
+        # newest first by default, oldest first when ascending
+        numbers = [job["number"] for job in self.caller.getQueueData(0, 0, filter="apple")]
+        self.assertEqual(sorted(numbers, reverse=True), numbers)
+        numbers = [job["number"] for job in self.caller.getQueueData(0, 0, filter="apple", ascending=True)]
+        self.assertEqual(sorted(numbers), numbers)
+        self.assertEqual(3, len(self.caller.getQueueData(0, 0, filter="apple", username="alice")))
+        self.assertEqual(12, len(self.caller.getQueueData(0, 0, state="finished")))
+        # a parameter is matched as the listing shows it, not as an ASCII escape
+        umlaut_job = self.caller.test(needle="Müller", index=99)
+        self.caller.awaitResult(umlaut_job)
+        self.assertEqual(1, self.caller.getQueueCount(filter="müller"))
+        self.assertEqual(1, self.caller.getQueueCount(filter="Müller"))
+        self.assertEqual(0, self.caller.getQueueCount(filter="u00fc"))
+        self.queue.clear()
+
     def test_file_access(self):
         params = []
         kwparams = {"foo": {"test_file_access": True}}

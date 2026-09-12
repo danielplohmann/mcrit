@@ -246,6 +246,11 @@ class Job:
         return self._data["priority"]
 
     @property
+    def username(self):
+        # who asked for the job (fkie-cad/mcritweb#37); None on jobs from a backend that did not record it
+        return self._data.get("username")
+
+    @property
     def attempts_left(self):
         return self._data["attempts_left"]
 
@@ -394,14 +399,48 @@ class LocalQueue:
         data = self._jobs[job_id]
         return data and Job(data, self)
 
-    def get_jobs(self, start_index: int, limit: int, method=None, state=None, filter=None, ascencing=False):
-        # TODO implement all the filtering methods properly
+    @staticmethod
+    def _identifyJobState(doc) -> str:
+        # the same rule as MongoQueue._identifyJobState, on a job dict whose absent fields read
+        # as None
+        if doc["started_at"] and doc["locked_by"] and not (doc["finished_at"] or doc["terminated"]):
+            return "in_progress"
+        if doc["attempts_left"] == 0 and not doc["finished_at"] and not doc["terminated"]:
+            return "failed"
+        if not doc["finished_at"] and not doc["locked_by"] and not doc["terminated"]:
+            return "queued"
+        if doc["finished_at"] and not doc["terminated"]:
+            return "finished"
+        if doc["terminated"]:
+            return "terminated"
+        return "unknown"
+
+    def _matching_jobs(self, method=None, state=None, filter=None, username=None, ascending=False):
+        # the same selection MongoQueue._job_query makes (fkie-cad/mcritweb#57), in submission order
         jobs = []
-        for job_id, job_document in self._jobs.items():
+        for job_document in self._jobs.values():
             if method is not None and job_document["payload"]["method"] != method:
                 continue
-            jobs.append(Job(job_document, self))
-        return jobs[start_index : start_index + limit]
+            if state is not None and self._identifyJobState(job_document) != state:
+                continue
+            if username is not None and job_document["username"] != username:
+                continue
+            if filter:
+                haystack = (job_document["payload"].get("method") or "") + " " + (job_document["payload"].get("params") or "")
+                if filter.lower() not in haystack.lower():
+                    continue
+            jobs.append(job_document)
+        jobs.sort(key=lambda job_document: job_document["number"], reverse=not ascending)
+        return jobs
+
+    def get_jobs(self, start_index: int, limit: int, method=None, state=None, ascending=False, filter=None, username=None):
+        jobs = [Job(job_document, self) for job_document in self._matching_jobs(method=method, state=state, filter=filter, username=username, ascending=ascending)]
+        if limit:
+            return jobs[start_index : start_index + limit]
+        return jobs[start_index:]
+
+    def get_job_count(self, method=None, state=None, filter=None, username=None) -> int:
+        return len(self._matching_jobs(method=method, state=state, filter=filter, username=username))
 
     def get_cached_job_id(self, payload):
         return self._descriptor_to_job[payload["descriptor"]]
@@ -484,13 +523,14 @@ class LocalQueue:
         del self._files[grid]
         del self._files_meta[grid]
 
-    def put(self, payload, await_jobs=[]):
+    def put(self, payload, await_jobs=[], username=None):
         id = str(uuid.uuid4())
         job_data: Dict[str, Any] = defaultdict(lambda: None)
         job_data["_id"] = id
         job_data["number"] = self._job_counter
         self._job_counter += 1
         job_data["payload"] = payload
+        job_data["username"] = username
         job_data["unfinished_dependencies"] = await_jobs
         job_data["all_dependencies"] = await_jobs
         job_data["attempts_left"] = self.max_attempts

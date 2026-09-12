@@ -15,6 +15,7 @@
 
 import json
 import logging
+import re
 import threading
 import time
 import traceback
@@ -345,13 +346,14 @@ class MongoQueue:
         """ """
         self._getCollection().find_one_and_update({"attempts_left": {"$lte": 0}}, remove=True)
 
-    def put(self, payload, priority=0, await_jobs: List[str] = []):
-        """Place a job into the queue"""
+    def put(self, payload, priority=0, await_jobs: List[str] = [], username=None):
+        """Place a job into the queue; username records who asked for it (fkie-cad/mcritweb#37)"""
         job = dict(self._default_insert)
         job["number"] = _useCounter(self._getCollection().database, "job")
         job["created_at"] = datetime.now()
         job["priority"] = priority
         job["payload"] = payload
+        job["username"] = username
         await_jobs_set = set(await_jobs)
         job["unfinished_dependencies"] = list(await_jobs_set)
         job["all_dependencies"] = list(await_jobs_set)
@@ -456,34 +458,46 @@ class MongoQueue:
 
         return dict(zip(["available", "locked", "errors", "total"], counts))
 
-    def get_jobs(self, start_index: int, limit: int, method=None, state=None, ascending=False) -> Optional[List["Job"]]:
-        jobs = []
-        query_filter = {} if method is None else {"payload.method": method}
-        if state is None:
-            if ascending:
-                for job_document in self._getCollection().find(query_filter).skip(start_index).limit(limit):
-                    jobs.append(self._wrap_one(job_document))
-            else:
-                for job_document in self._getCollection().find(query_filter, sort=[("_id", -1)]).skip(start_index).limit(limit):
-                    jobs.append(self._wrap_one(job_document))
-        else:
-            # we go with an inefficient implementation for now to see if this is a desired feature and revise the query in case we deem this useful.
-            # TODO improve performance of these queries, we probably want to find a query_filter for the different possible states to allow use of skip/limit
-            all_jobs = []
-            if ascending:
-                for job_document in self._getCollection().find(query_filter):
-                    if self._identifyJobState(job_document) == state:
-                        all_jobs.append(self._wrap_one(job_document))
-            else:
-                for job_document in self._getCollection().find(query_filter, sort=[("_id", -1)]):
-                    if self._identifyJobState(job_document) == state:
-                        all_jobs.append(self._wrap_one(job_document))
-            # apply skip/limit as slice on the result
-            if limit:
-                jobs = all_jobs[start_index : start_index + limit]
-            else:
-                jobs = all_jobs[start_index:]
-        return jobs
+    # The states of _identifyJobState as queries, in the same order of precedence: each query
+    # excludes what an earlier branch would have claimed, so a document lands in exactly one.
+    _STATE_QUERIES = {
+        "in_progress": {"started_at": {"$ne": None}, "locked_by": {"$ne": None}, "finished_at": None, "terminated": False},
+        "failed": {"attempts_left": 0, "finished_at": None, "terminated": False, "$or": [{"started_at": None}, {"locked_by": None}]},
+        "queued": {"attempts_left": {"$ne": 0}, "finished_at": None, "locked_by": None, "terminated": False},
+        "finished": {"finished_at": {"$ne": None}, "terminated": False},
+        "terminated": {"terminated": True},
+    }
+
+    @classmethod
+    def _job_query(cls, method=None, state=None, filter=None, username=None) -> dict:
+        """The query behind get_jobs and get_job_count, so that paging, filtering and counting
+        all see the same set of documents (fkie-cad/mcritweb#57): a text filter used to be applied to a page
+        after it had been cut, which answered "the matches among jobs 0-24" instead of "the
+        first 25 matches", and a state used to be decided in Python per document."""
+        conditions: List[dict] = []
+        if method is not None:
+            conditions.append({"payload.method": method})
+        if state is not None:
+            # an unknown state names no job, as it never did
+            conditions.append(dict(cls._STATE_QUERIES.get(state, {"_id": {"$exists": False}})))
+        if filter:
+            # what the job's parameters rendering is made of: the method name and the
+            # serialized parameters
+            pattern = re.compile(re.escape(filter), re.IGNORECASE)
+            conditions.append({"$or": [{"payload.method": pattern}, {"payload.params": pattern}]})
+        if username is not None:
+            conditions.append({"username": username})
+        if not conditions:
+            return {}
+        return {"$and": conditions}
+
+    def get_jobs(self, start_index: int, limit: int, method=None, state=None, ascending=False, filter=None, username=None) -> List["Job"]:
+        query = self._job_query(method=method, state=state, filter=filter, username=username)
+        cursor = self._getCollection().find(query, sort=[("_id", 1 if ascending else -1)]).skip(start_index).limit(limit)
+        return [self._wrap_one(job_document) for job_document in cursor]
+
+    def get_job_count(self, method=None, state=None, filter=None, username=None) -> int:
+        return self._getCollection().count_documents(self._job_query(method=method, state=state, filter=filter, username=username))
 
     def get_job(self, job_id):
         job_id = ObjectId(job_id)
@@ -739,6 +753,11 @@ class Job:
     @property
     def priority(self):
         return self._data["priority"]
+
+    @property
+    def username(self):
+        # absent on jobs created before the field existed
+        return self._data.get("username")
 
     @property
     def attempts_left(self):

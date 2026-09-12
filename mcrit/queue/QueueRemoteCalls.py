@@ -34,12 +34,14 @@ class BaseRemoteCallerClass:
         LOGGER.debug("called getQueueStats()")
         return self.queue.getQueueStatistics(refresh=refresh)
 
-    def getQueueData(self, start_index: int, limit: int, method=None, state=None, filter=None, ascending=False) -> List[dict]:
-        LOGGER.debug(f"called getQueueData(start_index={start_index}, limit={method}, method={method}, state={state}, filter={filter}, ascending={ascending}):")
-        if filter is not None:
-            # TODO apply filter to more fields
-            return [job._data for job in self.queue.get_jobs(start_index, limit, method, state, ascending) if filter in job.parameters]
-        return [job._data for job in self.queue.get_jobs(start_index, limit, method, state, ascending)]
+    def getQueueData(self, start_index: int, limit: int, method=None, state=None, filter=None, ascending=False, username=None) -> List[dict]:
+        LOGGER.debug(f"called getQueueData(start_index={start_index}, limit={limit}, method={method}, state={state}, filter={filter}, ascending={ascending}, username={username}):")
+        # the filter is part of the query, so a page is a page of the matches (fkie-cad/mcritweb#57)
+        return [job._data for job in self.queue.get_jobs(start_index, limit, method=method, state=state, ascending=ascending, filter=filter, username=username)]
+
+    def getQueueCount(self, method=None, state=None, filter=None, username=None) -> int:
+        LOGGER.debug(f"called getQueueCount(method={method}, state={state}, filter={filter}, username={username}):")
+        return self.queue.get_job_count(method=method, state=state, filter=filter, username=username)
 
     def deleteQueueData(self, method=None, created_before=None, finished_before=None):
         LOGGER.debug(f"called getQueueData(filter={method}, filter={filter}, created_before={created_before}, finished_before={finished_before}):")
@@ -142,11 +144,13 @@ def QueueRemoteCaller(clsCallee):
 
 # Wrapper that creates a remote call proxy for a given method
 def RemotifyFunctionWrapper(function):
-    def submitPayloadQueue(self, payload, await_jobs):
-        return str(self.queue.put(payload, await_jobs=await_jobs))
+    def submitPayloadQueue(self, payload, await_jobs, username):
+        return str(self.queue.put(payload, await_jobs=await_jobs, username=username))
 
     # remote call proxy
-    def remote_call_function(self, *params, await_jobs=None, force_recalculation=False, **kwparams):
+    # username is who asked for the job (fkie-cad/mcritweb#37): it is recorded on the job document and is not
+    # part of the descriptor, so a request by another user is still served from the cache
+    def remote_call_function(self, *params, await_jobs=None, force_recalculation=False, username=None, **kwparams):
         name = function.__name__
 
         # join file locations:
@@ -173,7 +177,7 @@ def RemotifyFunctionWrapper(function):
         payload = _createJobPayload(name, params, grid_params, descriptor)
         if await_jobs is None:
             await_jobs = []
-        job_id = submitPayloadQueue(self, payload, await_jobs)
+        job_id = submitPayloadQueue(self, payload, await_jobs, username)
 
         # Add job ids to parameters
         add_job_id_to_files(self, job_id, grid_params)
@@ -264,7 +268,10 @@ def add_job_id_to_files(self, job_id, grid_params):
 def _createJobPayload(method_name, params, grid_params, descriptor):
     payload = {
         "method": method_name,
-        "params": json.dumps(params),
+        # not ASCII-escaped: the serialized parameters are what the job listing's text
+        # filter matches against, and a filter typed as "Müller" must find a job whose
+        # parameter reads "Müller" in the listing (fkie-cad/mcritweb#57)
+        "params": json.dumps(params, ensure_ascii=False),
         "file_params": json.dumps(grid_params),
         "descriptor": descriptor,
     }

@@ -377,7 +377,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         LOGGER.info("Added %d function entries.", len(function_entries))
         job_id = None
         if calculate_hashes:
-            job_id = self.updateMinHashesForSample(sample_entry.sample_id)
+            job_id = self.updateMinHashesForSample(sample_entry.sample_id, username=username)
         return {"existed": False, "sample_info": sample_entry.toDict(), "job_id": job_id}
 
     def addReportJson(self, report_json, calculate_hashes=True, calculate_matches=False, username=None):
@@ -390,15 +390,15 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         report = SmdaReport.fromDict(report_json)
         return self.addReport(report, calculate_hashes=calculate_hashes, calculate_matches=calculate_matches)
 
-    def getMatchesCross(self, sample_ids: List[int], sample_group_only=False, force_recalculation=False, **params):
+    def getMatchesCross(self, sample_ids: List[int], sample_group_only=False, force_recalculation=False, username=None, **params):
         sample_to_job_id = {}
         for id in sample_ids:
             if sample_group_only:
-                job_id = self.getMatchesForSampleVsGroup(id, [sid for sid in sample_ids if sid != id], force_recalculation=force_recalculation, **params)
+                job_id = self.getMatchesForSampleVsGroup(id, [sid for sid in sample_ids if sid != id], force_recalculation=force_recalculation, username=username, **params)
             else:
-                job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, **params)
+                job_id = self.getMatchesForSample(id, force_recalculation=force_recalculation, username=username, **params)
             sample_to_job_id[id] = job_id
-        return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation)
+        return self.combineMatchesToCross(sample_to_job_id, await_jobs=[*sample_to_job_id.values()], force_recalculation=force_recalculation, username=username)
 
     def getMatchesForSmdaFunction(self, smda_report_with_function: SmdaReport, minhash_threshold=None, pichash_size=None, band_matches_required=None, exclude_self_matches=False):
         # convert function to FunctionEntry

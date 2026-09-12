@@ -26,19 +26,19 @@ class TestBlocksResource(unittest.TestCase):
         index, resource = self._resource()
         resp = falcon.Response()
         resource.on_get_unique_blocks_for_samples(self._request("/uniqueblocks/samples/1,2", "covers_required=3&min_instructions=5"), resp, "1,2")
-        index.getUniqueBlocks.assert_called_once_with([1, 2], covers_required=3, min_instructions=5)
+        index.getUniqueBlocks.assert_called_once_with([1, 2], username=None, covers_required=3, min_instructions=5)
         assert resp.data is not None
         self.assertEqual("successful", json.loads(resp.data)["status"])
 
     def test_family_route_passes_the_parameters(self):
         index, resource = self._resource()
         resource.on_get_unique_blocks_for_family(self._request("/uniqueblocks/family/4", "covers_required=2"), falcon.Response(), 4)
-        index.getUniqueBlocks.assert_called_once_with([7, 8], family_id=4, covers_required=2)
+        index.getUniqueBlocks.assert_called_once_with([7, 8], family_id=4, username=None, covers_required=2)
 
     def test_omitted_parameters_leave_the_defaults_to_the_worker(self):
         index, resource = self._resource()
         resource.on_get_unique_blocks_for_samples(self._request("/uniqueblocks/samples/1"), falcon.Response(), "1")
-        index.getUniqueBlocks.assert_called_once_with([1])
+        index.getUniqueBlocks.assert_called_once_with([1], username=None)
 
     def test_malformed_sample_ids_are_not_queried(self):
         index, resource = self._resource()
