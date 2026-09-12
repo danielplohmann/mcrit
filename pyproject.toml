@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcrit"
-version = "1.8.1"
+version = "1.9.0"
 description = "MCRIT is a framework created for simplified application of the MinHash algorithm to code similarity."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
@@ -59,8 +59,12 @@ dev = [
     "ruff",
     "twine",
     # ty is pinned: it gates CI and is pre-1.0, so a new release can add diagnostics and redden an
-    # unchanged tree. Dependabot proposes the bump, which is where a new diagnostic gets reviewed.
-    "ty==0.0.74",
+    # unchanged tree. Dependabot is deliberately left to propose the bump - that PR is the canary,
+    # and a red one is a bug report, not a nuisance: 0.0.79's redundant-condition rule is what
+    # found #186, a parameter that had been silently ignored for as long as it existed. Take the
+    # bump in its own change once the tree is clean under the new version, and never merge a red
+    # one - during a deep PR queue it reddens every open branch for reasons unrelated to them.
+    "ty==0.0.79",
 ]
 
 [project.urls]

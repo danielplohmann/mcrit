@@ -69,6 +69,21 @@ class BaseRemoteCallerClass:
                 result = self.queue._grid_to_dicts(res_id)
         return result
 
+    def getResultBytesForJob(self, job_id):
+        """The stored result of the job as the JSON bytes it was written with, or None.
+
+        Serving a report does not need the parsed dict, only its bytes inside the response
+        envelope; parsing and re-serialising an 8 MB report costs more than reading it (#152).
+        """
+        job_info = self.queue.get_job(job_id)
+        if job_info is None or job_info.result is None:
+            return None
+        return self.queue._grid_to_file(job_info.result)
+
+    def getResultBytes(self, res_id):
+        """The stored result as the JSON bytes it was written with, or None (#152)."""
+        return self.queue._grid_to_file(res_id)
+
     def getJobIdForResult(self, result_id):
         job_id = None
         meta = self.queue._grid_to_meta(result_id)
