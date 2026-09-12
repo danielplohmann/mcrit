@@ -339,8 +339,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     """
     def updateMinHashes(self, function_ids):
     def rebuildIndex(self):
+    def recomputeFamilyStats(self):
     def recalculatePicHashes(self):
     def recalculateMinHashes(self):
+    def repairMinHashes(self):
     def getMatchesForReport(self, report):
     def getMatchesForSmdaReport(self, report_json, minhash_threshold=None):
     def getMatchesForMappedBinary(self, binary, base_address, minhash_threshold=None):
@@ -516,6 +518,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         inline_xcfg_remaining = storage.hasInlineXcfgRemaining()
         if inline_xcfg_remaining is not None:
             status["status"]["inline_xcfg_remaining"] = inline_xcfg_remaining
+        # how many samples' minhashes an older escaper produced; repairMinHashes rehashes them (#142)
+        threshold = Worker.getMinHashCompatibilityThreshold()
+        status["status"]["minhash_compatibility_threshold"] = threshold
+        status["status"]["num_samples_with_stale_minhashes"] = storage.countSamplesWithStaleMinHashes(threshold)
         return status
 
     def getVersion(self):
@@ -715,11 +721,12 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         except Exception:
             pass
 
+        sha_match = None
         if re.match("^[a-fA-F0-9]{64}$", search_term) is not None:
+            # both storages answer an unknown hash with None (#158)
             sample_entry = storage.getSampleBySha256(search_term)
-            sha_match = sample_entry.toDict()
-        else:
-            sha_match = None
+            if sample_entry is not None:
+                sha_match = sample_entry.toDict()
 
         if sort_by not in (
             None,
