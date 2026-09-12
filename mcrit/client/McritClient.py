@@ -13,6 +13,7 @@ from mcrit.queue.LocalQueue import Job
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.SampleEntry import SampleEntry
+from mcrit.storage.SearchResult import SearchResult
 
 # Only do basicConfig if no handlers have been configured
 if not logging.root.handlers:
@@ -823,7 +824,7 @@ class McritClient:
     # search_term, is_ascending and sort_by value that were used when the cursor was returned from mcrit.
     # If those parameters are altered, mcrit's behavior is undefined.
 
-    def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
+    def _search_request(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
         params = {
             "query": search_term,
             "is_ascending": is_ascending,
@@ -835,11 +836,48 @@ class McritClient:
         if limit is not None:
             params["limit"] = limit
         encoded_params = urllib.parse.urlencode(params)
-        response = requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers)
-        return handle_response(response)
+        return requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers)
+
+    def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
+        return handle_response(self._search_request(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit))
 
     search_families = functools.partialmethod(_search_base, "families")
 
     search_samples = functools.partialmethod(_search_base, "samples")
 
     search_functions = functools.partialmethod(_search_base, "functions")
+
+    # The typed counterparts (fkie-cad/mcritweb#64): the same search, answered as a
+    # SearchResult whose entries are FamilyEntry/SampleEntry/FunctionEntry objects, like every
+    # other accessor of this client. The search_* methods above keep answering the wire dict.
+
+    def _typed_search(self, search_kind, entry_class, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
+        response = self._search_request(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
+        if self.raw:
+            # like the other camel-case accessors: the requests.Response itself
+            return response
+        data = handle_response(response)
+        if data is None:
+            return None
+        return SearchResult.fromDict(data, entry_class)
+
+    def searchFamilies(self, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None) -> Optional[SearchResult[FamilyEntry]]:
+        """
+        Search families by <search_term>, answered as FamilyEntry objects
+        Supported by mcritweb API pass-through (as /search/families)
+        """
+        return self._typed_search("families", FamilyEntry, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
+
+    def searchSamples(self, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None) -> Optional[SearchResult[SampleEntry]]:
+        """
+        Search samples by <search_term>, answered as SampleEntry objects
+        Supported by mcritweb API pass-through (as /search/samples)
+        """
+        return self._typed_search("samples", SampleEntry, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
+
+    def searchFunctions(self, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None) -> Optional[SearchResult[FunctionEntry]]:
+        """
+        Search functions by <search_term>, answered as FunctionEntry objects
+        Supported by mcritweb API pass-through (as /search/functions)
+        """
+        return self._typed_search("functions", FunctionEntry, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
