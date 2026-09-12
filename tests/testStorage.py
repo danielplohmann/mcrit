@@ -610,6 +610,51 @@ class MongoDbStorageTest(MemoryStorageTest):
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
 
+    def testAnOversizedDisassemblyBlobIsDroppedAndTheFunctionKept(self):
+        # #42: MongoDB refuses a document over 16 MiB; the whole batch used to fail as
+        # "Database insert failed." with nothing saying which document, and the sample was lost
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        huge = "x" * (16 * 1024 * 1024 + 1)
+        with patch("mcrit.storage.MongoDbStorage.LOGGER") as logger:
+            self.storage._insertXcfgDocuments([{"function_id": 5, "_xcfg": huge}, {"function_id": 6, "_xcfg": "{}"}])
+        self.assertIn("Dropping the disassembly of %d function(s)", logger.warning.call_args.args[0])
+        self.assertEqual(1, logger.warning.call_args.args[1])
+        self.assertEqual([6], [document["_id"] for document in db.xcfg.find({}, {"_id": 1})])
+        error = db.error.find_one({}, sort=[("ts", -1)])
+        assert error is not None
+        self.assertIn("exceed the 16 MiB limit", error["error_msg"])
+        self.assertEqual(5, error["error_details"]["oversized"][0]["document"]["_id"])
+        self.assertGreater(error["error_details"]["oversized"][0]["bytes"], 16 * 1024 * 1024)
+        self.assertTrue(error["error_details"]["dropped"])
+
+    def testAnOversizedFunctionDocumentFailsNamingItself(self):
+        self.storage.clearStorage()
+        huge = "x" * (16 * 1024 * 1024 + 1)
+        with self.assertRaises(ValueError) as raised:
+            self.storage._dbInsertMany("functions", [{"function_id": 8, "sample_id": 1}, {"function_id": 9, "sample_id": 1, "blob": huge}, {"function_id": 10, "sample_id": 1}])
+        self.assertIn("16 MiB", str(raised.exception))
+        self.assertIn("'function_id': 9", str(raised.exception))
+        self.assertNotIn("'function_id': 10", str(raised.exception))
+        # the ordered insert stopped at the oversized document
+        self.assertEqual([8], [d["function_id"] for d in self.storage._getDb().functions.find({}, {"function_id": 1})])
+
+    def testAnOversizedBlobInTheMiddleKeepsTheOthers(self):
+        self.storage.clearStorage()
+        huge = "x" * (16 * 1024 * 1024 + 1)
+        with patch("mcrit.storage.MongoDbStorage.LOGGER"):
+            inserted = self.storage._insertXcfgDocuments(
+                [
+                    {"function_id": 1, "_xcfg": "{}"},
+                    {"function_id": 2, "_xcfg": huge},
+                    {"function_id": 3, "_xcfg": "{}"},
+                    {"function_id": 4, "_xcfg": huge},
+                    {"function_id": 5, "_xcfg": "{}"},
+                ]
+            )
+        self.assertIsNone(inserted)
+        self.assertEqual([1, 3, 5], sorted(document["_id"] for document in self.storage._getDb().xcfg.find({}, {"_id": 1})))
+
     def _driftFamilyCounters(self, family_id, num_samples, num_functions):
         self.storage._getDb().families.update_one({"family_id": family_id}, {"$set": {"num_samples": num_samples, "num_functions": num_functions}})
 
