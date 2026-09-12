@@ -103,8 +103,16 @@ def get_app():
     _app.add_route("/complete_minhashes", status_resource, suffix="complete_minhashes")  # get
     # schedule a job that drops all minhash bands and rebuilds the index using all existing minhashes
     _app.add_route("/rebuild_index", status_resource, suffix="rebuild_index")  # get
+    # schedule a job that sets every family's sample/function counters from the collections (#151)
+    _app.add_route("/recompute_family_stats", status_resource, suffix="recompute_family_stats")  # post
     # schedule a job that updates all function_entries where the pichash was possibly calculated with an outdated SMDA version
+    # schedule a job that rebuilds the inverted picblockhash index getUniqueBlocks reads.
+    # An instance upgrading into this feature has no index and keeps using the old full scan until
+    # this runs, so it is the one operator action the feature needs.
+    _app.add_route("/rebuild_picblockhash_index", status_resource, suffix="rebuild_picblockhash_index")  # get
     _app.add_route("/recalculate_pichashes", status_resource, suffix="recalculate_pichashes")  # get
+    # schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (#142)
+    _app.add_route("/repair_minhashes", status_resource, suffix="repair_minhashes")  # post
     # schedule a job that updates all function_entries where the minhash was possibly calculated with an outdated SMDA version
     _app.add_route("/recalculate_minhashes", status_resource, suffix="recalculate_minhashes")  # get
 
