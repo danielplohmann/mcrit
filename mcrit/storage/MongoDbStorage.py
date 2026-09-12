@@ -228,6 +228,17 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["functions"].create_index("function_name")
         self._getDb()["functions"].create_index("_pichash")
         self._getDb()["functions"].create_index("_picblockhashes.hash")
+        # Searches sorted by a field other than the id (fkie-cad/mcritweb#59): the search cursor sorts by that
+        # field and breaks ties by the id, in the same direction, so one compound index per
+        # sortable field serves both directions by being walked backwards. Without it the
+        # server sorts every filtered document in memory, which is where the reported 10x
+        # goes. The fields are the ones the search results can be sorted by in MCRITweb.
+        for field in ("family_name", "num_samples", "num_library_samples", "num_functions"):
+            self._getDb()["families"].create_index([(field, 1), ("family_id", 1)])
+        for field in ("family_id", "family", "filename", "version", "bitness", "sha256", "statistics.num_functions"):
+            self._getDb()["samples"].create_index([(field, 1), ("sample_id", 1)])
+        for field in ("family_id", "sample_id", "function_name", "offset", "num_instructions", "num_blocks"):
+            self._getDb()["functions"].create_index([(field, 1), ("function_id", 1)])
         # stored without guarantee of existence
         self._getDb()["query_samples"].create_index("sample_id")
         self._getDb()["query_samples"].create_index("sha256")

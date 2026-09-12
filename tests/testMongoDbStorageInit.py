@@ -113,6 +113,25 @@ class MongoDbStorageInitTest(TestCase):
         # the families counter must be past 0, so the next family can never collide with id 0
         self.assertEqual(1, self.storage.addFamily("another_family"))
 
+    def testSortableSearchFieldsHaveCompoundIndexes(self):
+        # fkie-cad/mcritweb#59: every field a search can be sorted by carries a (field, id) index, so a sort by
+        # it is served in index order instead of by an in-memory sort of every filtered document
+        database = self.storage._getDb()
+        self.storage._ensureIndexAndUnknownFamily()
+        expected = {
+            "families": [("family_name", "family_id"), ("num_samples", "family_id"), ("num_library_samples", "family_id"), ("num_functions", "family_id")],
+            "samples": [(field, "sample_id") for field in ("family_id", "family", "filename", "version", "bitness", "sha256", "statistics.num_functions")],
+            "functions": [(field, "function_id") for field in ("family_id", "sample_id", "function_name", "offset", "num_instructions", "num_blocks")],
+        }
+        for collection, pairs in expected.items():
+            keys = [tuple(key for key, _ in info["key"]) for info in database[collection].index_information().values()]
+            for pair in pairs:
+                self.assertIn(pair, keys, f"{collection} {pair}")
+        # and a sorted search plans no blocking sort, in either direction
+        for direction in (1, -1):
+            plan = database["functions"].find({"function_name": {"$regex": "sub"}}, sort=[("num_blocks", direction), ("function_id", direction)], limit=10).explain()
+            self.assertNotIn("SORT", str(plan["queryPlanner"]["winningPlan"]))
+
 
 if __name__ == "__main__":
     main()

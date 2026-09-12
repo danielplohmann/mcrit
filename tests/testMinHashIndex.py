@@ -67,6 +67,41 @@ class MalformedSearchQueryTestSuite(unittest.TestCase):
         self.assertIn("search_results", index.getFunctionSearchResults("offset:>0x100"))
 
 
+class SortedSearchPagingTestSuite(unittest.TestCase):
+    """Sorting by a field breaks ties by the id in the same direction (fkie-cad/mcritweb#59): the order is total,
+    and paging through it by cursor neither skips nor repeats an entry, in either direction"""
+
+    def testTieBreakFollowsTheSortDirection(self):
+        index = MinHashIndex(config)
+        self.assertEqual([("function_id", True)], index._get_sort_data("function_id", None, True))
+        self.assertEqual([("function_id", False)], index._get_sort_data("function_id", "function_id", False))
+        self.assertEqual([("num_blocks", True), ("function_id", True)], index._get_sort_data("function_id", "num_blocks", True))
+        self.assertEqual([("num_blocks", False), ("function_id", False)], index._get_sort_data("function_id", "num_blocks", False))
+
+    def testCursorPagingIsCompleteInBothDirections(self):
+        index = MinHashIndex(config)
+        this_file_path = str(os.path.abspath(__file__))
+        for name in ("example_report.smda", "example_report_2.smda", "library_report.smda"):
+            with open(os.sep.join([os.path.dirname(this_file_path), name])) as fjson:
+                index.addReport(SmdaReport.fromDict(json.load(fjson)))
+        all_functions = index.getFunctionSearchResults("offset:>=0", limit=1000)["search_results"]
+        self.assertGreater(len(all_functions), 5)
+        for is_ascending in (True, False):
+            with self.subTest(ascending=is_ascending):
+                seen = []
+                cursor = None
+                while True:
+                    page = index.getFunctionSearchResults("offset:>=0", sort_by="num_instructions", is_ascending=is_ascending, cursor=cursor, limit=4)
+                    seen.extend(page["search_results"].values())
+                    cursor = page["cursor"]["forward"]
+                    if cursor is None or not page["search_results"]:
+                        break
+                keys = [(entry["num_instructions"], entry["function_id"]) for entry in seen]
+                self.assertEqual(sorted(keys, reverse=not is_ascending), keys)
+                self.assertEqual(len(all_functions), len(seen))
+                self.assertEqual(len(all_functions), len(set(keys)))
+
+
 class SearchByIdentifierTestSuite(unittest.TestCase):
     """An identifier that looks valid but is not stored is an empty match, not a server fault (#158)"""
 
