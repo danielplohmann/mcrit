@@ -2,6 +2,7 @@ import json
 import logging
 import os
 from unittest import TestCase, main
+from unittest.mock import patch
 
 import pytest
 from smda.common.SmdaReport import SmdaReport
@@ -109,6 +110,112 @@ class MemoryStorageTest(TestCase):
         # family deletion
         self.storage.deleteFamily(4)
         self.assertEqual(None, self.storage.getFamilyId("family_1a"))
+
+    def _twoReports(self, family="family_1"):
+        with open(self.example_file_path) as fjson:
+            smda_json = json.load(fjson)
+        report_a = SmdaReport.fromDict(smda_json)
+        report_b = SmdaReport.fromDict(smda_json)
+        assert report_a is not None and report_b is not None
+        report_a.family = report_b.family = family
+        report_b.sha256 = 64 * "b"
+        return report_a, report_b
+
+    def _actualFamilyCounts(self, family_id):
+        samples = [s for s in self.storage.getSamples(0, 1000) if s.family_id == family_id]
+        num_functions = sum(len(self.storage.getFunctionsBySampleId(s.sample_id) or []) for s in samples)
+        return {"num_samples": len(samples), "num_functions": num_functions, "num_library_samples": len([s for s in samples if s.is_library])}
+
+    def _storedFamilyCounts(self, family_id):
+        family = self.storage.getFamily(family_id)
+        assert family is not None
+        return {"num_samples": family.num_samples, "num_functions": family.num_functions, "num_library_samples": family.num_library_samples}
+
+    def testFamilyStatsFollowTheSamplesThroughMovesAndDeletions(self):
+        # #151: the per-family counters are what the samples and functions say, after every write path
+        self.storage.clearStorage()
+        report_a, report_b = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        sample_b = self.storage.addSmdaReport(report_b)
+        assert sample_a is not None and sample_b is not None
+        family_1 = sample_a.family_id
+        self.assertEqual({"num_samples": 2, "num_functions": 20, "num_library_samples": 0}, self._storedFamilyCounts(family_1))
+        self.storage.modifySample(sample_a.sample_id, {"is_library": True})
+        self.assertEqual(1, self._storedFamilyCounts(family_1)["num_library_samples"])
+        self.storage.modifySample(sample_a.sample_id, {"is_library": True})  # unchanged: no double count
+        self.assertEqual(1, self._storedFamilyCounts(family_1)["num_library_samples"])
+        # moving a sample moves its counts, and the same family is not a move at all
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_1"})
+        self.assertEqual(self._actualFamilyCounts(family_1), self._storedFamilyCounts(family_1))
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_2"})
+        family_2 = self.storage.getFamilyId("family_2")
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 1}, self._storedFamilyCounts(family_2))
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(family_1))
+        self.assertEqual(self._actualFamilyCounts(family_2), self._storedFamilyCounts(family_2))
+        # deleting the last sample of a family deletes the family; deleting one of two keeps it
+        self.storage.deleteSample(sample_a.sample_id)
+        self.assertIsNone(self.storage.getFamily(family_2))
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(family_1))
+        self.assertEqual(
+            {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}} | {"num_families": len(self.storage.getFamilyIds())},
+            self.storage.recomputeFamilyStats(),
+        )
+
+    def testRecomputeFamilyStatsCorrectsDriftedCounters(self):
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        assert sample_a is not None
+        family_id = sample_a.family_id
+        self._driftFamilyCounters(family_id, num_samples=5, num_functions=3)
+        self.assertEqual({"num_samples": 5, "num_functions": 3, "num_library_samples": 0}, self._storedFamilyCounts(family_id))
+        report = self.storage.recomputeFamilyStats()
+        self.assertEqual(1, report["num_families_corrected"])
+        self.assertEqual(
+            {"before": {"num_samples": 5, "num_functions": 3, "num_library_samples": 0}, "after": {"num_samples": 1, "num_functions": 10, "num_library_samples": 0}},
+            report["corrections"][family_id],
+        )
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(family_id))
+        stats = self.storage.getStats(with_pichash=False)
+        self.assertEqual(1, stats["num_samples"])
+        self.assertEqual(10, stats["num_functions"])
+
+    def _driftFamilyCounters(self, family_id, num_samples, num_functions):
+        family = self.storage._families[family_id]
+        family.num_samples = num_samples
+        family.num_functions = num_functions
+
+    def testMinHashesOfOneSampleCanBeDroppedAndTheirVersionTracked(self):
+        # #142
+        self.storage.clearStorage()
+        with open(self.example_file_path) as fjson:
+            report = SmdaReport.fromDict(json.load(fjson))
+        assert report is not None
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        sample_id = sample_entry.sample_id
+        minhashes = [MinHash(function_id=function_id, minhash_signature=[0x30 + function_id + index for index in range(10)], minhash_bits=8) for function_id in [0, 2, 3, 5, 7, 8]]
+        self.storage.addMinHashes(minhashes)
+        # nothing recorded yet: stale; recorded below the threshold: stale; at or above: current
+        self.assertEqual([sample_id], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.assertEqual(1, self.storage.countSamplesWithStaleMinHashes("4.4.5"))
+        self.storage.setMinHashVersionForSamples("4.4.0", [sample_id])
+        self.assertEqual([sample_id], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.storage.setMinHashVersionForSamples("4.4.5", [sample_id])
+        self.assertEqual([], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.assertEqual(0, self.storage.countSamplesWithStaleMinHashes("4.4.5"))
+        self.storage.setMinHashVersionForSamples("4.9.9")  # all samples
+        self.assertEqual([], self.storage.getSamplesWithStaleMinHashes("4.9.9"))
+        # dropping the sample's minhashes empties its functions and the band index, and forgets the version
+        self.assertEqual(6, self.storage.deleteMinHashesForSample(sample_id))
+        self.assertTrue(all(not f.minhash for f in self.storage.getFunctionsBySampleId(sample_id)))
+        self.assertEqual(0, self._numBandEntries())
+        self.assertEqual([sample_id], self.storage.getSamplesWithStaleMinHashes("4.4.5"))
+        self.assertEqual(0, self.storage.deleteMinHashesForSample(sample_id))
+        self.assertEqual(0, self.storage.deleteMinHashesForSample(4242))
+
+    def _numBandEntries(self):
+        return sum(len(function_ids) for band in self.storage._bands.values() for function_ids in band.values())
 
     def testSampleHandling(self):
         self.storage.clearStorage()
@@ -503,6 +610,70 @@ class MongoDbStorageTest(MemoryStorageTest):
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
 
+    def _driftFamilyCounters(self, family_id, num_samples, num_functions):
+        self.storage._getDb().families.update_one({"family_id": family_id}, {"$set": {"num_samples": num_samples, "num_functions": num_functions}})
+
+    def testRecomputeCreatesTheFamilyDocumentSamplesReferenceWithoutOne(self):
+        # the family_id 1908 case of #151: samples carry an id that no family document describes
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        assert sample_a is not None
+        db = self.storage._getDb()
+        db.families.delete_one({"family_id": sample_a.family_id})
+        report = self.storage.recomputeFamilyStats()
+        self.assertEqual(1, report["num_families_created"])
+        self.assertEqual("family_1", self.storage.getFamily(sample_a.family_id).family_name)
+        self.assertEqual({"num_samples": 1, "num_functions": 10, "num_library_samples": 0}, self._storedFamilyCounts(sample_a.family_id))
+
+    def testAnEnsuredFamilyIdIsNeverHandedOutAgain(self):
+        # an imported family id at or beyond the counter would otherwise be re-issued by addFamily
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        self.storage.importSampleEntry(SampleEntry(report_a, sample_id=0, family_id=5))
+        self.assertGreater(self.storage.addFamily("after_import"), 5)
+        self.assertEqual(1, self.storage._getDb().families.count_documents({"family_id": 5}))
+
+    def testAMoveIsCountedOnlyByTheRequestThatPerformsIt(self):
+        # of two identical concurrent moves only one changes the sample; the other must not
+        # touch the counters (modelled by the second call seeing the sample already moved)
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_a = self.storage.addSmdaReport(report_a)
+        assert sample_a is not None
+        family_1 = sample_a.family_id
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_moved"})
+        family_moved = self.storage.getFamilyId("family_moved")
+        self.assertEqual(self._actualFamilyCounts(family_moved), self._storedFamilyCounts(family_moved))
+        # the sample document is already in family_moved: a stale request for the same move
+        db = self.storage._getDb()
+        db.samples.update_one({"sample_id": sample_a.sample_id}, {"$set": {"family_id": family_1, "family": "family_1"}})
+        db.samples.update_one({"sample_id": sample_a.sample_id}, {"$set": {"family_id": family_moved, "family": "family_moved"}})
+        self.storage.modifySample(sample_a.sample_id, {"family_name": "family_moved"})
+        self.assertEqual(self._actualFamilyCounts(family_moved), self._storedFamilyCounts(family_moved))
+
+    def testImportingASampleEnsuresItsFamilyDocument(self):
+        self.storage.clearStorage()
+        report_a, _ = self._twoReports()
+        sample_entry = SampleEntry(report_a, sample_id=0, family_id=77)
+        self.storage.importSampleEntry(sample_entry)
+        family = self.storage.getFamily(77)
+        assert family is not None
+        self.assertEqual("family_1", family.family_name)
+        self.assertEqual(1, family.num_samples)
+        self.assertEqual(10, family.num_functions)
+
+    def testAStatsUpdateAgainstAMissingFamilyIsLogged(self):
+        self.storage.clearStorage()
+        with patch("mcrit.storage.MongoDbStorage.LOGGER") as logger:
+            self.storage._updateFamilyStats(4242, 1, 10, 0)
+        self.assertIn("has no document", logger.warning.call_args.args[0])
+        self.assertEqual(4242, logger.warning.call_args.args[1])
+
+    def _numBandEntries(self):
+        db = self.storage._getDb()
+        return sum(len(d.get("function_ids", [])) for band_id in range(self.storage._storage_config.STORAGE_NUM_BANDS) for d in db["band_%d" % band_id].find({}))
+
     def _createSecondStorage(self):
         mcrit_config = McritConfig()
         mcrit_config.STORAGE_CONFIG = self._storage_config
@@ -563,17 +734,103 @@ class MongoDbStorageTest(MemoryStorageTest):
         self.assertEqual(17, counters.find_one({"name": "job"})["value"])
         self.assertTrue(counters.index_information()["name_1"].get("unique", False))
 
+    ##### picblockhash inverted index #####
+
+    def _twoIdenticalSamples(self):
+        """Two samples built from the same report, so they carry exactly the same block hashes."""
+        with open(self.example_file_path) as fjson:
+            smda_json = json.load(fjson)
+        report_a = SmdaReport.fromDict(smda_json)
+        report_b = SmdaReport.fromDict(smda_json)
+        assert report_a is not None and report_b is not None
+        report_a.sha256 = 64 * "a"
+        report_b.sha256 = 64 * "b"
+        return self.storage.addSmdaReport(report_a), self.storage.addSmdaReport(report_b)
+
+    def testPicBlockHashIndexAgreesWithTheScan(self):
+        # the whole point of the index: it must answer exactly what reading every function answers
+        self.storage.clearStorage()
+        entry_a, entry_b = self._twoIdenticalSamples()
+        for sample_ids in ([entry_a.sample_id], [entry_a.sample_id, entry_b.sample_id]):
+            self.assertTrue(self.storage._isPicBlockHashIndexComplete())
+            from_index = set(self.storage.getUniqueBlocks(sample_ids)["unique_blocks"])
+            self.storage._setPicBlockHashIndexComplete(False)
+            from_scan = set(self.storage.getUniqueBlocks(sample_ids)["unique_blocks"])
+            self.storage._setPicBlockHashIndexComplete(True)
+            self.assertEqual(from_scan, from_index, f"index and scan disagree for {sample_ids}")
+
+    def testPicBlockHashIndexIsMaintainedOnAddAndDelete(self):
+        self.storage.clearStorage()
+        entry_a, entry_b = self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        # both samples hold every block, so nothing is unique to either
+        self.assertEqual({}, self.storage.getUniqueBlocks([entry_a.sample_id])["unique_blocks"])
+        self.assertTrue(index.count_documents({"sample_ids": entry_b.sample_id}) > 0)
+        # deleting one hands every block back to the other
+        self.storage.deleteSample(entry_b.sample_id)
+        self.assertEqual(0, index.count_documents({"sample_ids": entry_b.sample_id}))
+        self.assertTrue(self.storage.getUniqueBlocks([entry_a.sample_id])["unique_blocks"])
+        # and the delete leaves no emptied posting lists behind (the #149 residue)
+        self.assertEqual(0, index.count_documents({"sample_ids": []}))
+        # removing the last holder removes the documents themselves
+        self.storage.deleteSample(entry_a.sample_id)
+        self.assertEqual(0, index.count_documents({}))
+
+    def testRebuildPicBlockHashIndexReproducesIncrementalState(self):
+        # the rebuild is the repair path, so it has to land on what the write hooks built
+        self.storage.clearStorage()
+        self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        incremental = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.assertTrue(incremental)
+        num_hashes = self.storage.rebuildPicBlockHashIndex()
+        rebuilt = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.assertEqual(incremental, rebuilt)
+        self.assertEqual(len(incremental), num_hashes)
+
+    def testFamilyReassignmentLeavesPicBlockHashIndexAlone(self):
+        # the index carries no family_id, so a relabel cannot invalidate it - pinned so that a
+        # future change which adds family_id here has to confront this test first
+        self.storage.clearStorage()
+        entry_a, _ = self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        before = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.storage.modifySample(entry_a.sample_id, {"family_name": "a_different_family"})
+        after = {d["_id"]: sorted(d["sample_ids"]) for d in index.find({})}
+        self.assertEqual(before, after)
+
+    def testPicBlockHashIndexIsNotWrittenWhileIncomplete(self):
+        # an index nothing trusts is not worth maintaining, and half-maintaining it would make the
+        # eventual rebuild look unnecessary
+        self.storage.clearStorage()
+        self.storage._setPicBlockHashIndexComplete(False)
+        self._twoIdenticalSamples()
+        index = self.storage._getDb()[self.storage._PICBLOCKHASH_INDEX_COLLECTION]
+        self.assertEqual(0, index.count_documents({}))
+        # ... and the rebuild recovers it
+        self.storage.rebuildPicBlockHashIndex()
+        self.assertTrue(self.storage._isPicBlockHashIndexComplete())
+        self.assertTrue(index.count_documents({}) > 0)
+
     def testStorageInitializationCreatesIndexes(self):
         expected_indexed_fields = {
             "samples": {"sample_id", "sha256", "family_id"},
             "families": {"family_id", "family_name"},
-            "functions": {"function_id", "sample_id", "family_id", "function_name", "_pichash", "_picblockhashes.hash", "_picblockhashes.offset"},
+            "functions": {"function_id", "sample_id", "family_id", "function_name", "_pichash", "_picblockhashes.hash"},
             "query_samples": {"sample_id", "sha256"},
         }
         for collection, expected_fields in expected_indexed_fields.items():
             index_information = self.storage._getDb()[collection].index_information()
             indexed_fields = set(key for index in index_information.values() for key, _direction in index["key"])
             self.assertTrue(expected_fields.issubset(indexed_fields), f"missing indexes on {collection}: {expected_fields - indexed_fields}")
+
+    def testStorageDoesNotIndexPicBlockHashOffset(self):
+        # No query filters or sorts on "_picblockhashes.offset" - getMatchesForPicBlockHash only
+        # projects it, which an index cannot serve. Pinned so the index is not reintroduced by
+        # symmetry with "_picblockhashes.hash", which is filtered on and does need one.
+        index_information = self.storage._getDb()["functions"].index_information()
+        indexed_fields = set(key for index in index_information.values() for key, _direction in index["key"])
+        self.assertNotIn("_picblockhashes.offset", indexed_fields)
 
     def testGetSampleBySha256ForQuerySamples(self):
         self.storage.clearStorage()
@@ -605,6 +862,46 @@ class MongoDbStorageTest(MemoryStorageTest):
         rebuild_result = self.storage.rebuildMinhashBandIndex()
         self.assertEqual(len(minhashes), rebuild_result["minhash_functions_indexed"])
         self.assertEqual(bands_before, dumpBands())
+
+    def _storageWithBandedSample(self):
+        self.storage.clearStorage()
+        smda_report = SmdaReport.fromFile(self.example_file_path)
+        sample_entry = self.storage.addSmdaReport(smda_report)
+        minhashes = [MinHash(function_id=function_id, minhash_signature=[0x30 + function_id + index for index in range(10)], minhash_bits=8) for function_id in [0, 2, 3, 5, 7, 8]]
+        self.storage.addMinHashes(minhashes)
+        return sample_entry, ["band_%d" % band_id for band_id in range(self.storage._storage_config.STORAGE_NUM_BANDS)]
+
+    def testDeleteSampleLeavesNoEmptyBandDocuments(self):
+        # #149: a pull that empties a posting list removes the document, and a pull on a
+        # band hash without a document does not create one
+        sample_entry, band_collections = self._storageWithBandedSample()
+        db = self.storage._getDb()
+        self.assertGreater(sum(db[c].count_documents({}) for c in band_collections), 0)
+        self.storage.deleteSample(sample_entry.sample_id)
+        for collection in band_collections:
+            self.assertEqual(0, db[collection].count_documents({}), collection)
+        # the same pull again, against an index that no longer holds the hashes: nothing appears
+        self.storage._updateBands({0: {12345: [1, 2]}, 1: {67890: [3]}}, method="pull")
+        self.assertEqual(0, db.band_0.count_documents({}))
+        self.assertEqual(0, db.band_1.count_documents({}))
+
+    def testPullingKeepsTheOtherMembersOfABand(self):
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.band_0.insert_one({"band_hash": 4242, "function_ids": [1, 2, 3]})
+        db.band_0.insert_one({"band_hash": 4343, "function_ids": [1]})
+        self.storage._updateBands({0: {4242: [1], 4343: [1]}}, method="pull")
+        self.assertEqual([2, 3], db.band_0.find_one({"band_hash": 4242})["function_ids"])
+        self.assertIsNone(db.band_0.find_one({"band_hash": 4343}))
+
+    def testPurgeEmptyBandDocumentsRemovesOnlyTheTombstones(self):
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.band_0.insert_many([{"band_hash": 1, "function_ids": []}, {"band_hash": 2}, {"band_hash": 3, "function_ids": [7]}])
+        db.band_1.insert_one({"band_hash": 9, "function_ids": []})
+        self.assertEqual(3, self.storage.purgeEmptyBandDocuments())
+        self.assertEqual([3], [d["band_hash"] for d in db.band_0.find({}, {"band_hash": 1})])
+        self.assertEqual(0, db.band_1.count_documents({}))
 
 
 @pytest.mark.mongo

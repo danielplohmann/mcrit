@@ -199,5 +199,172 @@ class MongoQueueTest(TestCase):
         self.assertEqual(job, None)
 
 
+@pytest.mark.mongo
+class WorkerLivenessTest(TestCase):
+    """Jobs held by a worker that died without unwinding are reclaimed, and never served
+    as a cached result to an identical resubmission (#150)."""
+
+    def setUp(self):
+        self.client = pymongo.MongoClient(os.environ.get("TEST_MONGODB"))
+        self.queue_config = QueueConfig()
+        self.queue_config.QUEUE_SERVER, self.queue_config.QUEUE_PORT = getTestMongoServerAndPort()
+        self.queue_config.QUEUE_MONGODB_DBNAME = "test_queue"
+        self.queue_config.QUEUE_MONGODB_COLLECTION_NAME = "queue_liveness"
+        self.timeout = 5
+        self.worker_a = self._worker("Worker-a")
+        self.worker_b = self._worker("Worker-b")
+        self.server = self._worker("index")
+
+    def tearDown(self):
+        for queue in (self.worker_a, self.worker_b, self.server):
+            queue._stopHeartbeatThread()
+        self.client.drop_database("test_queue")
+
+    def _worker(self, consumer_id):
+        return MongoQueue(self.queue_config, consumer_id, timeout=self.timeout)
+
+    def _registration(self):
+        return self.worker_a._getQueueCounters().find_one({"name": "workers"}, {"_id": 0}) or {}
+
+    def _document(self, job_id):
+        document = self.worker_a._getCollection().find_one({"_id": job_id})
+        assert document is not None
+        return document
+
+    def _age_heartbeat(self, consumer_id, seconds):
+        self.worker_a._getQueueCounters().update_one({"name": "workers"}, {"$set": {f"heartbeats.{consumer_id}": datetime.now() - timedelta(seconds=seconds)}})
+
+    def _claimed_by(self, queue, descriptor="d"):
+        queue.put({"method": "test_method", "descriptor": descriptor})
+        job = queue.next()
+        assert job is not None
+        return job
+
+    def test_registering_records_a_heartbeat_and_unregistering_removes_it(self):
+        self.worker_a._getCollection()
+        registration = self._registration()
+        self.assertIn("Worker-a", registration["workers"])
+        self.assertIsInstance(registration["heartbeats"]["Worker-a"], datetime)
+        self.server._getCollection()
+        self.assertNotIn("index", self._registration()["workers"])
+        self.worker_a.unregisterWorker()
+        registration = self._registration()
+        self.assertNotIn("Worker-a", registration["workers"])
+        self.assertNotIn("Worker-a", registration.get("heartbeats", {}))
+
+    def test_a_worker_is_live_only_with_a_fresh_heartbeat(self):
+        self.worker_a._getCollection()
+        self.worker_b._getCollection()
+        self.assertEqual({"Worker-a", "Worker-b"}, self.server._live_worker_ids())
+        self._age_heartbeat("Worker-b", self.timeout + 1)
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
+        # a registration without any heartbeat is a process from before heartbeats existed
+        # (a rolling upgrade): it is stamped now and gets one timeout of grace before it is
+        # judged like everybody else
+        self.worker_a._getQueueCounters().update_one({"name": "workers"}, {"$unset": {"heartbeats.Worker-a": ""}})
+        self.worker_a._stopHeartbeatThread()
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
+        self.assertIsInstance(self._registration()["heartbeats"]["Worker-a"], datetime)
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids(now=datetime.now() + timedelta(seconds=self.timeout - 1)))
+        self.assertEqual(set(), self.server._live_worker_ids(now=datetime.now() + timedelta(seconds=self.timeout + 1)))
+
+    def test_the_heartbeat_keeps_going_while_a_job_runs(self):
+        """jobs run synchronously in the poll loop, so a job longer than the timeout would look
+        like a dead worker without the heartbeat thread"""
+        self.worker_a._getCollection()
+        self.assertTrue(self.worker_a._heartbeat_thread is not None and self.worker_a._heartbeat_thread.is_alive())
+        self._age_heartbeat("Worker-a", self.timeout + 1)
+        self.assertEqual(set(), self.server._live_worker_ids())
+        # no poll happens here - the thread alone brings the heartbeat back within one interval
+        time.sleep(self.worker_a.heartbeat_interval + 1)
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
+        # a worker judged dead by mistake was unregistered by the reclaim; its next heartbeat
+        # registers it again, so it keeps serving jobs
+        self.server.release_orphaned_jobs()
+        self._age_heartbeat("Worker-a", self.timeout + 1)
+        self.server.release_orphaned_jobs()
+        self.assertNotIn("Worker-a", self._registration().get("workers", []))
+        time.sleep(self.worker_a.heartbeat_interval + 1)
+        self.assertIn("Worker-a", self._registration()["workers"])
+        self.assertEqual({"Worker-a"}, self.server._live_worker_ids())
+        self.worker_a.unregisterWorker()
+        self.assertIsNone(self.worker_a._heartbeat_thread)
+
+    def test_a_dead_workers_job_is_reclaimed_and_a_live_ones_is_kept(self):
+        dead_job = self._claimed_by(self.worker_a, "dead")
+        live_job = self._claimed_by(self.worker_b, "live")
+        self._age_heartbeat("Worker-a", self.timeout + 1)  # Worker-a was SIGKILLed: still registered, no heartbeat
+        self.server.release_orphaned_jobs()
+        reclaimed = self._document(dead_job.job_id)
+        self.assertIsNone(reclaimed["locked_by"])
+        self.assertIsNone(reclaimed["locked_at"])
+        self.assertEqual(self.worker_a.max_attempts - 1, reclaimed["attempts_left"])
+        kept = self._document(live_job.job_id)
+        self.assertEqual("Worker-b", kept["locked_by"])
+        self.assertEqual(self.worker_b.max_attempts, kept["attempts_left"])
+        # the dead registration is gone, the live one stays
+        registration = self._registration()
+        self.assertEqual(["Worker-b"], registration["workers"])
+        self.assertEqual(["Worker-b"], list(registration["heartbeats"]))
+        # and another worker picks the reclaimed job up
+        self.assertEqual(dead_job.job_id, self.worker_b.next().job_id)
+
+    def test_a_job_never_registered_for_is_reclaimed_too(self):
+        job = self._claimed_by(self.worker_a)
+        self.worker_a.unregisterWorker()
+        self.server.release_orphaned_jobs()
+        self.assertIsNone(self._document(job.job_id)["locked_by"])
+
+    def test_reclaiming_the_last_attempt_fails_the_job_and_frees_its_dependents(self):
+        job = self._claimed_by(self.worker_a, "last")
+        self.worker_a._getCollection().update_one({"_id": job.job_id}, {"$set": {"attempts_left": 1}})
+        self.worker_b.put({"method": "test_method", "descriptor": "waiting"}, await_jobs=[str(job.job_id)])
+        self._age_heartbeat("Worker-a", self.timeout + 1)
+        self.server.release_orphaned_jobs()
+        failed = self._document(job.job_id)
+        self.assertEqual(0, failed["attempts_left"])
+        self.assertIsNone(failed["locked_by"])
+        waiting = self.worker_b.next()
+        assert waiting is not None
+        self.assertEqual("waiting", waiting.payload["descriptor"])
+        counters = {c["name"]: c for c in self.worker_a._getQueueCounters().find({"name": "test_method"})}
+        self.assertEqual(1, counters["test_method"]["failed"])
+
+    def test_a_stranded_job_is_not_served_as_a_cached_result(self):
+        job = self._claimed_by(self.worker_a, "shared")
+        payload = {"descriptor": "shared"}
+        # in flight on a live worker: served
+        self.assertEqual(job.job_id, self.server.get_cached_job_id(payload))
+        self._age_heartbeat("Worker-a", self.timeout + 1)
+        # the same job, its worker dead: not served
+        self.assertIsNone(self.server.get_cached_job_id(payload))
+        # once reclaimed it waits in the queue, and a waiting job is served again
+        self.server.release_orphaned_jobs()
+        self.assertEqual(job.job_id, self.server.get_cached_job_id(payload))
+        # a finished job is served whatever its worker's state
+        self.worker_b.next().complete()
+        self.worker_b._getQueueCounters().update_one({"name": "workers"}, {"$set": {"heartbeats.Worker-b": datetime.now() - timedelta(seconds=self.timeout + 1)}})
+        self.assertEqual(job.job_id, self.server.get_cached_job_id(payload))
+
+    def test_polling_refreshes_the_heartbeat_and_reclaims_periodically(self):
+        stranded = self._claimed_by(self.worker_a)
+        self.worker_b._getCollection()  # registering reclaims too, so Worker-a dies only afterwards
+        self._age_heartbeat("Worker-a", self.timeout + 1)
+        before = self._registration()["heartbeats"]["Worker-b"]
+        # polling right after registering is inside the heartbeat interval: no write
+        self.worker_b._last_reclaim = time.monotonic()
+        self.assertIsNone(self.worker_b.next())
+        self.assertEqual(before, self._registration()["heartbeats"]["Worker-b"])
+        self.assertEqual("Worker-a", self._document(stranded.job_id)["locked_by"])
+        # past the interval it heartbeats, and past the timeout it reclaims: the stranded
+        # job is released and claimed in the same poll
+        self.worker_b._last_heartbeat = 0.0
+        self.worker_b._last_reclaim = 0.0
+        claimed = self.worker_b.next()
+        assert claimed is not None
+        self.assertEqual(stranded.job_id, claimed.job_id)
+        self.assertGreater(self._registration()["heartbeats"]["Worker-b"], before)
+
+
 if __name__ == "__main__":
     unittest.main()
