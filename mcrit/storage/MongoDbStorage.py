@@ -24,6 +24,7 @@ from mcrit.index.SearchQueryTree import (
     BaseVisitor,
     FilterSingleElementLists,
     NodeType,
+    NotNode,
     OrNode,
     PropagateNot,
     SearchConditionNode,
@@ -54,6 +55,12 @@ class MongoSearchTranspiler(BaseVisitor):
     """
     Converts a tree to a MongoDB query.
     The input tree MUST NOT contain Not or SearchTerm nodes.
+
+    known_values maps a field to the complete list of distinct values it holds. A substring
+    condition on such a field is evaluated against that list here and emitted as an $in / $nin
+    of the values that match, which MongoDB answers from the index. The unanchored,
+    case-insensitive regex it replaces cannot use index bounds and makes MongoDB examine every
+    document of the collection when nothing matches (fkie-cad/mcritweb#76).
     """
 
     @staticmethod
@@ -80,7 +87,24 @@ class MongoSearchTranspiler(BaseVisitor):
         visited_children = [self.visit(child) for child in node.children]
         return self._or_query(*visited_children)
 
+    def __init__(self, known_values: Optional[Dict[str, List[Any]]] = None) -> None:
+        super().__init__()
+        self.known_values = known_values or {}
+
+    def _substring_condition_from_known_values(self, node: SearchConditionNode) -> Optional[Dict[str, Any]]:
+        # an empty search term matches everything, so the regex is left alone there
+        if not node.operator.endswith("?") or node.field not in self.known_values or not node.value:
+            return None
+        pattern = re.compile(re.escape(node.value), re.IGNORECASE)
+        matching = [value for value in self.known_values[node.field] if isinstance(value, str) and pattern.search(value)]
+        if node.operator == "!?":
+            return {node.field: {"$nin": matching}}
+        return {node.field: {"$in": matching}}
+
     def visitSearchConditionNode(self, node: SearchConditionNode):
+        condition_from_known_values = self._substring_condition_from_known_values(node)
+        if condition_from_known_values is not None:
+            return condition_from_known_values
         operator_to_mongo = {
             "<": "$lt",
             "<=": "$lte",
@@ -118,9 +142,28 @@ class MongoSearchTranspiler(BaseVisitor):
         return condition
 
 
+def _hasSubstringCondition(tree: NodeType, field: str) -> bool:
+    """True when the (resolved) tree holds a substring condition on the field."""
+    if isinstance(tree, SearchConditionNode):
+        return tree.field == field and tree.operator.endswith("?")
+    if isinstance(tree, (AndNode, OrNode)):
+        return any(_hasSubstringCondition(child, field) for child in tree.children)
+    if isinstance(tree, NotNode):
+        return _hasSubstringCondition(tree.child, field)
+    return False
+
+
 class MongoDbStorage(StorageInterface):
     _DATETIME_FORMAT = "%Y-%m-%dT%H:%M:%S"
 
+    # A substring search on function_name is answered through the distinct names of the
+    # collection when there are at most this many (fkie-cad/mcritweb#76). Listing them is one
+    # DISTINCT_SCAN over the function_name index, tens of milliseconds even for millions of
+    # functions; above the cap the search falls back to the regex, unbounded as before.
+    _DISTINCT_VALUES_CAP = 10000
+    # and at most this many bytes of them in total: the matching values go into one $in, which
+    # must stay well inside MongoDB's 16 MiB command limit even when they are long mangled symbols
+    _DISTINCT_VALUES_MAX_BYTES = 1 << 20
     # Inverted index over picblockhashes: {_id: <block hash>, sample_ids: [<sample_id>, ...]}.
     # getUniqueBlocks only ever asks "does this block hash occur outside the requested samples?",
     # so the sample list is all it needs - deliberately not function ids or offsets, which would
@@ -2105,7 +2148,31 @@ class MongoDbStorage(StorageInterface):
         sort_list = [(key, 1 if direction ^ is_backward_search else -1) for key, direction in full_cursor.sort_by_list]
         return sort_list
 
-    def _get_search_query(self, search_fields: List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None):
+    def _getDistinctValues(self, collection: str, field: str) -> Optional[List[Any]]:
+        """All distinct values of the field, or None when there are more than _DISTINCT_VALUES_CAP
+        of them or they exceed _DISTINCT_VALUES_MAX_BYTES in total."""
+        pipeline = [{"$group": {"_id": "$" + field}}, {"$limit": self._DISTINCT_VALUES_CAP + 1}]
+        values = []
+        total_bytes = 0
+        for document in self._getDb()[collection].aggregate(pipeline):
+            value = document["_id"]
+            if isinstance(value, str):
+                total_bytes += len(value.encode("utf-8"))
+                if total_bytes > self._DISTINCT_VALUES_MAX_BYTES:
+                    return None
+            values.append(value)
+        if len(values) > self._DISTINCT_VALUES_CAP:
+            return None
+        return values
+
+    def _get_search_query(
+        self, search_fields: List[str], search_tree: NodeType, cursor: Optional[FullSearchCursor], conditional_search_fields=None, distinct_fields: Optional[Dict[str, str]] = None
+    ):
+        """
+        distinct_fields maps a field to its collection: a substring condition on it is rewritten to
+        the distinct values that match, when the collection has few enough of them (see
+        MongoSearchTranspiler.known_values).
+        """
         # checked here as well as when the sort list is built, because this runs first: paging by an
         # unsortable field would otherwise fail in the transpiler, blaming the range operator that
         # the cursor tree happens to use instead of naming the field that cannot be sorted by
@@ -2117,7 +2184,13 @@ class MongoDbStorage(StorageInterface):
         full_tree = SearchFieldResolver(search_fields, conditional_search_fields=conditional_search_fields).visit(full_tree)
         full_tree = FilterSingleElementLists().visit(full_tree)
         full_tree = PropagateNot().visit(full_tree)
-        query = MongoSearchTranspiler().visit(full_tree)
+        known_values = {}
+        for field, collection in (distinct_fields or {}).items():
+            if _hasSubstringCondition(full_tree, field):
+                values = self._getDistinctValues(collection, field)
+                if values is not None:
+                    known_values[field] = values
+        query = MongoSearchTranspiler(known_values).visit(full_tree)
         return query
 
     ##### search ####
@@ -2152,7 +2225,7 @@ class MongoDbStorage(StorageInterface):
         result_dict = {}
         # TODO also search through function labels once we have implemented them
         search_fields = ["function_name"]
-        query = self._get_search_query(search_fields, search_tree, cursor)
+        query = self._get_search_query(search_fields, search_tree, cursor, distinct_fields={"function_name": "functions"})
         sort_list = self._get_sort_list_from_cursor(cursor)
         for function_document in self._getDb().functions.find(query, {"_id": 0}, sort=sort_list, limit=max_num_results):
             self._decodeFunction(function_document)
