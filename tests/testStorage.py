@@ -610,6 +610,73 @@ class MongoDbStorageTest(MemoryStorageTest):
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
 
+    def testOrphanedQueryDataIsDeletedAndReferencedDataKept(self):
+        # #68: query functions whose sample is gone, and query disassembly whose function is gone
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        report = SmdaReport.fromFile(self.example_file_path)
+        query_entry = self.storage.addSmdaReport(report, isQuery=True)
+        assert query_entry is not None
+        num_functions = db.query_functions.count_documents({})
+        db.query_functions.insert_many([{"function_id": -1000, "sample_id": -999}, {"function_id": -1001, "sample_id": -999}])
+        db.query_xcfg.insert_many([{"_id": -1000, "_xcfg": "{}"}, {"_id": -500, "_xcfg": "{}"}])
+        self.assertEqual({"query_functions": 2, "query_xcfg": 2}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(num_functions, db.query_functions.count_documents({}))
+        self.assertEqual(num_functions, db.query_xcfg.count_documents({}))
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        # many ids: batches, not one command
+        db.query_functions.insert_many([{"function_id": -20000 - i, "sample_id": -777} for i in range(12000)])
+        db.query_samples.insert_one({"sample_id": -777, "sha256": 64 * "f"})
+        db.query_samples.delete_one({"sample_id": -777})
+        self.assertEqual(12000, self.storage.deleteOrphanedQueryData()["query_functions"])
+
+    def testOrphanedDisassemblyIsCollectedOnceNoQueryFunctionRemains(self):
+        """#68 follow-up: the boundary is taken from the newest query function, so an empty
+        query_functions used to return early and leave the disassembly behind forever.
+
+        addSmdaReport writes the disassembly before the functions, so an insert interrupted
+        between the two leaves exactly this, and deleting the queries around it empties the
+        collection the boundary came from."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.query_xcfg.insert_many([{"_id": -1, "_xcfg": "{}"}, {"_id": -2, "_xcfg": "{}"}])
+        self.assertEqual({"query_functions": 0, "query_xcfg": 2}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(0, db.query_xcfg.count_documents({}))
+
+    def testOrphanedDisassemblyIsKeptWhileAQuerySampleExists(self):
+        """The other half of the same case: a query sample is written before its disassembly,
+        so one that exists is the evidence that an insert may be in flight and the blobs about
+        to be deleted may be its."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.query_samples.insert_one({"sample_id": -1, "sha256": 64 * "a"})
+        db.query_xcfg.insert_one({"_id": -1, "_xcfg": "{}"})
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(1, db.query_xcfg.count_documents({}))
+
+    def testOrphanedQueryFunctionsAreJudgedInBatchesOfSamples(self):
+        """More distinct sample ids than one batch holds. The sample ids used to come from two
+        unbounded distinct() calls, each of which answers with a single document and fails past
+        MongoDB's 16 MiB limit; they come from an aggregation cursor now, so this walks several
+        batches rather than one command."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        batch_size = self.storage._ORPHAN_BATCH_SIZE
+        num_orphans = 2 * batch_size + 17
+        db.query_functions.insert_many([{"function_id": -1 - i, "sample_id": -1 - i} for i in range(num_orphans)])
+        # one sample that does exist: its function must survive every batch it lands in
+        kept_sample_id = -1 - (batch_size + 3)
+        db.query_samples.insert_one({"sample_id": kept_sample_id, "sha256": 64 * "b"})
+        self.assertEqual(num_orphans - 1, self.storage.deleteOrphanedQueryData()["query_functions"])
+        self.assertEqual([kept_sample_id], [document["sample_id"] for document in db.query_functions.find({}, {"sample_id": 1, "_id": 0})])
+
+    def testCompactingTheQueryCollectionsAnswersPerCollection(self):
+        self.storage.clearStorage()
+        outcome = self.storage.compactQueryCollections()
+        self.assertEqual({"query_samples", "query_functions", "query_xcfg", "fs.files", "fs.chunks"}, set(outcome))
+        for collection, result in outcome.items():
+            self.assertIn("ok", result, collection)
+
     def _driftFamilyCounters(self, family_id, num_samples, num_functions):
         self.storage._getDb().families.update_one({"family_id": family_id}, {"$set": {"num_samples": num_samples, "num_functions": num_functions}})
 
