@@ -794,23 +794,72 @@ class MongoDbStorage(StorageInterface):
         Safe next to a query being inserted on another worker: the boundary is taken first,
         and only records older than it (a larger, i.e. less negative, id) are judged. A query
         inserted afterwards has ids below the boundary and is never looked at, however its
-        sample and functions interleave with this walk. The ids are walked in batches, so no
-        single command carries the whole collection.
+        sample and functions interleave with this walk.
+
+        No single command carries the whole collection. The sample ids come from an
+        aggregation cursor rather than distinct(), which answers with one document and fails
+        past MongoDB's 16 MiB limit, and every `$in` below is one batch wide.
         """
         db = self._getDb()
         newest = db.query_functions.find_one({}, {"function_id": 1, "_id": 0}, sort=[("function_id", 1)])
         if newest is None:
-            return {"query_functions": 0, "query_xcfg": 0}
+            return {"query_functions": 0, "query_xcfg": self._deleteQueryXcfgWithoutAnyFunction()}
         function_boundary = newest["function_id"]
-        # the sample snapshot is taken after the boundary: a query sample is written before its
-        # functions, so every sample a judged function can refer to is in it
-        sample_ids = set(db.query_samples.distinct("sample_id"))
-        num_functions = 0
-        orphan_sample_ids = [sample_id for sample_id in db.query_functions.distinct("sample_id", {"function_id": {"$gte": function_boundary}}) if sample_id not in sample_ids]
-        for start in range(0, len(orphan_sample_ids), self._ORPHAN_BATCH_SIZE):
-            chunk = orphan_sample_ids[start : start + self._ORPHAN_BATCH_SIZE]
-            num_functions += db.query_functions.delete_many({"sample_id": {"$in": chunk}, "function_id": {"$gte": function_boundary}}).deleted_count
-        num_xcfg = 0
+        return {
+            "query_functions": self._deleteQueryFunctionsWithoutASample(function_boundary),
+            "query_xcfg": self._deleteQueryXcfgWithoutAFunction(function_boundary),
+        }
+
+    def _deleteQueryXcfgWithoutAnyFunction(self) -> int:
+        """Every query_xcfg document, for the case where no query function exists at all.
+
+        This is what the boundary cannot cover: with query_functions empty there is no id to
+        take a boundary from, so the early return this replaces left the residue behind
+        forever. It is reachable rather than theoretical - addSmdaReport writes the
+        disassembly before the functions, so an insert interrupted between the two leaves
+        exactly this, and once the queries around it are deleted the collection is empty.
+
+        An existing query sample is what stops us. The sample is written before the
+        disassembly, so an empty query_samples proves no insert has yet reached the step that
+        could have written what is about to be deleted.
+        """
+        db = self._getDb()
+        if db.query_samples.find_one({}, {"_id": 1}) is not None:
+            return 0
+        return db.query_xcfg.delete_many({}).deleted_count
+
+    def _judgedQuerySampleIds(self, function_boundary: int) -> Iterable[List[int]]:
+        """The distinct sample ids of the query functions old enough to judge, one batch at a
+        time. $group over a cursor, because distinct() would answer with a single document."""
+        batch: List[int] = []
+        for group in self._getDb().query_functions.aggregate(
+            [{"$match": {"function_id": {"$gte": function_boundary}}}, {"$group": {"_id": "$sample_id"}}],
+            allowDiskUse=True,
+        ):
+            batch.append(group["_id"])
+            if len(batch) >= self._ORPHAN_BATCH_SIZE:
+                yield batch
+                batch = []
+        if batch:
+            yield batch
+
+    def _deleteQueryFunctionsWithoutASample(self, function_boundary: int) -> int:
+        """The samples are looked up per batch rather than snapshotted up front. A query
+        sample is written before its functions, so a sample read after the boundary is at
+        worst newer than the function referring to it - reading later can only find more
+        samples, never fewer, and a sample deleted meanwhile takes its functions with it."""
+        db = self._getDb()
+        deleted = 0
+        for sample_ids in self._judgedQuerySampleIds(function_boundary):
+            known = {document["sample_id"] for document in db.query_samples.find({"sample_id": {"$in": sample_ids}}, {"sample_id": 1, "_id": 0})}
+            orphans = [sample_id for sample_id in sample_ids if sample_id not in known]
+            if orphans:
+                deleted += db.query_functions.delete_many({"sample_id": {"$in": orphans}, "function_id": {"$gte": function_boundary}}).deleted_count
+        return deleted
+
+    def _deleteQueryXcfgWithoutAFunction(self, function_boundary: int) -> int:
+        db = self._getDb()
+        deleted = 0
         last_id = None
         while True:
             query = {"_id": {"$gte": function_boundary}} if last_id is None else {"_id": {"$gt": last_id}}
@@ -820,9 +869,9 @@ class MongoDbStorage(StorageInterface):
             referenced = set(db.query_functions.distinct("function_id", {"function_id": {"$in": batch}}))
             orphans = [function_id for function_id in batch if function_id not in referenced]
             if orphans:
-                num_xcfg += db.query_xcfg.delete_many({"_id": {"$in": orphans}}).deleted_count
+                deleted += db.query_xcfg.delete_many({"_id": {"$in": orphans}}).deleted_count
             last_id = batch[-1]
-        return {"query_functions": num_functions, "query_xcfg": num_xcfg}
+        return deleted
 
     def compactQueryCollections(self) -> Dict[str, Any]:
         """Run MongoDB's compact on the collections query data and results live in.
