@@ -134,6 +134,8 @@ def get_app():
     #
     _app.add_route("/samples/sha256/{sample_sha256}", sample_resource, suffix="by_sha256")
     _app.add_route("/samples/{sample_id:int}/functions", sample_resource, suffix="functions")
+    # the raw submitted binary, when the instance keeps them (STORAGE_KEEP_SUBMITTED_BINARIES, #95)
+    _app.add_route("/samples/{sample_id:int}/binary", sample_resource, suffix="binary")
     _app.add_route(
         "/samples/{sample_id:int}/functions/{function_id:int}",
         sample_resource,

@@ -1,5 +1,6 @@
 import datetime
 import functools
+import io
 import logging
 import operator
 import re
@@ -20,7 +21,7 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache, StorageBackedMatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.StorageInterface import StorageInterface
+from mcrit.storage.StorageInterface import BinaryStream, StorageInterface
 
 if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaFunction import SmdaFunction
@@ -147,6 +148,7 @@ class MemoryStorage(StorageInterface):
         self._db_timestamp = self._getCurrentTimestamp()
         self._families = {}
         self._samples = {}
+        self._sample_binaries: Dict[int, bytes] = {}
         self._functions = {}
         self._query_samples = {}
         self._query_functions = {}
@@ -231,6 +233,7 @@ class MemoryStorage(StorageInterface):
         self._updateFamilyStats(sample_entry.family_id, -1, -len(function_ids), -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
+        self._sample_binaries.pop(sample_id, None)
         if sample_entry.family_id != 0 and not any(s.family_id == sample_entry.family_id for s in self._samples.values()):
             self._families.pop(sample_entry.family_id, None)
         return True
@@ -314,6 +317,25 @@ class MemoryStorage(StorageInterface):
                     self._pichashes[function_entry.pichash].add((new_family_id, sample_id, function_id))
         self._updateDbState()
         return True
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        self._sample_binaries[sample_id] = bytes(binary)
+        return True
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        return self._sample_binaries.get(sample_id)
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        return sample_id in self._sample_binaries
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        binary = self._sample_binaries.get(sample_id)
+        return io.BytesIO(binary) if binary is not None else None
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        return self._sample_binaries.pop(sample_id, None) is not None
 
     def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
         report: Dict[str, Any] = {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}}

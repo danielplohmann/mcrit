@@ -92,3 +92,18 @@ Notes on the individual knobs:
   earlier only the batch size, `BAND_MATCHES_REQUIRED` and the mongod cache size apply.
 * All measurements used single-process matching; comparisons against a pooled configuration
   will differ.
+
+## Keeping submitted binaries
+
+| setting | default | effect |
+|---|---|---|
+| `STORAGE_KEEP_SUBMITTED_BINARIES` | `False` | store the raw bytes a sample was submitted with (`POST /samples/binary`) in the GridFS bucket `sample_binaries`, served by `GET /samples/{sample_id}/binary` |
+
+Off, MCRIT keeps only the disassembly. On, every binary submission costs its own size once
+in MongoDB (GridFS chunks of 255 KiB; a 50 GB corpus of binaries is 50 GB more disk on the
+database host), and the bytes live as long as the sample: `deleteSample` removes them, a
+resubmission of a known sample stores them if they were not kept before, and reports
+submitted as SMDA JSON (`POST /samples`) never have any. Turn it on when analysts need the
+original file back from MCRIT (re-disassembly with a newer smda, hand-off to other tooling);
+leave it off when the binaries are kept elsewhere.
+

@@ -10,6 +10,7 @@ from itertools import zip_longest
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
+import gridfs
 import numpy as np
 from packaging import version
 from picblocks.blockhasher import BlockHasher
@@ -36,7 +37,7 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.StorageInterface import StorageInterface
+from mcrit.storage.StorageInterface import BinaryStream, StorageInterface
 
 LOGGER = logging.getLogger(__name__)
 if MongoClient is None:
@@ -233,6 +234,7 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["query_samples"].create_index("sha256")
         self._getDb()["query_functions"].create_index("function_id")
         self._getDb()["query_functions"].create_index("sample_id")
+        self._getDb()[self._BINARIES_BUCKET + ".files"].create_index("metadata.sample_id")
         # ensure that their counters are at least 1, so that they never contain items with sample_id/function_id 0
         # the name-only filter with $max is idempotent: it matches an existing counter instead of upserting a duplicate (#105)
         self._getDb().counters.update_one({"name": "query_samples"}, {"$max": {"value": 1}}, upsert=True)
@@ -623,6 +625,8 @@ class MongoDbStorage(StorageInterface):
         num_functions_deleted = self._getDb().functions.delete_many({"sample_id": sample_id}).deleted_count
         # remove sample
         num_samples_deleted = self._getDb().samples.delete_one({"sample_id": sample_id}).deleted_count
+        # the raw submission goes with the sample it belongs to (#95)
+        self.deleteSampleBinary(sample_id)
         # update family stats by what was actually removed, not by what the sample claimed (#151)
         self._updateFamilyStats(sample_entry.family_id, -num_samples_deleted, -num_functions_deleted, -int(sample_entry.is_library and num_samples_deleted))
         self._deleteFamilyIfEmpty(sample_entry.family_id)
@@ -782,6 +786,43 @@ class MongoDbStorage(StorageInterface):
             self._updateDbState()
         return True
 
+    # raw submitted binaries live in their own GridFS bucket, keyed by sample id (#95)
+    _BINARIES_BUCKET = "sample_binaries"
+
+    def _getBinaries(self) -> "gridfs.GridFS":
+        return gridfs.GridFS(self._getDb(), collection=self._BINARIES_BUCKET)
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        self.deleteSampleBinary(sample_id)
+        self._getBinaries().put(bytes(binary), metadata={"sample_id": sample_id, "size": len(binary)})
+        return True
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        stored = self._getBinaries().find_one({"metadata.sample_id": sample_id})
+        return stored.read() if stored is not None else None
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        """Whether a binary is stored, without fetching a single chunk of it. GridFS keeps the
+        file's metadata in `.files` and its bytes in `.chunks`, so this reads one small
+        document where getSampleBinary() would stream the whole file to answer the same
+        question - which is what the resubmission path in Worker.addBinarySample was doing."""
+        return self._getDb()[f"{self._BINARIES_BUCKET}.files"].find_one({"metadata.sample_id": sample_id}, {"_id": 1}) is not None
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        """The stored binary as a GridOut, which reads chunk by chunk, so serving it never
+        holds the whole file in memory."""
+        return self._getBinaries().find_one({"metadata.sample_id": sample_id})
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        deleted = False
+        bucket = self._getBinaries()
+        for stored in bucket.find({"metadata.sample_id": sample_id}):
+            bucket.delete(stored._id)
+            deleted = True
+        return deleted
+
     def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
         """Set every family's counters from the samples and functions that exist (#151).
 
@@ -906,7 +947,22 @@ class MongoDbStorage(StorageInterface):
         # leaving them behind while the counters reset would collide on _id at the next insert
         # "picblockhashes" is the inverted block-hash index; leaving it behind would keep asserting
         # that hashes are held by samples that no longer exist, and getUniqueBlocks would believe it
-        collections = ["samples", "families", "functions", "matches", "candidates", "counters", "query_samples", "query_functions", "xcfg", "query_xcfg", "picblockhashes"]
+        # the "sample_binaries" GridFS bucket holds the raw submissions (#95)
+        collections = [
+            "samples",
+            "families",
+            "functions",
+            "matches",
+            "candidates",
+            "counters",
+            "query_samples",
+            "query_functions",
+            "xcfg",
+            "query_xcfg",
+            "picblockhashes",
+            "sample_binaries.files",
+            "sample_binaries.chunks",
+        ]
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)
         for c in collections:

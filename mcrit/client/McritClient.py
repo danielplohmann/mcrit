@@ -286,6 +286,17 @@ class McritClient:
         if data is not None:
             return SampleEntry.fromDict(data)
 
+    def getSampleBinary(self, sample_id):
+        """
+        The raw binary the sample was submitted as, when the server keeps them (STORAGE_KEEP_SUBMITTED_BINARIES); None otherwise
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/binary", headers=self.headers)
+        if self.raw:
+            return response
+        if response.status_code != 200:
+            return None
+        return response.content
+
     def getSamples(self, start=0, limit=0):
         """
         Get all SampleEntries, optionally from sample_id <start> and up to <limit> many
