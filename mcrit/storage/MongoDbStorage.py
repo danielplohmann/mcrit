@@ -37,7 +37,7 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.StorageInterface import StorageInterface
+from mcrit.storage.StorageInterface import BinaryStream, StorageInterface
 
 LOGGER = logging.getLogger(__name__)
 if MongoClient is None:
@@ -802,6 +802,18 @@ class MongoDbStorage(StorageInterface):
     def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
         stored = self._getBinaries().find_one({"metadata.sample_id": sample_id})
         return stored.read() if stored is not None else None
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        """Whether a binary is stored, without fetching a single chunk of it. GridFS keeps the
+        file's metadata in `.files` and its bytes in `.chunks`, so this reads one small
+        document where getSampleBinary() would stream the whole file to answer the same
+        question - which is what the resubmission path in Worker.addBinarySample was doing."""
+        return self._getDb()[f"{self._BINARIES_BUCKET}.files"].find_one({"metadata.sample_id": sample_id}, {"_id": 1}) is not None
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        """The stored binary as a GridOut, which reads chunk by chunk, so serving it never
+        holds the whole file in memory."""
+        return self._getBinaries().find_one({"metadata.sample_id": sample_id})
 
     def deleteSampleBinary(self, sample_id: int) -> bool:
         deleted = False

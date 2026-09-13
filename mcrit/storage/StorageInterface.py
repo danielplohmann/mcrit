@@ -1,7 +1,7 @@
 import datetime
 import logging
 import random
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Set, Tuple, Union
 
 from packaging import version
 
@@ -34,6 +34,17 @@ BandId = int
 BandHash = int
 PicHash = int
 Sha256 = str
+
+
+class BinaryStream(Protocol):
+    """What openSampleBinary hands back: enough of a file to stream it out and close it.
+
+    Not typing.IO - a GridFS GridOut is not one, and widening the annotation to Any to make it
+    fit would hide the only two methods the callers actually use."""
+
+    def read(self, size: int = -1, /) -> bytes: ...
+
+    def close(self) -> None: ...
 
 
 class StorageInterface:
@@ -507,7 +518,21 @@ class StorageInterface:
         raise NotImplementedError
 
     def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
-        """The raw binary kept for the sample, or None when none was kept (#95)."""
+        """The raw binary kept for the sample, or None when none was kept (#95).
+
+        Reads the whole binary into memory. Prefer hasSampleBinary() to ask whether one is
+        there and openSampleBinary() to serve it."""
+        raise NotImplementedError
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        """Whether a raw binary is kept for the sample, without reading it (#95)."""
+        raise NotImplementedError
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        """The raw binary kept for the sample as a readable stream, or None when none was kept.
+
+        The caller closes it. Serving a sample through this instead of getSampleBinary() keeps
+        the file out of the server's memory (#95)."""
         raise NotImplementedError
 
     def deleteSampleBinary(self, sample_id: int) -> bool:

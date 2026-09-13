@@ -454,6 +454,9 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def getSampleBinary(self, sample_id):
         return self.getStorage().getSampleBinary(sample_id)
 
+    def openSampleBinary(self, sample_id):
+        return self.getStorage().openSampleBinary(sample_id)
+
     def isFunctionId(self, function_id):
         return self.getStorage().isFunctionId(function_id)
 

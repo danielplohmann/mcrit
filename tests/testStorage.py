@@ -217,6 +217,31 @@ class MemoryStorageTest(TestCase):
     def _numBandEntries(self):
         return sum(len(function_ids) for band in self.storage._bands.values() for function_ids in band.values())
 
+    def testABinaryCanBeCheckedForAndStreamedWithoutReadingItWhole(self):
+        """hasSampleBinary answers from the GridFS metadata and openSampleBinary hands back a
+        handle, so neither the resubmission check in Worker.addBinarySample nor serving a
+        sample pulls the whole file into memory."""
+        self.storage.clearStorage()
+        with open(self.example_file_path) as fjson:
+            report = SmdaReport.fromDict(json.load(fjson))
+        assert report is not None
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        sample_id = sample_entry.sample_id
+        self.assertFalse(self.storage.hasSampleBinary(sample_id))
+        self.assertIsNone(self.storage.openSampleBinary(sample_id))
+        payload = b"MZ\x00\x01" * 1000
+        self.storage.storeSampleBinary(sample_id, payload)
+        self.assertTrue(self.storage.hasSampleBinary(sample_id))
+        handle = self.storage.openSampleBinary(sample_id)
+        assert handle is not None
+        self.assertEqual(payload[:4], handle.read(4), "a stream, not the whole file")
+        self.assertEqual(payload[4:], handle.read())
+        handle.close()
+        self.storage.deleteSampleBinary(sample_id)
+        self.assertFalse(self.storage.hasSampleBinary(sample_id))
+        self.assertFalse(self.storage.hasSampleBinary(4242))
+
     def testASubmittedBinaryCanBeKeptAndGoesWithItsSample(self):
         # #95
         self.storage.clearStorage()

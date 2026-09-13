@@ -1,5 +1,6 @@
 import datetime
 import functools
+import io
 import logging
 import operator
 import re
@@ -20,7 +21,7 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache, StorageBackedMatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.StorageInterface import StorageInterface
+from mcrit.storage.StorageInterface import BinaryStream, StorageInterface
 
 if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaFunction import SmdaFunction
@@ -325,6 +326,13 @@ class MemoryStorage(StorageInterface):
 
     def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
         return self._sample_binaries.get(sample_id)
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        return sample_id in self._sample_binaries
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        binary = self._sample_binaries.get(sample_id)
+        return io.BytesIO(binary) if binary is not None else None
 
     def deleteSampleBinary(self, sample_id: int) -> bool:
         return self._sample_binaries.pop(sample_id, None) is not None

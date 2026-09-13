@@ -1,3 +1,4 @@
+import io
 import json
 import unittest
 from types import SimpleNamespace
@@ -23,11 +24,42 @@ class BinaryRouteTest(unittest.TestCase):
     def test_the_stored_binary_is_served_as_octets(self):
         index = MagicMock()
         index.isSampleId.return_value = True
-        index.getSampleBinary.return_value = b"MZ\x90\x00binary"
+        index.openSampleBinary.return_value = io.BytesIO(b"MZ\x90\x00binary")
         resp = falcon.Response()
         SampleResource(index).on_get_binary(self._request(), resp, 1)
-        self.assertEqual(b"MZ\x90\x00binary", resp.data)
         self.assertEqual("application/octet-stream", resp.content_type)
+        stream = resp.stream
+        assert isinstance(stream, io.BytesIO)
+        self.assertEqual(b"MZ\x90\x00binary", stream.read())
+
+    def test_the_binary_is_streamed_rather_than_read_into_memory(self):
+        """The point of serving through openSampleBinary: the response carries the handle, so
+        the file is read out chunk by chunk by the server instead of being buffered whole."""
+        index = MagicMock()
+        index.isSampleId.return_value = True
+        handle = io.BytesIO(b"MZ" * 100)
+        index.openSampleBinary.return_value = handle
+        resp = falcon.Response()
+        SampleResource(index).on_get_binary(self._request(), resp, 1)
+        index.getSampleBinary.assert_not_called()
+        self.assertIs(handle, resp.stream)
+        self.assertIsNone(resp.data)
+        self.assertEqual(0, handle.tell(), "the responder must not have read the stream itself")
+
+    def test_a_gridfs_handle_sets_the_content_length(self):
+        """GridOut carries `length`; BytesIO does not, and an absent one must not be invented."""
+        index = MagicMock()
+        index.isSampleId.return_value = True
+        index.openSampleBinary.return_value = SimpleNamespace(read=lambda size=-1: b"MZ", close=lambda: None, length=1234)
+        resp = falcon.Response()
+        SampleResource(index).on_get_binary(self._request(), resp, 1)
+        content_length = resp.content_length  # falcon keeps it as the header string
+        assert content_length is not None
+        self.assertEqual(1234, int(content_length))
+        index.openSampleBinary.return_value = io.BytesIO(b"MZ")
+        resp = falcon.Response()
+        SampleResource(index).on_get_binary(self._request(), resp, 1)
+        self.assertIsNone(resp.content_length)
 
     def test_an_unknown_sample_and_a_sample_without_binary_are_404(self):
         index = MagicMock()
@@ -36,7 +68,7 @@ class BinaryRouteTest(unittest.TestCase):
         SampleResource(index).on_get_binary(self._request(), resp, 1)
         self.assertEqual(falcon.HTTP_404, resp.status)
         index.isSampleId.return_value = True
-        index.getSampleBinary.return_value = None
+        index.openSampleBinary.return_value = None
         resp = falcon.Response()
         SampleResource(index).on_get_binary(self._request(), resp, 1)
         self.assertEqual(falcon.HTTP_404, resp.status)
@@ -88,13 +120,15 @@ class WorkerKeepsBinariesTest(unittest.TestCase):
             known.sample_id = 7
             known.toDict.return_value = {"sample_id": 7}
             storage.getSampleBySha256.return_value = known
-            storage.getSampleBinary.return_value = None
+            storage.hasSampleBinary.return_value = False
             result = worker.addBinarySample(b"MZ", "a.exe", "fam", "1", False, None, None)
             storage.storeSampleBinary.assert_called_once_with(7, b"MZ")
             self.assertTrue(result["binary_stored"])
+            # the check asks whether a binary is there; it must not fetch one to find out
+            storage.getSampleBinary.assert_not_called()
             # already stored: nothing to do
             storage.storeSampleBinary.reset_mock()
-            storage.getSampleBinary.return_value = b"MZ"
+            storage.hasSampleBinary.return_value = True
             result = worker.addBinarySample(b"MZ", "a.exe", "fam", "1", False, None, None)
             storage.storeSampleBinary.assert_not_called()
             self.assertNotIn("binary_stored", result)

@@ -153,7 +153,7 @@ class Worker(QueueRemoteCallee):
         if sample_entry:
             LOGGER.info("Sample is already known with ID: %d", sample_entry.sample_id)
             result = {"sample_info": sample_entry.toDict()}
-            if self._storage_config.STORAGE_KEEP_SUBMITTED_BINARIES and self._storage.getSampleBinary(sample_entry.sample_id) is None:
+            if self._storage_config.STORAGE_KEEP_SUBMITTED_BINARIES and not self._storage.hasSampleBinary(sample_entry.sample_id):
                 # a retried job (the sample was committed, storing the binary was not) or a
                 # sample submitted before binaries were kept: complete it here
                 result["binary_stored"] = self._storage.storeSampleBinary(sample_entry.sample_id, binary)

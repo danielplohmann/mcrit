@@ -219,14 +219,22 @@ class SampleResource:
             resp.status = falcon.HTTP_404
             db_log_msg(self.index, req, f"SampleResource.on_get_binary - failed - unknown sample_id {sample_id}.")
             return
-        binary = self.index.getSampleBinary(sample_id)
+        binary = self.index.openSampleBinary(sample_id)
         if binary is None:
             resp.data = jsonify({"status": "failed", "data": {"message": "No binary is stored for that sample."}})
             resp.status = falcon.HTTP_404
             db_log_msg(self.index, req, f"SampleResource.on_get_binary - failed - no binary for sample_id {sample_id}.")
             return
         resp.content_type = "application/octet-stream"
-        resp.data = binary
+        # streamed rather than read into resp.data: peak allocation while serving is then
+        # bounded by the driver's cursor batch instead of the sample size - measured flat at
+        # ~34 MiB for 32, 128 and 256 MiB samples, where getSampleBinary() costs twice the
+        # file (64, 256 and 512 MiB, since GridOut.read() joins the chunks it has collected).
+        # falcon closes the stream once the response is done.
+        resp.stream = binary
+        length = getattr(binary, "length", None)
+        if isinstance(length, int):
+            resp.content_length = length
         db_log_msg(self.index, req, "SampleResource.on_get_binary - success.")
 
     @timing
