@@ -1,0 +1,245 @@
+=== ground-truth ranking, all tokens ===
+callee tokens: on   constants below 0x0 dropped
+scored functions: PE 208, ELF 65
+
+-- hand-verified pairs (PE -> ELF) --
+pe         elf          score    rank    best
+0x402440   0x9110        72.3       1    72.3
+0x4040f0   0xa4c6      target not scored
+0x404120   0xa4e4      not scored (too few tokens)
+0x404150   0xa508      not scored (too few tokens)
+0x404410   0xa564        22.2       1    22.2
+0x404480   0xa598        29.5       1    29.5
+0x4044f0   0xa624        23.5       4    43.3
+0x404540   0xa6f4        22.0       1    22.0
+0x404590   0xa5d8         7.0       4    22.9
+0x404640   0xa664        13.9       1    13.9
+0x404700   0xaad0        32.5       1    32.5
+0x404850   0xa730         8.4       2    15.8
+0x4048a0   0xa768        25.6       1    25.6
+0x405270   0xaa60        51.6       1    51.6
+
+top-1: 8/11   top-5: 11/11   median rank: 1
+
+-- same role, different implementation --
+0x405370   0xa378         3.8      14
+0x405650   0xa288         7.6       6
+0x405910   0x9f8c         7.9      13
+
+-- highest-scoring pairs overall --
+   72.3  pe 0x402440   elf 0x9110      <-- correct
+   59.6  pe 0x4041e0   elf 0x9f38    
+   51.6  pe 0x405270   elf 0xaa60      <-- correct
+   46.1  pe 0x409910   elf 0x95a0    
+   43.5  pe 0x4096d0   elf 0x95a0    
+   43.3  pe 0x4044f0   elf 0xa6f4    
+   41.2  pe 0x407f50   elf 0x9f38    
+   40.2  pe 0x40a250   elf 0x9f38    
+   38.0  pe 0x402520   elf 0x9a0c    
+   36.2  pe 0x40f1d0   elf 0xa6f4    
+   33.5  pe 0x408d60   elf 0xa508    
+   33.0  pe 0x4083c0   elf 0x9a0c    
+   32.5  pe 0x404700   elf 0xaad0      <-- correct
+   29.5  pe 0x404480   elf 0xa598      <-- correct
+   29.1  pe 0x404230   elf 0x9f38    
+   28.5  pe 0x40e190   elf 0x95a0    
+   28.3  pe 0x413f3a   elf 0x9f20    
+   28.3  pe 0x4079d0   elf 0x95a0    
+   27.6  pe 0x4141ea   elf 0x9f20    
+   27.2  pe 0x407b80   elf 0xaa60    
+
+=== ground-truth ranking, constants below 0x100 dropped ===
+callee tokens: on   constants below 0x100 dropped
+scored functions: PE 163, ELF 47
+
+-- hand-verified pairs (PE -> ELF) --
+pe         elf          score    rank    best
+0x402440   0x9110        76.8       1    76.8
+0x4040f0   0xa4c6      target not scored
+0x404120   0xa4e4      not scored (too few tokens)
+0x404150   0xa508      not scored (too few tokens)
+0x404410   0xa564        26.0       1    26.0
+0x404480   0xa598        36.2       1    36.2
+0x4044f0   0xa624      not scored (too few tokens)
+0x404540   0xa6f4         0.0       2    27.6
+0x404590   0xa5d8         7.6       5    31.9
+0x404640   0xa664        17.5       1    17.5
+0x404700   0xaad0        17.0       1    17.0
+0x404850   0xa730      not scored (too few tokens)
+0x4048a0   0xa768        21.8       1    21.8
+0x405270   0xaa60      target not scored
+
+top-1: 6/8   top-5: 8/8   median rank: 1
+
+-- same role, different implementation --
+0x405370   0xa378         4.9       9
+0x405650   0xa288        11.2       3
+0x405910   0x9f8c         0.0      17
+
+-- highest-scoring pairs overall --
+   76.8  pe 0x402440   elf 0x9110      <-- correct
+   49.6  pe 0x409910   elf 0x95a0    
+   46.1  pe 0x4096d0   elf 0x95a0    
+   43.9  pe 0x402520   elf 0x9a0c    
+   37.9  pe 0x40a250   elf 0x9f38    
+   37.4  pe 0x408d60   elf 0x90b4    
+   36.2  pe 0x404480   elf 0xa598      <-- correct
+   36.0  pe 0x413c6a   elf 0xa564    
+   35.9  pe 0x4083c0   elf 0x9534    
+   32.1  pe 0x4079d0   elf 0x95a0    
+   31.9  pe 0x404590   elf 0xa664    
+   29.6  pe 0x410d91   elf 0x95d8    
+   29.0  pe 0x408f50   elf 0x9f38    
+   28.5  pe 0x40f8d9   elf 0xa564    
+   28.2  pe 0x40e190   elf 0x95a0    
+   27.6  pe 0x404540   elf 0xa4f0    
+   27.4  pe 0x40b6f0   elf 0xa564    
+   27.4  pe 0x405910   elf 0x99c8    
+   26.0  pe 0x404410   elf 0xa564      <-- correct
+   25.2  pe 0x40e8a0   elf 0xa664    
+
+=== controls ===
+
+==== all tokens ====
+
+-- positive controls (same program) --
+mirai i386 vs mirai arm            pairs  120x123   best  83.9  top10 mean  71.8  median best  12.8  >=30: 35
+lazarus PE vs lazarus ARM ELF      pairs  208x65    best  75.0  top10 mean  48.9  median best  13.4  >=30: 17
+
+-- negative controls (unrelated code) --
+lazarus PE vs mirai arm            pairs  208x123   best  46.3  top10 mean  39.4  median best  11.9  >=30: 16
+cutwail PE vs lazarus ARM ELF      pairs   13x65    best  19.0  top10 mean  12.0  median best   8.7  >=30: 0
+cutwail PE vs mirai arm            pairs   13x123   best  15.5  top10 mean   9.9  median best   7.9  >=30: 0
+mirai i386 vs lazarus ARM ELF      pairs  120x65    best  60.9  top10 mean  35.1  median best  12.3  >=30: 4
+bashlite x64 vs lazarus ARM ELF    pairs  124x65    best  52.4  top10 mean  34.4  median best   9.0  >=30: 6
+
+==== dropping constants below 0x20 ====
+
+-- positive controls (same program) --
+mirai i386 vs mirai arm            pairs  117x119   best  91.4  top10 mean  67.9  median best  12.5  >=30: 27
+lazarus PE vs lazarus ARM ELF      pairs  200x59    best  75.0  top10 mean  45.1  median best  12.3  >=30: 13
+
+-- negative controls (unrelated code) --
+lazarus PE vs mirai arm            pairs  200x119   best  49.5  top10 mean  39.4  median best   9.9  >=30: 9
+cutwail PE vs lazarus ARM ELF      pairs   13x59    best  19.0  top10 mean   9.7  median best   4.5  >=30: 0
+cutwail PE vs mirai arm            pairs   13x119   best  13.4  top10 mean   9.5  median best   7.9  >=30: 0
+mirai i386 vs lazarus ARM ELF      pairs  117x59    best  41.8  top10 mean  20.9  median best   7.7  >=30: 1
+bashlite x64 vs lazarus ARM ELF    pairs  122x59    best  55.2  top10 mean  34.4  median best   7.1  >=30: 5
+
+==== dropping constants below 0x100 ====
+
+-- positive controls (same program) --
+mirai i386 vs mirai arm            pairs   95x109   best  56.3  top10 mean  44.3  median best   0.0  >=30: 12
+lazarus PE vs lazarus ARM ELF      pairs  163x47    best  79.2  top10 mean  45.3  median best  11.0  >=30: 14
+
+-- negative controls (unrelated code) --
+lazarus PE vs mirai arm            pairs  163x109   best  45.0  top10 mean  24.8  median best   4.3  >=30: 2
+cutwail PE vs lazarus ARM ELF      pairs   12x47    best  16.7  top10 mean   6.1  median best   0.0  >=30: 0
+cutwail PE vs mirai arm            pairs   12x109   best  12.5  top10 mean   3.1  median best   0.0  >=30: 0
+mirai i386 vs lazarus ARM ELF      pairs   95x47    best  18.9  top10 mean   6.1  median best   0.0  >=30: 0
+bashlite x64 vs lazarus ARM ELF    pairs   96x47    best  24.5  top10 mean   6.6  median best   0.0  >=30: 0
+
+=== propagation and refinement ===
+constants below 0x0 dropped, imports reached 3 calls deep; 46 pairs matched, 13 of them anchors
+
+pe         elf        result       how
+0x402440   0x9110     correct      anchor
+0x4040f0   0xa4c6     correct      propagated
+0x404120   0xa4e4     correct      propagated
+0x404150   0xa508     correct      propagated
+0x404410   0xa564     correct      revised
+0x404480   0xa598     correct      anchor
+0x4044f0   0xa624     correct      revised
+0x404540   0xa6f4     correct      propagated
+0x404590   0xa5d8     correct      propagated
+0x404640   0xa664     correct      revised
+0x404700   0xaad0     correct      anchor
+0x404850   0xa730     correct      revised
+0x4048a0   0xa768     correct      anchor
+0x405270   0xaa60     correct      anchor
+
+correct 14/14, wrong 0, unmatched 0
+
+-- same role, different implementation --
+0x405370   0xa378     0xa288 propagated
+0x405650   0xa288     0xa030 propagated
+0x405910   0x9f8c     0x915c propagated
+
+-- matches between samples, with the other samples as background --
+lazarus PE vs lazarus ARM ELF      matched  48  (anchors 11, propagated  37)
+mirai i386 vs mirai arm            matched 112  (anchors 28, propagated  84)
+lazarus PE vs mirai arm            matched  45  (anchors  5, propagated  40)
+cutwail PE vs lazarus ARM ELF      matched   5  (anchors  1, propagated   4)
+cutwail PE vs mirai arm            matched   0  (anchors  0, propagated   0)
+mirai i386 vs lazarus ARM ELF      matched  18  (anchors  3, propagated  15)
+bashlite x64 vs lazarus ARM ELF    matched  20  (anchors  7, propagated  13)
+
+=== propagation, no reach: tokens ===
+constants below 0x0 dropped, imports reached 0 calls deep; 50 pairs matched, 13 of them anchors
+
+pe         elf        result       how
+0x402440   0x9110     correct      anchor
+0x4040f0   0xa4c6     correct      propagated
+0x404120   0xa4e4     correct      propagated
+0x404150   0xa508     correct      propagated
+0x404410   0xa564     unmatched    
+0x404480   0xa598     correct      anchor
+0x4044f0   0xa624     wrong (0xa6f4) anchor
+0x404540   0xa6f4     wrong (0xa624) propagated
+0x404590   0xa5d8     wrong (0xa664) anchor
+0x404640   0xa664     wrong (0xa5d8) propagated
+0x404700   0xaad0     correct      anchor
+0x404850   0xa730     correct      revised
+0x4048a0   0xa768     correct      anchor
+0x405270   0xaa60     correct      anchor
+
+correct 9/14, wrong 4, unmatched 1
+
+-- same role, different implementation --
+0x405370   0xa378     0xa288 propagated
+0x405650   0xa288     0xa4f0 propagated
+0x405910   0x9f8c     0x915c propagated
+
+-- matches between samples, with the other samples as background --
+lazarus PE vs lazarus ARM ELF      matched  50  (anchors 13, propagated  37)
+mirai i386 vs mirai arm            matched 112  (anchors 28, propagated  84)
+lazarus PE vs mirai arm            matched  49  (anchors  3, propagated  46)
+cutwail PE vs lazarus ARM ELF      matched   0  (anchors  0, propagated   0)
+cutwail PE vs mirai arm            matched   0  (anchors  0, propagated   0)
+mirai i386 vs lazarus ARM ELF      matched  26  (anchors  2, propagated  24)
+bashlite x64 vs lazarus ARM ELF    matched  22  (anchors  5, propagated  17)
+
+=== propagation, constants below 0x100 dropped ===
+constants below 0x100 dropped, imports reached 3 calls deep; 32 pairs matched, 8 of them anchors
+
+pe         elf        result       how
+0x402440   0x9110     correct      anchor
+0x4040f0   0xa4c6     unmatched    
+0x404120   0xa4e4     correct      propagated
+0x404150   0xa508     correct      propagated
+0x404410   0xa564     unmatched    
+0x404480   0xa598     correct      anchor
+0x4044f0   0xa624     correct      propagated
+0x404540   0xa6f4     correct      revised
+0x404590   0xa5d8     unmatched    
+0x404640   0xa664     correct      propagated
+0x404700   0xaad0     correct      propagated
+0x404850   0xa730     unmatched    
+0x4048a0   0xa768     correct      anchor
+0x405270   0xaa60     unmatched    
+
+correct 9/14, wrong 0, unmatched 5
+
+-- same role, different implementation --
+0x405370   0xa378     0xa288 propagated
+0x405650   0xa288     0xa030 propagated
+0x405910   0x9f8c     0x915c revised
+
+-- matches between samples, with the other samples as background --
+lazarus PE vs lazarus ARM ELF      matched  33  (anchors  5, propagated  28)
+mirai i386 vs mirai arm            matched 116  (anchors 12, propagated 104)
+lazarus PE vs mirai arm            matched  22  (anchors  1, propagated  21)
+cutwail PE vs lazarus ARM ELF      matched   4  (anchors  1, propagated   3)
+cutwail PE vs mirai arm            matched   0  (anchors  0, propagated   0)
+mirai i386 vs lazarus ARM ELF      matched   0  (anchors  0, propagated   0)
+bashlite x64 vs lazarus ARM ELF    matched   0  (anchors  0, propagated   0)
