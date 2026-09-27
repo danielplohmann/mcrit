@@ -43,8 +43,9 @@ FINGERPRINT_UNAVAILABLE = "unavailable"
 # are realistic so that byte-level escaping (jump/call targets, ptr refs, immediates) also runs.
 # Every architecture MCRIT computes minhashes for is probed (#93). The non-Intel probes are taken
 # from real code - one instruction per distinct escaped form, from the cross-architecture test
-# fixtures and, for Dalvik, from an app with its class names and strings replaced by neutral ones
-# that escape identically.
+# fixtures, for ARM from smda's own A32/Thumb fixtures, and, for Dalvik, from an app with its class
+# names and strings replaced by neutral ones that escape identically. An smda without an ARM
+# escaper fingerprints ARM as unavailable and leaves the others as they are.
 # Adding instructions to an architecture's probe changes that architecture's fingerprint, so only
 # do so at a deliberate version boundary; adding an architecture leaves the others' unchanged.
 ESCAPER_PROBE_INSTRUCTIONS: Dict[str, List[List]] = {
@@ -140,6 +141,41 @@ ESCAPER_PROBE_INSTRUCTIONS: Dict[str, List[List]] = {
         [0x10001001C, "2008028b", "add", "x0, x1, x2, lsl #2"],
         [0x100010020, "2040228b", "add", "x0, x1, w2, uxtw"],
     ],
+    "arm": [
+        [0x1288C, "f80a02e3", "movw", "r0, #0x2af8"],
+        [0x128C0, "0100a0e1", "mov", "r0, r1"],
+        [0x128B8, "101081e2", "add", "r1, r1, #0x10"],
+        [0x12898, "00008fe0", "add", "r0, pc, r0"],
+        [0x29290, "00c68fe2", "add", "ip, pc, #0, #12"],
+        [0x128B0, "901182e0", "umull", "r1, r2, r0, r1"],
+        [0x1E4E0, "1cbf", "itt", "ne"],
+        [0x128F4, "0700000a", "beq", "#0x12918"],
+        [0x12890, "1eff2fe1", "bx", "lr"],
+        [0x1E44A, "a0b3", "cbz", "r0, #0x1e4b6"],
+        [0x12894, "04009fe5", "ldr", "r0, [pc, #4]"],
+        [0x12D0C, "0110c0e4", "strb", "r1, [r0], #1"],
+        [0x12A48, "013016e6", "ldr", "r3, [r6], -r1"],
+        [0x135F0, "000097e6", "ldr", "r0, [r7], r0"],
+        [0x16358, "21008de8", "stm", "sp, {r0, r5}"],
+        [0x162F8, "f040cde1", "strd", "r4, r5, [sp]"],
+        [0x128D0, "f04f2de9", "push", "{r4, r5, r6, r7, r8, sb, sl, fp, lr}"],
+        [0x135A0, "370090ef", "svc", "#0x900037"],
+        # escaper classes the fixtures do not reach, encodings checked with capstone
+        [0x20000, "5ff07ff5", "dmb", "sy"],
+        [0x20004, "72b6", "cpsid", "i"],
+        [0x20006, "00bf", "nop", ""],
+        [0x20008, "00000fe1", "mrs", "r0, apsr"],
+        [0x2000C, "100af1ee", "vmrs", "r0, fpscr"],
+        [0x20010, "000a31ee", "vadd.f32", "s0, s2, s0"],
+        [0x20014, "440822f2", "vadd.i32", "q0, q1, q2"],
+        [0x20018, "000b90ed", "vldr", "d0, [r0]"],
+        [0x2001C, "060090e8", "ldm", "r0, {r1, r2}"],
+        [0x20020, "01008012", "addne", "r0, r0, #1"],
+        [0x20024, "f0bd", "pop", "{r4, r5, r6, r7, pc}"],
+        [0x20026, "fff7ebff", "bl", "#0x20000"],
+        # a shifted register operand, whose shift the escaper drops today
+        [0x2002A, "020181e0", "add", "r0, r1, r2, lsl #2"],
+    ],
     "cil": [
         [0x25C, "7201000070", "ldstr", '"SGFjS2Vk"'],
         [0x261, "8001000004", "stsfld", "VN"],
@@ -233,11 +269,11 @@ def getEscaperFingerprints(architectures: Sequence[str] = PROBED_ARCHITECTURES) 
     """Per-architecture fingerprints - the shape that gets persisted in exports and status.
 
     A mapping rather than a combined hash, and deliberately so: the value is *stored*, so a
-    later widening of the default probe (adding an architecture, as AArch64, CIL and Dalvik were) must not change what is
-    recorded for the architectures already covered. A combined hash would flip for everyone the
-    moment the tuple grows, making every export produced before that point mismatch on import
-    even though intel escaping never changed - and false positives are the one failure mode a
-    diagnostic cannot afford, because they teach operators to ignore it.
+    later widening of the default probe (adding an architecture, as AArch64, CIL, Dalvik and ARM
+    were) must not change what is recorded for the architectures already covered. A combined
+    hash would flip for everyone the moment the tuple grows, making every export produced before
+    that point mismatch on import even though intel escaping never changed - and false positives
+    are the one failure mode a diagnostic cannot afford, because they teach operators to ignore it.
     """
     fingerprints = {}
     for architecture in architectures:

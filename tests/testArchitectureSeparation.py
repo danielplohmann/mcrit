@@ -82,6 +82,12 @@ class ArchitectureSeparationTest(MemoryCorpus, unittest.TestCase):
         report = self._match(index, own)
         self.assertNotIn(other, reported_sample_ids(report))
 
+    def test_arm_and_aarch64_are_different_architectures(self):
+        # both are ARM, but A32/Thumb and AArch64 are different instruction sets and escape differently
+        index, (own, other) = self._corpus(load_report("crossarch_aarch64_a.smda"), load_report("crossarch_aarch64_b.smda"))
+        self._relabel(index, other, "arm")
+        self.assertNotIn(other, reported_sample_ids(self._match(index, own)))
+
     def test_an_unknown_architecture_is_not_another_one(self):
         index, (own, other) = self._corpus(load_report("crossarch_aarch64_a.smda"), load_report("crossarch_aarch64_b.smda"))
         expected = self._match(index, own)

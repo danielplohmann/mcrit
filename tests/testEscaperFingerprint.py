@@ -19,6 +19,9 @@ LOG = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(asctime)-15s %(message)s")
 logging.disable(logging.CRITICAL)
 
+# an smda without an ARM (A32/Thumb) escaper fingerprints ARM as unavailable
+SMDA_ESCAPES_ARM = SmdaFunction.getInstructionEscaper("arm") is not None
+
 
 class EscaperFingerprintTestSuite(unittest.TestCase):
     """MinHashes are only comparable across functions escaped by the same smda, so the escaper's
@@ -51,9 +54,18 @@ class EscaperFingerprintTestSuite(unittest.TestCase):
     def testEveryArchitectureWithMinHashesIsProbed(self):
         # MCRIT computes minhashes for these (#93); an escaper change in any of them must show
         fingerprints = getEscaperFingerprints()
-        self.assertEqual({"intel", "aarch64", "cil", "dalvik"}, set(fingerprints))
+        self.assertEqual({"intel", "aarch64", "arm", "cil", "dalvik"}, set(fingerprints))
+        if not SMDA_ESCAPES_ARM:
+            self.assertEqual(FINGERPRINT_UNAVAILABLE, fingerprints.pop("arm"))
         self.assertNotIn(FINGERPRINT_UNAVAILABLE, fingerprints.values())
         self.assertEqual(len(set(fingerprints.values())), len(fingerprints))
+
+    @unittest.skipUnless(SMDA_ESCAPES_ARM, "this smda has no ARM escaper")
+    def testArmIsNotEscapedAsAArch64(self):
+        # both are ARM, but a different instruction set each, and so a fingerprint each
+        fingerprints = getEscaperFingerprints(("aarch64", "arm"))
+        self.assertNotEqual(fingerprints["aarch64"], fingerprints["arm"])
+        self.assertNotIn(FINGERPRINT_UNAVAILABLE, fingerprints.values())
 
     def testEachArchitectureIsFingerprintedOnItsOwn(self):
         # adding an architecture must not change what exports recorded for the others
@@ -67,6 +79,8 @@ class EscaperFingerprintTestSuite(unittest.TestCase):
 
     def testEveryProbeLineIsEscaped(self):
         for architecture, instructions in ESCAPER_PROBE_INSTRUCTIONS.items():
+            if architecture == "arm" and not SMDA_ESCAPES_ARM:
+                continue
             escaped = getEscapedProbe(architecture)
             self.assertEqual(len(instructions), len(escaped))
             self.assertTrue(all(line.strip() for line in escaped), architecture)

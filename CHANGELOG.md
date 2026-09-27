@@ -18,11 +18,13 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 ### Added
 
 - `/status` reports `escaper_fingerprints`, and exports record, a fingerprint of how smda escapes
-  AArch64, CIL and Dalvik code next to the Intel one ([#93]), so that a change in how smda escapes any
-  architecture MCRIT computes MinHashes for shows, not only an Intel one. The Intel fingerprint, and
-  `escaper_fingerprint` in `/status`, are unchanged; an import compares only the architectures the
-  export holds samples of. An export made before carries the Intel fingerprint alone: it is compared
-  as before when it holds Intel samples, and otherwise logs that it has nothing to compare.
+  AArch64, ARM (A32/Thumb), CIL and Dalvik code next to the Intel one ([#93]), so that a change in
+  how smda escapes any architecture MCRIT computes MinHashes for shows, not only an Intel one. ARM
+  reads `unavailable` under an smda that has no ARM escaper yet, as PyPI's 4.8.0 does. The Intel
+  fingerprint, and `escaper_fingerprint` in `/status`, are unchanged; an import compares only the
+  architectures the export holds samples of. An export made before carries the Intel fingerprint
+  alone: it is compared as before when it holds Intel samples, and otherwise logs that it has
+  nothing to compare.
 
 ### Fixed
 
@@ -36,8 +38,14 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   another architecture no longer take places on the shortlist. A corpus of one architecture is
   matched as before, with the same lookups (with the shortlist on, the entries of the samples voted
   for are fetched in one batch as well). A sample whose architecture is unknown (an empty string, as
-  a sample SMDA could not disassemble has) is not taken as another one. Results computed before and
-  kept by the job cache still hold such matches until requested with `force_recalculation`.
+  a sample SMDA could not disassemble has) is not taken as another one. ARM (A32/Thumb) and AArch64
+  are different architectures here. What is left out was not signal: on the Lazarus backdoor that
+  McAfee tied from Windows (two PE32 builds) to Android (three ARM ELFs) by its C2 protocol, sample
+  matching found no match between the PEs and the ELFs, while it matched the PEs at 100 and the ELFs
+  at 99 among themselves. Across all PE and ELF function pairs the best was 39, and the one pair
+  known to be the same function (the receive routine that checks for 0x301) scored 3. Results
+  computed before and kept by the job cache still hold such matches until requested with
+  `force_recalculation`.
 
 - Block hashes of non-Intel code are computed with that architecture's escaper: MCRIT now requires
   picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
