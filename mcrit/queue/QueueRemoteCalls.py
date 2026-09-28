@@ -145,6 +145,16 @@ def QueueRemoteCaller(clsCallee):
 ########### END Class Metaprogramming
 
 
+class UncacheableResult(dict):
+    """A job result that is right for the run that produced it but must not answer a later request.
+
+    A job is reused for any later request with the same descriptor. A method returns its result
+    wrapped in this when the result depends on state its arguments do not capture - a matching job
+    whose shortlist fell back because the function range index went incomplete after the job was
+    submitted (#217) - and the worker then marks the job so the queue's cache lookup skips it.
+    """
+
+
 # Wrapper that creates a remote call proxy for a given method
 def RemotifyFunctionWrapper(function):
     def submitPayloadQueue(self, payload, await_jobs, username):
@@ -165,7 +175,7 @@ def RemotifyFunctionWrapper(function):
 
         # get descriptor:
         hashes = hash_all(file_params)
-        descriptor = get_descriptor(name, params, hashes)
+        descriptor = get_descriptor(name, params, hashes, results_version=function.results_version)
 
         # Evaluate Cached jobs
         if not force_recalculation:
@@ -247,8 +257,18 @@ def hash_all(d):
     return {key: sha256(val) for key, val in d.items()}
 
 
-def get_descriptor(name, params, hashes):
-    return json.dumps((name, params, hashes), sort_keys=True)
+def get_descriptor(name, params, hashes, results_version=None):
+    """What identifies a request, so a repeated one can reuse the job that answered it.
+
+    A method whose result is a report computed from the corpus declares a results_version
+    (see Remote). It is appended as a fourth element, so a job made before a release that
+    changed such reports - or before the version was recorded at all - is not handed out
+    again. Readers that take the parameters or hashes by position ([1], [2], and the
+    anchored "0" regex of MongoQueue's sample_ids selector) are unaffected.
+    """
+    if results_version is None:
+        return json.dumps((name, params, hashes), sort_keys=True)
+    return json.dumps((name, params, hashes, {"results_version": results_version}), sort_keys=True)
 
 
 def upload_file_params(self, file_params, hashes):
@@ -285,10 +305,11 @@ def _createJobPayload(method_name, params, grid_params, descriptor):
 
 
 # Marks Functions within a QueueRemoteCallee
-def Remote(progress=False, file_locations=[], kwfile_locations=[], json_locations=[], kwjson_locations=[]):
+def Remote(progress=False, file_locations=[], kwfile_locations=[], json_locations=[], kwjson_locations=[], results_version=None):
     def change_function(function):
         function.remote = True
         function.progressor = progress
+        function.results_version = results_version
         function.file_locations = file_locations
         function.kwfile_locations = kwfile_locations
         function.json_locations = json_locations
@@ -369,6 +390,16 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
             return self._executeJobProfiled(job)
         return self._executeJobImpl(job)
 
+    def _storeJobResult(self, job, result):
+        """Store a finished job's result and answer its id; every execution path goes through here.
+
+        A result returned as an UncacheableResult marks its job first, so that no identical request
+        is handed it between the job completing and being marked.
+        """
+        if isinstance(result, UncacheableResult):
+            job.mark_uncacheable()
+        return self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
+
     def _executeJobImpl(self, job):
         if time.time() - self.t_last_cleanup >= self.queue.clean_interval:
             try:
@@ -384,7 +415,7 @@ class QueueRemoteCallee(BaseRemoteCallerClass):
                 result = self._executeJobPayload(j["payload"], job)
                 LOGGER.debug("Remote Job Result: %s", result)
                 # ensure we always have a job_id for finished job payloads
-                job.result = self.queue._dicts_to_grid(result, metadata={"result": True, "job": job.job_id})
+                job.result = self._storeJobResult(job, result)
                 LOGGER.info("Finished Remote Job: %s", job)
         except Exception:
             # the failure may include the Job.__exit__ error() write itself (e.g. the
