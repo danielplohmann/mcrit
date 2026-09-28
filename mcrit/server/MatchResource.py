@@ -1,7 +1,7 @@
 import falcon
 
 from mcrit.index.MinHashIndex import MinHashIndex
-from mcrit.server.utils import db_log_msg, get_username, getMatchingParams, jsonify, timing
+from mcrit.server.utils import db_log_msg, get_username, jsonify, readMatchingParams, timing
 
 
 class MatchResource:
@@ -10,8 +10,10 @@ class MatchResource:
 
     @timing
     def on_get_sample(self, req, resp, sample_id=None):
-        """Schedule a matching job of one sample against the whole corpus. Query parameters: ``minhash_score`` (0-100), ``pichash_size``, ``band_matches_required``, ``force_recalculation``. Answers the job id."""
-        parameters = getMatchingParams(req.params)
+        """Schedule a matching job of one sample against the whole corpus. Query parameters: ``minhash_score`` (0-100), ``pichash_size``, ``band_matches_required``, ``force_recalculation``, ``shortlist_size``, ``band_df_cutoff``, ``preset`` (``hunt`` or ``identification``); an unusable knob answers 400. Answers the job id."""
+        parameters = readMatchingParams(self.index, req, resp, "MatchResource.on_get_sample")
+        if parameters is None:
+            return
         if not self.index.isSampleId(sample_id):
             resp.data = jsonify(
                 {
@@ -32,8 +34,11 @@ class MatchResource:
 
     @timing
     def on_get_sample_cross(self, req, resp, sample_ids=None):
-        """Schedule a cross matching job of the comma separated sample ids against each other (``sample_group_only=true``) or against the corpus; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id."""
-        parameters = getMatchingParams(req.params)
+        """Schedule a cross matching job of the comma separated sample ids against each other (``sample_group_only=true``) or against the corpus; matching parameters as for ``/matches/sample/{sample_id}`` except ``shortlist_size`` (400 here). Answers the job id."""
+        # a cross compare takes no shortlist: it could only drop the samples it names
+        parameters = readMatchingParams(self.index, req, resp, "MatchResource.on_get_sample_cross", with_shortlist=False)
+        if parameters is None:
+            return
         if sample_ids is None:
             resp.status = falcon.HTTP_400
             resp.data = jsonify({"status": "failed", "data": {"message": "No sample_ids provided."}})
@@ -46,9 +51,11 @@ class MatchResource:
 
     @timing
     def on_get_sample_vs(self, req, resp, sample_id=None, sample_id_b=None):
-        """Schedule a matching job of one sample against another; matching parameters as for ``/matches/sample/{sample_id}``. Answers the job id."""
+        """Schedule a matching job of one sample against another; matching parameters as for ``/matches/sample/{sample_id}`` except ``shortlist_size`` (400 here). Answers the job id."""
         # NOTE: We don't need to check if the kw parameters are None. The routing ensures that they are always set.
-        parameters = getMatchingParams(req.params)
+        parameters = readMatchingParams(self.index, req, resp, "MatchResource.on_get_sample_vs", with_shortlist=False)
+        if parameters is None:
+            return
         if not self.index.isSampleId(sample_id) or not self.index.isSampleId(sample_id_b):
             resp.data = jsonify(
                 {

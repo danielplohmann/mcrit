@@ -226,7 +226,16 @@ class McritClient:
         self.headers.update({"username": username})
 
     def _getMatchingRequestParams(
-        self, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False, sample_group_only=False
+        self,
+        minhash_threshold=None,
+        pichash_size=None,
+        force_recalculation=None,
+        band_matches_required=None,
+        exclude_self_matches=False,
+        sample_group_only=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ):
         params = {}
         if minhash_threshold is not None:
@@ -241,6 +250,14 @@ class McritClient:
             params["exclude_self_matches"] = True
         if sample_group_only:
             params["sample_group_only"] = True
+        # left out, the server applies its configured value (#217)
+        if shortlist_size is not None:
+            params["shortlist_size"] = shortlist_size
+        if band_df_cutoff is not None:
+            params["band_df_cutoff"] = band_df_cutoff
+        # a named bundle of knobs (hunt, identification); knobs given explicitly still win
+        if preset is not None:
+            params["preset"] = preset
         return params
 
     def respawn(self) -> Optional[Dict[str, Any]]:
@@ -598,6 +615,9 @@ class McritClient:
         pichash_size: Optional[int] = None,
         band_matches_required: Optional[int] = None,
         force_recalculation: bool = False,
+        shortlist_size: Optional[int] = None,
+        band_df_cutoff: Optional[int] = None,
+        preset: Optional[str] = None,
     ) -> Optional[str]:
         """POST /query: schedule matching of an SMDA report that is not stored in MCRIT against the corpus.
 
@@ -606,12 +626,17 @@ class McritClient:
             pichash_size: pichash size to match with
             band_matches_required: bands that must agree before minhashes are compared
             force_recalculation: ignore a cached result of the same request
+            shortlist_size: rank candidate samples first and match only this many (0 turns the shortlist off); left out, the server's configured value
+            band_df_cutoff: skip bands whose posting list is longer than this; left out, the server's configured value
+            preset: a named bundle of knobs (``hunt``, ``identification``); knobs given explicitly still win
 
         Returns:
             the job id; the result is a MatchingResult dict
         """
         smda_json = smda_report.toDict()
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
         response = requests.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
@@ -626,6 +651,9 @@ class McritClient:
         band_matches_required: Optional[int] = None,
         disassemble_locally: bool = True,
         force_recalculation: bool = False,
+        shortlist_size: Optional[int] = None,
+        band_df_cutoff: Optional[int] = None,
+        preset: Optional[str] = None,
     ) -> Optional[str]:
         """Match a memory dump mapped at ``base_address`` against the corpus: disassembled with the local smda and sent to POST /query, or with ``disassemble_locally=False`` sent to POST /query/binary/mapped/{base_address} for the server to disassemble. Matching parameters as for requestMatchesForSmdaReport. Answers the job id, None when local disassembly failed."""
         if disassemble_locally:
@@ -639,9 +667,14 @@ class McritClient:
                 pichash_size=pichash_size,
                 band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
+                shortlist_size=shortlist_size,
+                band_df_cutoff=band_df_cutoff,
+                preset=preset,
             )
 
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
         response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
@@ -655,6 +688,9 @@ class McritClient:
         band_matches_required: Optional[int] = None,
         disassemble_locally: bool = True,
         force_recalculation: bool = False,
+        shortlist_size: Optional[int] = None,
+        band_df_cutoff: Optional[int] = None,
+        preset: Optional[str] = None,
     ) -> Optional[str]:
         """Match a file against the corpus: disassembled with the local smda and sent to POST /query, or with ``disassemble_locally=False`` sent to POST /query/binary for the server to disassemble. Matching parameters as for requestMatchesForSmdaReport. Answers the job id, None when local disassembly failed."""
         if disassemble_locally:
@@ -668,9 +704,14 @@ class McritClient:
                 pichash_size=pichash_size,
                 band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
+                shortlist_size=shortlist_size,
+                band_df_cutoff=band_df_cutoff,
+                preset=preset,
             )
 
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
 
         response = requests.post(f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
@@ -684,9 +725,14 @@ class McritClient:
         pichash_size: Optional[int] = None,
         band_matches_required: Optional[int] = None,
         force_recalculation: bool = False,
+        shortlist_size: Optional[int] = None,
+        band_df_cutoff: Optional[int] = None,
+        preset: Optional[str] = None,
     ) -> Optional[str]:
         """GET /matches/sample/{sample_id}: schedule matching of a stored sample against the corpus; matching parameters as for requestMatchesForSmdaReport. Answers the job id."""
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
@@ -700,9 +746,11 @@ class McritClient:
         pichash_size: Optional[int] = None,
         band_matches_required: Optional[int] = None,
         force_recalculation: bool = False,
+        band_df_cutoff: Optional[int] = None,
+        preset: Optional[str] = None,
     ) -> Optional[str]:
-        """GET /matches/sample/{sample_id}/{other_sample_id}: schedule matching of one stored sample against another; matching parameters as for requestMatchesForSmdaReport. Answers the job id."""
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        """GET /matches/sample/{sample_id}/{other_sample_id}: schedule matching of one stored sample against another; matching parameters as for requestMatchesForSmdaReport, except ``shortlist_size``, which does not apply to a match restricted to the samples it names. Answers the job id."""
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, band_df_cutoff=band_df_cutoff, preset=preset)
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
@@ -716,9 +764,21 @@ class McritClient:
         pichash_size: Optional[int] = None,
         band_matches_required: Optional[int] = None,
         force_recalculation: bool = False,
+        band_df_cutoff: Optional[int] = None,
+        preset: Optional[str] = None,
     ) -> Optional[str]:
-        """GET /matches/sample/cross/{sample_ids}: schedule cross matching of the samples against each other (``sample_group_only``) or against the corpus; matching parameters as for requestMatchesForSmdaReport. Answers the id of the job combining the per-sample results."""
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, sample_group_only=sample_group_only)
+        """GET /matches/sample/cross/{sample_ids}: schedule cross matching of the samples against each other (``sample_group_only``) or against the corpus; matching parameters as for requestMatchesForSmdaReport, except ``shortlist_size``, which does not apply to a match restricted to the samples it names. Answers the id of the job combining the per-sample results."""
+        # no shortlist_size: a cross compare is restricted to the samples it names, and a shortlist
+        # ranked over the whole corpus could only drop some of them (#217)
+        params = self._getMatchingRequestParams(
+            minhash_threshold,
+            pichash_size,
+            force_recalculation,
+            band_matches_required,
+            sample_group_only=sample_group_only,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
+        )
         response = requests.get(f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
@@ -739,10 +799,21 @@ class McritClient:
         force_recalculation: Optional[bool] = None,
         band_matches_required: Optional[int] = None,
         exclude_self_matches: bool = False,
+        shortlist_size: Optional[int] = None,
+        band_df_cutoff: Optional[int] = None,
+        preset: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """POST /query/function: match an SMDA report holding a single function synchronously; ``exclude_self_matches`` drops matches with the same sample. Answers the MatchingResult dict."""
-        # TODO add the same parameter possibilities that are used for regular full matching jobs
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, exclude_self_matches)
+        """POST /query/function: match an SMDA report holding a single function synchronously; ``exclude_self_matches`` drops matches with the same sample; the other matching parameters as for requestMatchesForSmdaReport. Answers the MatchingResult dict."""
+        params = self._getMatchingRequestParams(
+            minhash_threshold,
+            pichash_size,
+            force_recalculation,
+            band_matches_required,
+            exclude_self_matches,
+            shortlist_size=shortlist_size,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
+        )
         response = requests.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
