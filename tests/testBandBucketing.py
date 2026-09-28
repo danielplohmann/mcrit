@@ -253,15 +253,17 @@ class BandBucketingTest(unittest.TestCase):
         storage._updateBands({0: {4242: [1]}}, method="pull")
         self.assertEqual(self._bandState(storage), [])
 
-    def _candidates(self, storage, band_hash, band_matches_required=1):
+    def _candidates(self, storage, band_hash, band_matches_required=1, band_df_cutoff=None):
         """The candidates every lookup path finds for a query function whose band 0 hash is band_hash."""
         query = mock.Mock(hasMinHash=mock.Mock(return_value=True))
         found = {}
         with mock.patch.object(storage, "getBandHashesForMinHash", return_value={0: band_hash}):
             for accumulation in ("dict", "numpy"):
                 with mock.patch.object(storage._storage_config, "STORAGE_CANDIDATE_ACCUMULATION", accumulation):
-                    found[accumulation] = sorted(storage.getCandidatesForMinHashes({42: query}, band_matches_required=band_matches_required).get(42, []))
-            found["single"] = sorted(storage.getCandidatesForMinHash(query, band_matches_required=band_matches_required))
+                    found[accumulation] = sorted(
+                        storage.getCandidatesForMinHashes({42: query}, band_matches_required=band_matches_required, band_df_cutoff=band_df_cutoff).get(42, [])
+                    )
+            found["single"] = sorted(storage.getCandidatesForMinHash(query, band_matches_required=band_matches_required, band_df_cutoff=band_df_cutoff))
         return found
 
     def testLookupReachesTheBucketsAShrunkHashKeeps(self):
@@ -318,7 +320,7 @@ class BandBucketingTest(unittest.TestCase):
         storage = self._rawStorage(2, "lookup_df_index", df_cutoff=2)
         storage._updateBands({0: {**{band_hash: [1] for band_hash in range(200)}, **{band_hash: [1, 2, 3, 4, 5] for band_hash in range(1000, 1050)}}}, method="push")
         wanted = list(range(200)) + list(range(1000, 1050))
-        explain = storage._getDb().command("aggregate", "band_0", pipeline=storage._bandLookupPipeline(wanted, True), explain=True)
+        explain = storage._getDb().command("aggregate", "band_0", pipeline=storage._bandLookupPipeline(wanted, df_index_complete=True), explain=True)
         stages = []
 
         def walk(node):
@@ -359,6 +361,40 @@ class BandBucketingTest(unittest.TestCase):
         storage = self._rawStorage(2, "lookup_spilled_nocut")
         storage._updateBands({0: {5555: [10, 11, 12, 13, 14]}}, method="push")
         self.assertEqual({"dict": [10, 11, 12, 13, 14], "numpy": [10, 11, 12, 13, 14], "single": [10, 11, 12, 13, 14]}, self._candidates(storage, 5555))
+
+    def testTheLookupDecidesFromTheJobsCutoff(self):
+        """A job's cutoff, not the configured one, decides whether upper buckets are fetched separately.
+
+        Configured 2 but a job asking for 0 reads every bucket through the plain match; fetching the
+        upper buckets again on top would count the hash twice and pass band_matches_required=2.
+        """
+        storage = self._rawStorage(2, "lookup_job_cutoff_off", df_cutoff=2)
+        # buckets [1,2] [3,4] [5]: spilled, df 5
+        storage._updateBands({0: {5555: [10, 11, 12, 13, 14]}}, method="push")
+        self.assertEqual({"dict": [], "numpy": [], "single": []}, self._candidates(storage, 5555))
+        spilled = [10, 11, 12, 13, 14]
+        self.assertEqual({"dict": spilled, "numpy": spilled, "single": spilled}, self._candidates(storage, 5555, band_df_cutoff=0))
+        self.assertEqual({"dict": [], "numpy": [], "single": []}, self._candidates(storage, 5555, band_matches_required=2, band_df_cutoff=0))
+
+    def testAJobCutoffReachesTheBucketsAShrunkHashKeeps(self):
+        """Configured 0 but a job asking for 2 matches on df, so a shrunk hash's upper buckets are still fetched."""
+        storage = self._rawStorage(2, "lookup_job_cutoff_on")
+        storage._updateBands({0: {4242: list(range(1, 8))}}, method="push")
+        storage._updateBands({0: {4242: [1, 2, 3, 4, 5]}}, method="pull")
+        self.assertTrue(storage.isBandDfIndexComplete())
+        self.assertEqual({"dict": [6, 7], "numpy": [6, 7], "single": [6, 7]}, self._candidates(storage, 4242, band_df_cutoff=2))
+        self.assertEqual({"dict": [], "numpy": [], "single": []}, self._candidates(storage, 4242, band_matches_required=2, band_df_cutoff=2))
+
+    def testASpilledHashIsNotServedAsBucketZeroWithoutTheDfIndex(self):
+        """With the cutoff equal to the bucket size, a full bucket 0 passes a $size test on its own."""
+        storage = self._rawStorage(2, "cutoff_equal", df_cutoff=2)
+        storage._updateBands({0: {4242: [1, 2, 3], 4343: [4, 5]}}, method="push")
+        storage._setBandDfIndexComplete(False)
+        served = {document["band_hash"] for document in storage._getDb()["band_0"].aggregate(storage._bandLookupPipeline([4242, 4343]))}
+        self.assertEqual({4343}, served)
+        storage._setBandDfIndexComplete(True)
+        served = {document["band_hash"] for document in storage._getDb()["band_0"].aggregate(storage._bandLookupPipeline([4242, 4343]))}
+        self.assertEqual({4343}, served)
 
     def testCutoffAboveBucketSizeIsRejected(self):
         """Only bucket 0 carries df, so a cutoff a spilled hash could fit under would return bucket 0 alone."""
