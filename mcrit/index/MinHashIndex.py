@@ -353,6 +353,7 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
     def updateMinHashes(self, function_ids):
     def rebuildIndex(self):
     def recomputeFamilyStats(self):
+    def deleteOrphanedQueueFiles(self, dry_run=False):
     def recalculatePicHashes(self):
     def recalculateMinHashes(self):
     def repairMinHashes(self):
@@ -684,6 +685,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         threshold = Worker.getMinHashCompatibilityThreshold()
         status["status"]["minhash_compatibility_threshold"] = threshold
         status["status"]["num_samples_with_stale_minhashes"] = storage.countSamplesWithStaleMinHashes(threshold)
+        # how many non-Intel samples' block hashes were escaped as Intel code; recalculatePicHashes redoes them (#240)
+        num_stale_picblockhash_samples = storage.countSamplesWithStalePicBlockHashes()
+        if num_stale_picblockhash_samples is not None:
+            status["status"]["num_samples_with_stale_picblockhashes"] = num_stale_picblockhash_samples
         return status
 
     def getVersion(self):

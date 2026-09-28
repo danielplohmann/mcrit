@@ -17,6 +17,39 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ### Added
 
+- **`recalculatePicHashes` also redoes the block hashes of non-Intel samples that a picblocks
+  before 2.1.0 computed**, which escaped every block as Intel code, and `/status` counts them as
+  `num_samples_with_stale_picblockhashes` ([#240]). Samples stored from now on record the
+  picblocks their block hashes came from (`picblockhash_version`); a non-Intel sample without that
+  record, or with an older one, is rehashed and then recorded. That covers every sample stored
+  before, and every imported one, whose block hashes another instance computed. Intel samples are
+  left to the existing SMDA version check, since their block hashes did not change. MongoDB storage
+  only; the in-memory storage has no recalculation and leaves the count out of `/status`.
+
+  NOTE that a sample with a function whose disassembly is gone (e.g. dropped with
+  `STORAGE_DROP_DISASSEMBLY`) cannot be rehashed completely, so it stays counted until it is
+  deleted and submitted again. Rewritten block hashes mark the picblockhash index incomplete until
+  `rebuildPicBlockHashIndex` runs, as any recalculation that changes block hashes does, and
+  unique-blocks results computed before stay in the job cache until their job is deleted
+  (`DELETE /jobs/<job_id>`), since the unique-blocks routes do not take `force_recalculation`.
+
+- `POST /delete_orphaned_queue_files` (`McritClient.deleteOrphanedQueueFiles`) schedules a job that
+  deletes the queue's GridFS data no job refers to any more: results whose job is gone, submitted
+  files no existing job uses and no submission holds, and chunks whose file document is gone. Its
+  result says how many of each it deleted; with `dry_run=true` it deletes nothing and says how many
+  it would have, which a real run can undercut when a submission claims one of the files in between.
+  This is what the deletion paths fixed below left behind, so an instance that has deleted jobs
+  before - including through the query-sample cleanup - should run it once. MongoDB reuses the space
+  freed; returning it to the operating system still takes a `compact`. A job is looked for in every
+  queue of the database, since they share its GridFS. `dry_run=true` or `dry_run=false` has to be
+  given in the query string; a request without it, or with any other value, is answered with 400
+  rather than taken as a real run. Chunks younger than an hour are left alone, as GridFS writes a
+  file's chunks before its document, and so is a file still claimed by a submission that died before
+  creating its job. The submitted files it deletes include binaries of indexed samples that an
+  earlier bulk deletion left in the queue: MCRIT never serves those, but they may be a deployment's
+  only copy of a binary, so take one first if that matters; the dry run counts them among the file
+  parameters.
+
 - `/status` reports `escaper_fingerprints`, and exports record, a fingerprint of how smda escapes
   AArch64, ARM (A32/Thumb), CIL and Dalvik code next to the Intel one ([#93]), so that a change in
   how smda escapes any architecture MCRIT computes MinHashes for shows, not only an Intel one. ARM
@@ -70,7 +103,52 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   says so instead of only logging it. `MatchingResult` keeps the block as `matching_info` through
   `fromDict`/`toDict`.
 
+### Changed
+
+- **`FuzzyStatPairShingler` reads the frame size of AArch64 functions**, from `sub sp, sp, #imm`
+  and pre-indexed pushes such as `stp x29, x30, [sp, #-0x20]!` in the first ten instructions of the
+  entry block, as it reads `sub esp/rsp` for Intel, where it took 0 for every non-Intel function
+  before ([#238]). Matched through MCRIT's own banding on smda's AArch64 Mach-O corpus (12
+  families, one sample each) plus the FlexibleFerret/FrostyFerret test fixtures, MinHash-only
+  matches across families fell from 384 to 289, and those within the ferret family went from 109 to
+  111; one of the five confirmed ferret matches (score 56.25 now) shares one band with its partner
+  instead of two and is no longer found. CIL and Dalvik have no frame to read and keep 0.
+  `RESULTS_VERSION` goes up with this ([#241]), so match reports cached before are recomputed on
+  their next request rather than handed out with the old AArch64 matches.
+
+  NOTE that this changes the MinHashes of every AArch64 function. Samples now record the shingler
+  revision their MinHashes were computed at (`minhash_shingler_revision`), AArch64 samples hashed
+  before count in `num_samples_with_stale_minhashes` on `/status`, and `repairMinHashes` rehashes
+  them. A sample with no function large enough to hash is recorded as current instead of being
+  skipped; one whose disassembly was dropped with `STORAGE_DROP_DISASSEMBLY` still is, and has to be
+  deleted and submitted again. Until the repair has run, AArch64 samples indexed before and after
+  the upgrade match each other less well, and AArch64 match reports cached in that window keep
+  their results until requested with `force_recalculation`. Upgrade the workers before running the
+  repair: an older worker rehashes with the old shingler.
+
 ### Fixed
+
+- Deleting a job left its data in GridFS ([#80]). `DELETE /jobs/{id}` and the query-sample cleanup
+  removed only the `fs.files` document of the job's result and of the files it was given, never
+  their `fs.chunks`, so every submitted binary and every result stayed in the database for good,
+  unreachable. Deleting jobs in bulk (`DELETE /jobs` by method or age) removed the result with its
+  chunks, but left the submitted files linked to the deleted jobs, so nothing could ever delete
+  those. Both now delete through GridFS, which takes the chunks along, and release the jobs' files,
+  deleting each one no other job uses. A file is only deleted after clearing its hash in the same
+  update that checks it is still unused, as `clean()` already did, because a new submission of the
+  same binary claims the file by that hash; before, a submission arriving between the check and the
+  deletion could be handed a file that was deleted under it. Bulk deletion also deletes exactly the
+  jobs it listed, rather than evaluating its filter a second time, which also caught a matching job
+  submitted in between without releasing its files and then failed on the count; it works through
+  them in chunks of 10,000, and it now lowers the queue counters for what it deleted, which it
+  computed and never applied, so `/jobs/stats` went on counting bulk-deleted jobs until asked
+  `with_refresh=true` - and even that left the counts of a method with no jobs left as they were,
+  which it now sets to zero. Both lower a job's count from its state just before it is deleted
+  rather than from one read long before, so the counts rarely drift; `with_refresh=true` corrects
+  them when they do. Either deletion removes the job before its result and files, so an interruption
+  leaves only files no job refers to, which the sweep above takes, rather than a finished job
+  without its result, which a repeated request would be handed. The memory queue deletes a job's
+  unused files with it too, and deletes a job without a result.
 
 - Sample, query, function query, vs, vs-group and cross match reports included matches against
   samples of another architecture ([#93]). A PicHash or MinHash only means the same thing for two
@@ -95,9 +173,8 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
   above 1.1.2, so installations set up since its 2.1.0 release on 2026-09-13 compute the new hashes
   already; this makes it the floor. Intel block hashes are unchanged. Non-Intel samples indexed
-  before keep the block hashes they were stored with, and `recalculatePicHashes` only revisits
-  samples of old SMDA versions, so their unique blocks compare correctly only with samples indexed
-  before; submitting such samples again gives them the new hashes.
+  before keep the block hashes they were stored with, so their unique blocks compare correctly only
+  with samples indexed before, until `recalculatePicHashes` redoes them ([#240]).
 
 - **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
   `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
@@ -788,3 +865,6 @@ date, the version, and what changed.
 [#196]: https://github.com/danielplohmann/mcrit/pull/196
 [#217]: https://github.com/danielplohmann/mcrit/issues/217
 [#195]: https://github.com/danielplohmann/mcrit/pull/195
+[#80]: https://github.com/danielplohmann/mcrit/issues/80
+[#238]: https://github.com/danielplohmann/mcrit/issues/238
+[#240]: https://github.com/danielplohmann/mcrit/issues/240
