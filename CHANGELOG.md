@@ -17,20 +17,6 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ### Added
 
-- `/status` reports `escaper_fingerprints`, and exports record, a fingerprint of how smda escapes
-  AArch64, ARM (A32/Thumb), CIL and Dalvik code next to the Intel one ([#93]), so that a change in
-  how smda escapes any architecture MCRIT computes MinHashes for shows, not only an Intel one. ARM
-  reads `unavailable` under an smda that has no ARM escaper yet, as PyPI's 4.8.0 does. The Intel
-  fingerprint, and `escaper_fingerprint` in `/status`, are unchanged; an import compares only the
-  architectures the export holds samples of. An export made before carries the Intel fingerprint
-  alone: it is compared as before when it holds Intel samples, and otherwise logs that it has
-  nothing to compare.
-  AArch64, CIL and Dalvik code next to the Intel one ([#93]), so that a change in how smda escapes any
-  architecture MCRIT computes MinHashes for shows, not only an Intel one. The Intel fingerprint, and
-  `escaper_fingerprint` in `/status`, are unchanged; an import compares only the architectures the
-  export holds samples of. An export made before carries the Intel fingerprint alone: it is compared
-  as before when it holds Intel samples, and otherwise logs that it has nothing to compare.
-
 - **`recalculatePicHashes` also redoes the block hashes of non-Intel samples that a picblocks
   before 2.1.0 computed**, which escaped every block as Intel code, and `/status` counts them as
   `num_samples_with_stale_picblockhashes` ([#240]). Samples stored from now on record the
@@ -46,6 +32,7 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   `rebuildPicBlockHashIndex` runs, as any recalculation that changes block hashes does, and
   unique-blocks results computed before stay in the job cache until their job is deleted
   (`DELETE /jobs/<job_id>`), since the unique-blocks routes do not take `force_recalculation`.
+
 - `POST /delete_orphaned_queue_files` (`McritClient.deleteOrphanedQueueFiles`) schedules a job that
   deletes the queue's GridFS data no job refers to any more: results whose job is gone, submitted
   files no existing job uses and no submission holds, and chunks whose file document is gone. Its
@@ -62,6 +49,15 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   earlier bulk deletion left in the queue: MCRIT never serves those, but they may be a deployment's
   only copy of a binary, so take one first if that matters; the dry run counts them among the file
   parameters.
+
+- `/status` reports `escaper_fingerprints`, and exports record, a fingerprint of how smda escapes
+  AArch64, ARM (A32/Thumb), CIL and Dalvik code next to the Intel one ([#93]), so that a change in
+  how smda escapes any architecture MCRIT computes MinHashes for shows, not only an Intel one. ARM
+  reads `unavailable` under an smda that has no ARM escaper yet, as PyPI's 4.8.0 does. The Intel
+  fingerprint, and `escaper_fingerprint` in `/status`, are unchanged; an import compares only the
+  architectures the export holds samples of. An export made before carries the Intel fingerprint
+  alone: it is compared as before when it holds Intel samples, and otherwise logs that it has
+  nothing to compare.
 
 - **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
   `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
@@ -132,6 +128,28 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ### Fixed
 
+- Deleting a job left its data in GridFS ([#80]). `DELETE /jobs/{id}` and the query-sample cleanup
+  removed only the `fs.files` document of the job's result and of the files it was given, never
+  their `fs.chunks`, so every submitted binary and every result stayed in the database for good,
+  unreachable. Deleting jobs in bulk (`DELETE /jobs` by method or age) removed the result with its
+  chunks, but left the submitted files linked to the deleted jobs, so nothing could ever delete
+  those. Both now delete through GridFS, which takes the chunks along, and release the jobs' files,
+  deleting each one no other job uses. A file is only deleted after clearing its hash in the same
+  update that checks it is still unused, as `clean()` already did, because a new submission of the
+  same binary claims the file by that hash; before, a submission arriving between the check and the
+  deletion could be handed a file that was deleted under it. Bulk deletion also deletes exactly the
+  jobs it listed, rather than evaluating its filter a second time, which also caught a matching job
+  submitted in between without releasing its files and then failed on the count; it works through
+  them in chunks of 10,000, and it now lowers the queue counters for what it deleted, which it
+  computed and never applied, so `/jobs/stats` went on counting bulk-deleted jobs until asked
+  `with_refresh=true` - and even that left the counts of a method with no jobs left as they were,
+  which it now sets to zero. Both lower a job's count from its state just before it is deleted
+  rather than from one read long before, so the counts rarely drift; `with_refresh=true` corrects
+  them when they do. Either deletion removes the job before its result and files, so an interruption
+  leaves only files no job refers to, which the sweep above takes, rather than a finished job
+  without its result, which a repeated request would be handed. The memory queue deletes a job's
+  unused files with it too, and deletes a job without a result.
+
 - Sample, query, function query, vs, vs-group and cross match reports included matches against
   samples of another architecture ([#93]). A PicHash or MinHash only means the same thing for two
   functions escaped by one instruction set's rules; across architectures, shingles still collide in
@@ -150,16 +168,13 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   known to be the same function (the receive routine that checks for 0x301) scored 3.
   `RESULTS_VERSION` goes to 2 with this, so reports the job cache kept from before, which still
   hold such matches, are recomputed on their next request rather than handed out again ([#241]).
-  a sample SMDA could not disassemble has) is not taken as another one. Results computed before and
-  kept by the job cache still hold such matches until requested with `force_recalculation`.
 
 - Block hashes of non-Intel code are computed with that architecture's escaper: MCRIT now requires
   picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
   above 1.1.2, so installations set up since its 2.1.0 release on 2026-09-13 compute the new hashes
   already; this makes it the floor. Intel block hashes are unchanged. Non-Intel samples indexed
-  before keep the block hashes they were stored with, and `recalculatePicHashes` only revisits
-  samples of old SMDA versions, so their unique blocks compare correctly only with samples indexed
-  before; submitting such samples again gives them the new hashes.
+  before keep the block hashes they were stored with, so their unique blocks compare correctly only
+  with samples indexed before, until `recalculatePicHashes` redoes them ([#240]).
 
 - **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
   `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
@@ -204,8 +219,6 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   `function_range_index_unsupported`): the job matches against the whole corpus, as before, and now
   says so instead of only logging it. `MatchingResult` keeps the block as `matching_info` through
   `fromDict`/`toDict`.
-  before keep the block hashes they were stored with, so their unique blocks compare correctly only
-  with samples indexed before, until `recalculatePicHashes` redoes them ([#240]).
 
 - **A repeated request for a match report, cross compare or unique-blocks result is no longer
   answered with a job computed before an upgrade that changed such results.** A job's cache key
@@ -218,27 +231,6 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   the first repeat of each request (the same method and parameters, or the same uploaded file for
   a query) is computed again; the old jobs stay listed. Jobs that add, change or delete data keep
   their cache as before ([#241]).
-- Deleting a job left its data in GridFS ([#80]). `DELETE /jobs/{id}` and the query-sample cleanup
-  removed only the `fs.files` document of the job's result and of the files it was given, never
-  their `fs.chunks`, so every submitted binary and every result stayed in the database for good,
-  unreachable. Deleting jobs in bulk (`DELETE /jobs` by method or age) removed the result with its
-  chunks, but left the submitted files linked to the deleted jobs, so nothing could ever delete
-  those. Both now delete through GridFS, which takes the chunks along, and release the jobs' files,
-  deleting each one no other job uses. A file is only deleted after clearing its hash in the same
-  update that checks it is still unused, as `clean()` already did, because a new submission of the
-  same binary claims the file by that hash; before, a submission arriving between the check and the
-  deletion could be handed a file that was deleted under it. Bulk deletion also deletes exactly the
-  jobs it listed, rather than evaluating its filter a second time, which also caught a matching job
-  submitted in between without releasing its files and then failed on the count; it works through
-  them in chunks of 10,000, and it now lowers the queue counters for what it deleted, which it
-  computed and never applied, so `/jobs/stats` went on counting bulk-deleted jobs until asked
-  `with_refresh=true` - and even that left the counts of a method with no jobs left as they were,
-  which it now sets to zero. Both lower a job's count from its state just before it is deleted
-  rather than from one read long before, so the counts rarely drift; `with_refresh=true` corrects
-  them when they do. Either deletion removes the job before its result and files, so an interruption
-  leaves only files no job refers to, which the sweep above takes, rather than a finished job
-  without its result, which a repeated request would be handed. The memory queue deletes a job's
-  unused files with it too, and deletes a job without a result.
 
 - **A matching job's cached result could be served for different settings** ([#217]). A job is reused
   for any later request with the same arguments, and a request that left an option out was keyed
@@ -873,7 +865,6 @@ date, the version, and what changed.
 [#196]: https://github.com/danielplohmann/mcrit/pull/196
 [#217]: https://github.com/danielplohmann/mcrit/issues/217
 [#195]: https://github.com/danielplohmann/mcrit/pull/195
-[#93]: https://github.com/danielplohmann/mcrit/issues/93
-[#240]: https://github.com/danielplohmann/mcrit/issues/240
-[#238]: https://github.com/danielplohmann/mcrit/issues/238
 [#80]: https://github.com/danielplohmann/mcrit/issues/80
+[#238]: https://github.com/danielplohmann/mcrit/issues/238
+[#240]: https://github.com/danielplohmann/mcrit/issues/240
