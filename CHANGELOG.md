@@ -26,34 +26,6 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   alone: it is compared as before when it holds Intel samples, and otherwise logs that it has
   nothing to compare.
 
-### Fixed
-
-- Sample, query, function query, vs, vs-group and cross match reports included matches against
-  samples of another architecture ([#93]). A PicHash or MinHash only means the same thing for two
-  functions escaped by one instruction set's rules; across architectures, shingles still collide in
-  bands now and then. On a corpus of 6,315 Intel, 458 CIL, 14 Dalvik and 13 AArch64 samples (and 444
-  SMDA could not disassemble), sample matching reported them at scores of 51 to 61, just over the
-  threshold - one Dalvik sample was reported against 84 samples of other architectures next to 13 of
-  its own. Such matches are now left out, and with `MINHASH_MATCHING_SHORTLIST_SIZE` set, samples of
-  another architecture no longer take places on the shortlist. A corpus of one architecture is
-  matched as before, with the same lookups (with the shortlist on, the entries of the samples voted
-  for are fetched in one batch as well). A sample whose architecture is unknown (an empty string, as
-  a sample SMDA could not disassemble has) is not taken as another one. ARM (A32/Thumb) and AArch64
-  are different architectures here. What is left out was not signal: on the Lazarus backdoor that
-  McAfee tied from Windows (two PE32 builds) to Android (three ARM ELFs) by its C2 protocol, sample
-  matching found no match between the PEs and the ELFs, while it matched the PEs at 100 and the ELFs
-  at 99 among themselves. Across all PE and ELF function pairs the best was 39, and the one pair
-  known to be the same function (the receive routine that checks for 0x301) scored 3. Results
-  computed before and kept by the job cache still hold such matches until requested with
-  `force_recalculation`.
-
-- Block hashes of non-Intel code are computed with that architecture's escaper: MCRIT now requires
-  picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
-  above 1.1.2, so installations set up since its 2.1.0 release on 2026-09-13 compute the new hashes
-  already; this makes it the floor. Intel block hashes are unchanged. Non-Intel samples indexed
-  before keep the block hashes they were stored with, and `recalculatePicHashes` only revisits
-  samples of old SMDA versions, so their unique blocks compare correctly only with samples indexed
-  before; submitting such samples again gives them the new hashes.
 - **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
   `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
   parameters of the `/matches/sample/...` and `/query/...` endpoints, and as keyword arguments of
@@ -99,6 +71,89 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   `fromDict`/`toDict`.
 
 ### Fixed
+
+- Sample, query, function query, vs, vs-group and cross match reports included matches against
+  samples of another architecture ([#93]). A PicHash or MinHash only means the same thing for two
+  functions escaped by one instruction set's rules; across architectures, shingles still collide in
+  bands now and then. On a corpus of 6,315 Intel, 458 CIL, 14 Dalvik and 13 AArch64 samples (and 444
+  SMDA could not disassemble), sample matching reported them at scores of 51 to 61, just over the
+  threshold - one Dalvik sample was reported against 84 samples of other architectures next to 13 of
+  its own. Such matches are now left out, and with `MINHASH_MATCHING_SHORTLIST_SIZE` set, samples of
+  another architecture no longer take places on the shortlist. A corpus of one architecture is
+  matched as before, with the same lookups (with the shortlist on, the entries of the samples voted
+  for are fetched in one batch as well). A sample whose architecture is unknown (an empty string, as
+  a sample SMDA could not disassemble has) is not taken as another one. ARM (A32/Thumb) and AArch64
+  are different architectures here. What is left out was not signal: on the Lazarus backdoor that
+  McAfee tied from Windows (two PE32 builds) to Android (three ARM ELFs) by its C2 protocol, sample
+  matching found no match between the PEs and the ELFs, while it matched the PEs at 100 and the ELFs
+  at 99 among themselves. Across all PE and ELF function pairs the best was 39, and the one pair
+  known to be the same function (the receive routine that checks for 0x301) scored 3. Results
+  computed before and kept by the job cache still hold such matches until requested with
+  `force_recalculation`.
+
+- Block hashes of non-Intel code are computed with that architecture's escaper: MCRIT now requires
+  picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
+  above 1.1.2, so installations set up since its 2.1.0 release on 2026-09-13 compute the new hashes
+  already; this makes it the floor. Intel block hashes are unchanged. Non-Intel samples indexed
+  before keep the block hashes they were stored with, and `recalculatePicHashes` only revisits
+  samples of old SMDA versions, so their unique blocks compare correctly only with samples indexed
+  before; submitting such samples again gives them the new hashes.
+
+- **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
+  `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
+  parameters of the `/matches/sample/...` and `/query/...` endpoints, and as keyword arguments of
+  `McritClient.requestMatchesForSample`, `getMatchesForSmdaFunction` and the three
+  `requestMatchesFor...` query methods (`requestMatchesForSampleVs` and `requestMatchesCross` take
+  `band_df_cutoff` only). Both change which matches are reported, so they are a choice per request
+  rather than per deployment. `0` switches either off. A value that is not an integer from 0 to
+  2^63 - 1 (the largest integer a MongoDB query takes; the df cutoff goes into one) is refused with
+  a 400 - a repeated parameter as well - as is, with band bucketing on, a `band_df_cutoff` above
+  `STORAGE_BAND_BUCKET_SIZE` - the check the storage makes for a configured cutoff at startup
+  ([#196]) - and a `shortlist_size` on a match restricted to the samples it names: one sample
+  against another, within a group (`sample_group_only`) or across several (a cross compare).
+  Refused rather than replaced or dropped, unlike the older options, because a changed value
+  answers a question the caller did not ask and nothing in the response would say so.
+
+- **Matching presets, `hunt` and `identification`** ([#217]), per request as `preset=` on the
+  `/matches/sample/...` and `/query/...` endpoints, and as `preset` on `McritClient`'s matching
+  methods and `MinHashIndex`'s matching jobs. Both use `band_matches_required=1`, below the default
+  of 2: in the measurements on [#217] turning the shortlist on never moved top-10 or top-25 recall,
+  while every higher value did. `hunt` turns the shortlist off - the most exhaustive and slowest of
+  the measured configurations, the baseline the others were compared with. `identification` turns
+  it on, at the configured `MINHASH_MATCHING_SHORTLIST_SIZE` or else 100, the size measured on
+  [#195]; k=1 with the shortlist on was the only non-baseline combination that held recall at 1.000
+  on both queries measured, at about 3x the speed of k=1 without it. A preset only fills in the
+  knobs a request leaves out (the df cutoff keeps its configured value unless the request sets one)
+  and is expanded into their values before the job is submitted, so the job is keyed on what it
+  runs with, shares its result with the equivalent explicit request, and its report shows the
+  values rather than the preset's name. On a match restricted to the samples it names it applies
+  all but the shortlist. An unknown or repeated preset is refused with a 400. The "fast" preset the
+  issue floated is left out until a measurement defines it. `docs/TUNING.md` has the table.
+
+- **Every match report records its knobs under `info.matching`** ([#217]): `requested` (the values
+  the job was submitted with; the server and `MinHashIndex` fill in the configured value of every
+  knob a caller leaves out, so `null` appears for a knob the job does not take - the shortlist of a
+  match restricted to named samples - for a job handed to a `Worker` directly, and for every knob of
+  a job queued before this version), `applied`
+  (what it ran with; `null` for a knob with nothing to act on - the shortlist of a match restricted to
+  named samples, and both shortlist and df cutoff when `band_matches_required` is 0) and `fallbacks`
+  (knob to reason, for any that could not be applied). The one fallback so far is a shortlist while
+  the function range index is incomplete or unsupported (`function_range_index_incomplete` /
+  `function_range_index_unsupported`): the job matches against the whole corpus, as before, and now
+  says so instead of only logging it. `MatchingResult` keeps the block as `matching_info` through
+  `fromDict`/`toDict`.
+
+- **A repeated request for a match report, cross compare or unique-blocks result is no longer
+  answered with a job computed before an upgrade that changed such results.** A job's cache key
+  held the method, its parameters and the hashes of uploaded files, so after an upgrade that
+  changes what these reports hold, asking again returned the job the old code computed until
+  someone passed `force_recalculation`, or deleted the job for unique blocks, whose routes do not
+  take that flag. These jobs now record a results version
+  (`mcrit.Worker.RESULTS_VERSION`, appended to the job descriptor) and are only reused within one.
+  NOTE that after upgrading to this release, and after any later release that bumps the version,
+  the first repeat of each request (the same method and parameters, or the same uploaded file for
+  a query) is computed again; the old jobs stay listed. Jobs that add, change or delete data keep
+  their cache as before ([#241]).
 
 - **A matching job's cached result could be served for different settings** ([#217]). A job is reused
   for any later request with the same arguments, and a request that left an option out was keyed
@@ -728,6 +783,7 @@ date, the version, and what changed.
 [#42]: https://github.com/danielplohmann/mcrit/issues/42
 [#207]: https://github.com/danielplohmann/mcrit/issues/207
 [#210]: https://github.com/danielplohmann/mcrit/issues/210
+[#241]: https://github.com/danielplohmann/mcrit/issues/241
 [#93]: https://github.com/danielplohmann/mcrit/issues/93
 [#196]: https://github.com/danielplohmann/mcrit/pull/196
 [#217]: https://github.com/danielplohmann/mcrit/issues/217
