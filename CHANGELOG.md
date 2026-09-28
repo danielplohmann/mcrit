@@ -17,6 +17,18 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ### Added
 
+- `QUEUE_SPAWNINGWORKER_CHILD_MAX_MEMORY` bounds the memory of each job a spawning worker runs
+  ([#69]). Off by default. The worker measures the resident size of the job's process tree once a
+  second and kills a job over the limit, which then fails like any other failing job instead of
+  taking the host's memory from the workers beside it - the failure reported, one query growing a
+  worker to tens of GB and starving the rest. Linux only (it reads `/proc`); see `docs/TUNING.md`
+  for sizing.
+
+- A worker running jobs in its own process returns the memory a finished job freed to the operating
+  system (`malloc_trim`, glibc only), instead of holding on to its largest job's peak while idle
+  ([#69]). Sample matching on a 7,244-sample corpus left an idle worker at 1.0-2.3 GiB before and at
+  0.45-0.58 GiB after, for 30-120 ms per job; the reports are identical.
+
 - **`recalculatePicHashes` also redoes the block hashes of non-Intel samples that a picblocks
   before 2.1.0 computed**, which escaped every block as Intel code, and `/status` counts them as
   `num_samples_with_stale_picblockhashes` ([#240]). Samples stored from now on record the
@@ -105,6 +117,18 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ### Changed
 
+- Query matching (a binary or SMDA report matched without being stored) looks up PicHash matches in
+  one query for all of the query's hashes instead of one query per hash, and applies
+  `MINHASH_PICHASH_MAX_MATCHES` as sample matching already did, so a hash held by much of the
+  corpus no longer returns one tuple per holder there either ([#69]). With the knob at its default
+  of 0, the matches are exactly the ones reported before. `MemoryStorage` applies the cutoff too;
+  it ignored it for sample matching as well.
+
+- The pichash and minhash totals of a match report are computed without building the per-function
+  match lists they used to build and throw away, which were two of the three full passes over
+  every match ([#69]). The report is unchanged: tests compare both ways on every call during sample
+  and query matching.
+
 - **`FuzzyStatPairShingler` reads the frame size of AArch64 functions**, from `sub sp, sp, #imm`
   and pre-indexed pushes such as `stp x29, x30, [sp, #-0x20]!` in the first ten instructions of the
   entry block, as it reads `sub esp/rsp` for Intel, where it took 0 for every non-Intel function
@@ -127,6 +151,29 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   repair: an older worker rehashes with the old shingler.
 
 ### Fixed
+
+- A spawning worker started its job processes as `python` from `PATH`, which need not be the
+  interpreter MCRIT runs in; it now uses the same one.
+
+- **A query parameter given twice answered 500, or quietly matched nothing.** falcon hands a
+  repeated parameter over as a list, and the responders read single values. On `/jobs` and
+  `/jobs/count` a repeated `sample_ids` or `job_ids` ([#210]) failed in the comma-list parsers, a
+  repeated `start`, `limit`, `ascending`, `state` or `filter` failed converting or matching it,
+  and a repeated `method` or `username` reached the queue as a list and matched no job; the same
+  `.lower()` and `int()` calls failed on a repeated `compact` of the result routes, `with_refresh`
+  of `/jobs/stats`, and the flags and paging of the family, sample, function and status routes,
+  while the matching routes dropped a repeated `minhash_score` and friends for the configured
+  value. A middleware now refuses any repeated parameter with a 400 naming it, after routing (an
+  unknown route still answers 404) and before a responder runs - which of two values was meant is
+  unknowable - and logs it. `sample_ids` and `job_ids` are the exception: a repeat reads as its
+  comma-joined form.
+
+- **`McritClient.getJobCount` and `deleteQueueData` spliced their values into the URL unencoded**,
+  so a `filter` or `method` holding `&` or `#` became a second parameter or cut off the ones after
+  it. They are passed as request parameters now, which encodes them. `addBinarySample` keeps
+  splicing `filename`, `family` and `version` as given, since its caller encodes them (MCRITweb
+  does, and would otherwise see every name with a space or bracket encoded twice); its docstring
+  now says so.
 
 - Deleting a job left its data in GridFS ([#80]). `DELETE /jobs/{id}` and the query-sample cleanup
   removed only the `fs.files` document of the job's result and of the files it was given, never
@@ -868,3 +915,4 @@ date, the version, and what changed.
 [#80]: https://github.com/danielplohmann/mcrit/issues/80
 [#238]: https://github.com/danielplohmann/mcrit/issues/238
 [#240]: https://github.com/danielplohmann/mcrit/issues/240
+[#69]: https://github.com/danielplohmann/mcrit/issues/69
