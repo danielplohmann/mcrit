@@ -71,6 +71,8 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   matches across families fell from 384 to 289, and those within the ferret family went from 109 to
   111; one of the five confirmed ferret matches (score 56.25 now) shares one band with its partner
   instead of two and is no longer found. CIL and Dalvik have no frame to read and keep 0.
+  `RESULTS_VERSION` goes up with this ([#241]), so match reports cached before are recomputed on
+  their next request rather than handed out with the old AArch64 matches.
 
   NOTE that this changes the MinHashes of every AArch64 function. Samples now record the shingler
   revision their MinHashes were computed at (`minhash_shingler_revision`), AArch64 samples hashed
