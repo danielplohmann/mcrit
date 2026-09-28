@@ -40,6 +40,13 @@ if TYPE_CHECKING:
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
+# Declared by the jobs whose result is a report computed from the corpus (matching, cross
+# compares, unique blocks) and recorded in their job descriptors, so a repeated request is only
+# answered from a job computed by the same results version (#241). Bump it in any change that
+# alters what such a report holds for the same corpus and parameters - jobs made before are
+# then recomputed on their next request instead of being handed out again.
+RESULTS_VERSION = 1
+
 
 class Worker(QueueRemoteCallee):
     def __init__(self, queue=None, config=None, storage: Optional["StorageInterface"] = None, profiling=False):
@@ -406,7 +413,7 @@ class Worker(QueueRemoteCallee):
         return update_result
 
     # Reports PROGRESS
-    @Remote(progress=True)
+    @Remote(progress=True, results_version=RESULTS_VERSION)
     def getUniqueBlocks(self, sample_ids, family_id=None, covers_required=10, min_instructions=0, progress_reporter=NoProgressReporter()):
         """Collect the blocks unique to <sample_ids> and greedily pick a multi-set cover of them.
 
@@ -513,7 +520,7 @@ class Worker(QueueRemoteCallee):
         return match_report
 
     # Reports PROGRESS
-    @Remote(progress=True, json_locations=[0])
+    @Remote(progress=True, json_locations=[0], results_version=RESULTS_VERSION)
     def getMatchesForSmdaReport(
         self,
         report_json,
@@ -540,7 +547,7 @@ class Worker(QueueRemoteCallee):
         return self._asJobResult(matcher, match_report)
 
     # Reports PROGRESS
-    @Remote(progress=True, file_locations=[0])
+    @Remote(progress=True, file_locations=[0], results_version=RESULTS_VERSION)
     def getMatchesForMappedBinary(
         self,
         binary,
@@ -571,7 +578,7 @@ class Worker(QueueRemoteCallee):
         return self._asJobResult(matcher, match_report)
 
     # Reports PROGRESS
-    @Remote(progress=True, file_locations=[0])
+    @Remote(progress=True, file_locations=[0], results_version=RESULTS_VERSION)
     def getMatchesForUnmappedBinary(
         self,
         binary,
@@ -601,7 +608,7 @@ class Worker(QueueRemoteCallee):
         return self._asJobResult(matcher, match_report)
 
     # Reports PROGRESS
-    @Remote(progress=True)
+    @Remote(progress=True, results_version=RESULTS_VERSION)
     def getMatchesForSample(
         self,
         sample_id,
@@ -627,7 +634,7 @@ class Worker(QueueRemoteCallee):
         return self._asJobResult(matcher, match_report)
 
     # Reports PROGRESS
-    @Remote(progress=True)
+    @Remote(progress=True, results_version=RESULTS_VERSION)
     def getMatchesForSampleVs(
         self,
         sample_id,
@@ -650,7 +657,7 @@ class Worker(QueueRemoteCallee):
         return match_report
 
     # Reports PROGRESS
-    @Remote(progress=True)
+    @Remote(progress=True, results_version=RESULTS_VERSION)
     def getMatchesForSampleVsGroup(
         self,
         sample_id,
@@ -672,7 +679,7 @@ class Worker(QueueRemoteCallee):
         match_report = matcher.getMatchesForSample(sample_id, other_sample_ids)
         return match_report
 
-    @Remote()
+    @Remote(results_version=RESULTS_VERSION)
     def combineMatchesToCross(self, sample_to_job_id):
         child_results = []
         for job_id in sample_to_job_id.values():
