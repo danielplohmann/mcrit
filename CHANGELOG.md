@@ -87,9 +87,9 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   McAfee tied from Windows (two PE32 builds) to Android (three ARM ELFs) by its C2 protocol, sample
   matching found no match between the PEs and the ELFs, while it matched the PEs at 100 and the ELFs
   at 99 among themselves. Across all PE and ELF function pairs the best was 39, and the one pair
-  known to be the same function (the receive routine that checks for 0x301) scored 3. Results
-  computed before and kept by the job cache still hold such matches until requested with
-  `force_recalculation`.
+  known to be the same function (the receive routine that checks for 0x301) scored 3.
+  `RESULTS_VERSION` goes to 2 with this, so reports the job cache kept from before, which still
+  hold such matches, are recomputed on their next request rather than handed out again ([#241]).
 
 - Block hashes of non-Intel code are computed with that architecture's escaper: MCRIT now requires
   picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
