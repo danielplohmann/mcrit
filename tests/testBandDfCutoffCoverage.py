@@ -168,8 +168,32 @@ class BandDfCutoffCoverageTest(unittest.TestCase):
         self.assertIn(report["message"], captured.output[-1])
         self.assertIn("Band df cutoff 2 skips 99.19% of band postings (369 of 372)", report["message"])
 
-    def testMemoryStorageSaysItDoesNotApplyTheCutoff(self):
+    def testMemoryStorageSaysItAppliesTheCutoff(self):
+        """Since #217 its lookup skips a posting list over the cutoff, so the report must not disown it."""
         report = syntheticIndex()._storage.getBandDfCutoffCoverage(band_df_cutoff=2)
+        self.assertTrue(report["backend_applies_cutoff"])
+        self.assertNotIn("does not apply the cutoff", report["message"])
+
+    def testMemoryLookupSkipsWhatTheReportCountsAsOverTheCutoff(self):
+        """The flag is only truthful if the lookup drops exactly the posting lists the report counts."""
+        storage = syntheticIndex()._storage
+        for band_number in range(storage._storage_config.STORAGE_NUM_BANDS):
+            over = {band_hash for band_hash, function_ids in storage._bands[band_number].items() if len(function_ids) > 2}
+            if over:
+                break
+        self.assertTrue(over)
+        band_hash = next(iter(over))
+        function_id = next(iter(storage._bands[band_number][band_hash]))
+        minhash = mock.MagicMock()
+        minhash.hasMinHash.return_value = True
+        with mock.patch.object(storage, "getBandHashesForMinHash", return_value={band_number: band_hash}):
+            self.assertEqual(storage.getCandidatesForMinHash(minhash, band_df_cutoff=2), set())
+            self.assertIn(function_id, storage.getCandidatesForMinHash(minhash, band_df_cutoff=0))
+
+    def testABackendThatIgnoresTheCutoffSaysSo(self):
+        storage = syntheticIndex()._storage
+        with mock.patch.object(type(storage), "APPLIES_BAND_DF_CUTOFF", False):
+            report = storage.getBandDfCutoffCoverage(band_df_cutoff=2)
         self.assertFalse(report["backend_applies_cutoff"])
         self.assertIn("does not apply the cutoff", report["message"])
 
@@ -335,6 +359,7 @@ class MongoBandDfCutoffCoverageTest(unittest.TestCase):
                 self.assertTrue(mongo_report["available"], mongo_report["message"])
                 self.assertEqual(numbersOf(mongo_report), numbersOf(memory_report))
                 self.assertTrue(mongo_report["backend_applies_cutoff"])
+                self.assertTrue(memory_report["backend_applies_cutoff"])
 
     def testConfiguredCutoffIsReadFromTheMongoConfig(self):
         configured = MinHashIndex(config=buildConfig(StorageFactory.STORAGE_METHOD_MONGODB, band_df_cutoff=1))._storage.getBandDfCutoffCoverage()

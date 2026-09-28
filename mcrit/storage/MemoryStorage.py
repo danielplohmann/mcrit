@@ -1048,6 +1048,10 @@ class MemoryStorage(StorageInterface):
     def isBandDfIndexComplete(self) -> bool:
         return True
 
+    # getCandidatesForMinHash skips a posting list longer than the cutoff (#217), so the coverage
+    # report's numbers are what this backend's lookup skips too
+    APPLIES_BAND_DF_CUTOFF = True
+
     def _countBandDf(self, band_number: int, thresholds: List[int]) -> Dict[str, Any]:
         # df is the length of the in-memory posting list; an empty list holds no posting, and the
         # MongoDB count skips its empty documents the same way

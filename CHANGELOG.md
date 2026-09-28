@@ -42,7 +42,9 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   `STORAGE_BAND_BUCKET_SIZE` a spilled hash counts once with its bucket-0 total; a hash whose
   bucket 0 is missing is not counted (nor served under the cutoff) until `rebuild_band_df_index`
   repairs it (see Fixed). MemoryStorage
-  counts the same numbers but does not apply the cutoff when matching, and the report says so.
+  counts the same numbers and, since [#217], applies the cutoff when matching as MongoDbStorage
+  does, so both report `backend_applies_cutoff: true`; a backend that did not apply it would say
+  so in the headline.
   WAND/MaxScore pruning was not built: it needs posting lists sorted by function id, which the
   fill-order buckets of `STORAGE_BAND_BUCKET_SIZE` are not.
 
