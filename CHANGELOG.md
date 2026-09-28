@@ -25,6 +25,27 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   architectures the export holds samples of. An export made before carries the Intel fingerprint
   alone: it is compared as before when it holds Intel samples, and otherwise logs that it has
   nothing to compare.
+  AArch64, CIL and Dalvik code next to the Intel one ([#93]), so that a change in how smda escapes any
+  architecture MCRIT computes MinHashes for shows, not only an Intel one. The Intel fingerprint, and
+  `escaper_fingerprint` in `/status`, are unchanged; an import compares only the architectures the
+  export holds samples of. An export made before carries the Intel fingerprint alone: it is compared
+  as before when it holds Intel samples, and otherwise logs that it has nothing to compare.
+
+- **`recalculatePicHashes` also redoes the block hashes of non-Intel samples that a picblocks
+  before 2.1.0 computed**, which escaped every block as Intel code, and `/status` counts them as
+  `num_samples_with_stale_picblockhashes` ([#240]). Samples stored from now on record the
+  picblocks their block hashes came from (`picblockhash_version`); a non-Intel sample without that
+  record, or with an older one, is rehashed and then recorded. That covers every sample stored
+  before, and every imported one, whose block hashes another instance computed. Intel samples are
+  left to the existing SMDA version check, since their block hashes did not change. MongoDB storage
+  only; the in-memory storage has no recalculation and leaves the count out of `/status`.
+
+  NOTE that a sample with a function whose disassembly is gone (e.g. dropped with
+  `STORAGE_DROP_DISASSEMBLY`) cannot be rehashed completely, so it stays counted until it is
+  deleted and submitted again. Rewritten block hashes mark the picblockhash index incomplete until
+  `rebuildPicBlockHashIndex` runs, as any recalculation that changes block hashes does, and
+  unique-blocks results computed before stay in the job cache until their job is deleted
+  (`DELETE /jobs/<job_id>`), since the unique-blocks routes do not take `force_recalculation`.
 
 - **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
   `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
@@ -90,6 +111,8 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   known to be the same function (the receive routine that checks for 0x301) scored 3.
   `RESULTS_VERSION` goes to 2 with this, so reports the job cache kept from before, which still
   hold such matches, are recomputed on their next request rather than handed out again ([#241]).
+  a sample SMDA could not disassemble has) is not taken as another one. Results computed before and
+  kept by the job cache still hold such matches until requested with `force_recalculation`.
 
 - Block hashes of non-Intel code are computed with that architecture's escaper: MCRIT now requires
   picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
@@ -142,6 +165,8 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   `function_range_index_unsupported`): the job matches against the whole corpus, as before, and now
   says so instead of only logging it. `MatchingResult` keeps the block as `matching_info` through
   `fromDict`/`toDict`.
+  before keep the block hashes they were stored with, so their unique blocks compare correctly only
+  with samples indexed before, until `recalculatePicHashes` redoes them ([#240]).
 
 - **A repeated request for a match report, cross compare or unique-blocks result is no longer
   answered with a job computed before an upgrade that changed such results.** A job's cache key
@@ -788,3 +813,5 @@ date, the version, and what changed.
 [#196]: https://github.com/danielplohmann/mcrit/pull/196
 [#217]: https://github.com/danielplohmann/mcrit/issues/217
 [#195]: https://github.com/danielplohmann/mcrit/pull/195
+[#93]: https://github.com/danielplohmann/mcrit/issues/93
+[#240]: https://github.com/danielplohmann/mcrit/issues/240
