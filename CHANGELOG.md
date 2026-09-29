@@ -15,6 +15,33 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-09-29
+
+**Results change in this release, and the upgrade has an order.** Matching stays within one
+architecture (#230), a request's `minhash_score` now applies (#235), and non-Intel block hashes and
+AArch64 minhashes are recomputed (#244, #245). Cached jobs are keyed on the values they run with and
+on `RESULTS_VERSION` 2 (#235, #243), so every cached match is recomputed once on its next request.
+Rehearsed on a copy of an 8,699-sample / 11.7M-function corpus whose reports go back to smda 1.9,
+with this release, smda 4.9.0 and picblocks 2.1.0:
+
+1. **Upgrade server and workers together.** The server now resolves the matching defaults, and an
+   older worker fails matching jobs on arguments it does not know. Rebuild images: picblocks 2.1.0 is
+   the floor (#230). smda 4.9.0 escapes Intel, AArch64, CIL and Dalvik exactly as 4.5.0 did, so its
+   fingerprints and every rehashed minhash and PicHash are unchanged.
+2. **The first start builds new indexes before storage answers** - 34 of them from 1.9.x, in
+   **7.5 min** on that corpus.
+3. **`recalculatePicHashes`**, then **`rebuildPicBlockHashIndex`**, then **`repairMinHashes`** - in
+   **1 h 46 min**, **5 min** and **6 s** there. `recalculatePicHashes` revisits every sample whose
+   report predates smda's escaper compatibility version (4.4.5), whatever its architecture, so on an
+   older corpus it is a full pass; most of it is the recompute, and the final `reIndex` of `functions`
+   took 8 min. NOTE that it is worth it beyond non-Intel samples: on that corpus it rewrote **435,122
+   function PicHashes**, 357,474 of them in the 376 Intel samples whose reports came from smda 1.9.x
+   (62% of their functions), whose minhashes had been repaired before but whose PicHashes never were.
+   Exact matches against such samples come back, e.g. 6,565 -> 24,824 foreign PicHash matches for
+   one of them.
+4. Serve matching after that. Job caches do not key on corpus data, so a match computed between the
+   upgrade and the end of the repairs would hold pre-repair PicHashes.
+
 ### Added
 
 - `QUEUE_SPAWNINGWORKER_CHILD_MAX_MEMORY` bounds the memory of each job a spawning worker runs
