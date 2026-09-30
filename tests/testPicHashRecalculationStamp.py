@@ -134,20 +134,72 @@ class PicHashRecalculationStampTest(unittest.TestCase):
         self.assertEqual(0, self._stale_count())
         self.assertEqual(0, self._recalculate()["outdated_samples"])
 
-    def test_a_sample_missing_disassembly_stays_pending_and_is_reported(self):
+    def _drop_disassembly(self, sample_id):
+        """A function whose disassembly is gone (e.g. dropped with STORAGE_DROP_DISASSEMBLY) cannot be rehashed."""
+        function_document = self.functions.find_one({"sample_id": sample_id}, sort=[("function_id", 1)])
+        xcfg_document = self.storage._database.xcfg.find_one({"_id": function_document["function_id"]})
+        self.storage._database.xcfg.delete_one({"_id": function_document["function_id"]})
+        self.functions.update_one({"function_id": function_document["function_id"]}, {"$unset": {"_xcfg": ""}})
+        return xcfg_document, function_document
+
+    def _unrehashable_count(self):
+        return self.index.getStatus()["status"]["num_samples_pichash_unrehashable"]
+
+    def test_a_sample_missing_disassembly_is_marked_and_not_picked_again(self):
         entry = self._add("crossarch_intel_a.smda")
-        function_id = self.functions.find_one({"sample_id": entry.sample_id}, sort=[("function_id", 1)])["function_id"]
-        # a function whose disassembly is gone (e.g. dropped with STORAGE_DROP_DISASSEMBLY) cannot be rehashed
-        self.storage._database.xcfg.delete_one({"_id": function_id})
-        self.functions.update_one({"function_id": function_id}, {"$unset": {"_xcfg": ""}})
+        self._drop_disassembly(entry.sample_id)
+
+        first = self._recalculate()
+        second = self._recalculate()
+
+        self.assertEqual(1, first["xcfg_missing"])
+        self.assertEqual(1, first["samples_skipped_xcfg_missing"])
+        sample = self._sample(entry.sample_id)
+        self.assertNotIn("pichash_smda_version", sample)
+        self.assertEqual(SmdaConfig().VERSION, sample["pichash_unrehashable_smda_version"])
+        self.assertEqual(0, second["outdated_samples"])
+        self.assertEqual(0, second["samples_skipped_xcfg_missing"])
+        self.assertEqual(0, self._stale_count())
+        self.assertEqual(1, self._unrehashable_count())
+
+    def test_a_non_intel_sample_missing_disassembly_is_not_picked_by_the_block_hash_path(self):
+        report = self._load("crossarch_aarch64_a.smda")
+        with patch.object(BlockHasher, "_getInstructionEscaper", lambda self, block: IntelInstructionEscaper):
+            entry = self.storage.addSmdaReport(report)
+        self.samples.update_one({"sample_id": entry.sample_id}, {"$unset": {"picblockhash_version": ""}})
+        self._drop_disassembly(entry.sample_id)
+
+        first = self._recalculate()
+        second = self._recalculate()
+
+        self.assertEqual(1, first["stale_picblockhash_samples"])
+        self.assertNotIn("picblockhash_version", self._sample(entry.sample_id))
+        self.assertEqual(0, second["outdated_samples"])
+        self.assertEqual(0, second["stale_picblockhash_samples"])
+        self.assertEqual(0, self.index.getStatus()["status"]["num_samples_with_stale_picblockhashes"])
+        self.assertEqual(1, self._unrehashable_count())
+
+    def test_a_marked_sample_is_retried_under_another_smda_and_unmarked(self):
+        entry = self._add("crossarch_intel_a.smda")
+        xcfg_document, function_document = self._drop_disassembly(entry.sample_id)
+        self._recalculate()
+        # the disassembly came back, and a later smda runs than the one that gave up on the sample
+        if xcfg_document is not None:
+            self.storage._database.xcfg.insert_one(xcfg_document)
+        if function_document.get("_xcfg"):
+            self.functions.update_one({"function_id": function_document["function_id"]}, {"$set": {"_xcfg": function_document["_xcfg"]}})
+        self.samples.update_one({"sample_id": entry.sample_id}, {"$set": {"pichash_unrehashable_smda_version": OLD_SMDA_VERSION}})
+        self.assertEqual(1, self._stale_count())
+        self.assertEqual(0, self._unrehashable_count())
 
         result = self._recalculate()
 
-        self.assertEqual(1, result["xcfg_missing"])
-        self.assertEqual(1, result["samples_skipped_xcfg_missing"])
-        self.assertNotIn("pichash_smda_version", self._sample(entry.sample_id))
-        self.assertEqual(1, self._stale_count())
-        self.assertEqual(1, self._recalculate()["samples_skipped_xcfg_missing"])
+        self.assertEqual(1, result["outdated_samples"])
+        self.assertEqual(0, result["samples_skipped_xcfg_missing"])
+        sample = self._sample(entry.sample_id)
+        self.assertEqual(SmdaConfig().VERSION, sample["pichash_smda_version"])
+        self.assertNotIn("pichash_unrehashable_smda_version", sample)
+        self.assertEqual(0, self._stale_count())
 
     def test_a_current_stamp_does_not_hide_stale_non_intel_block_hashes(self):
         # a non-Intel sample hashed before #240, whose PicHashes are otherwise current

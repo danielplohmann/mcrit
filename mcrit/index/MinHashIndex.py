@@ -693,6 +693,10 @@ class MinHashIndex(QueueRemoteCaller(Worker)):
         num_stale_pichash_samples = storage.countSamplesWithStalePicHashes()
         if num_stale_pichash_samples is not None:
             status["status"]["num_samples_with_stale_pichashes"] = num_stale_pichash_samples
+        # and how many of those it cannot redo, as some function's disassembly is gone (#249)
+        num_unrehashable_samples = storage.countSamplesWithUnrehashablePicHashes()
+        if num_unrehashable_samples is not None:
+            status["status"]["num_samples_pichash_unrehashable"] = num_unrehashable_samples
         return status
 
     def getVersion(self):

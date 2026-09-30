@@ -345,6 +345,9 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["samples"].create_index([("pichash_smda_version", 1), ("smda_version", 1)])
         # and the distinct over the reports' versions it builds that count from
         self._getDb()["samples"].create_index("smda_version")
+        # and the count of samples the running smda found impossible to rehash; sparse, as few are, and
+        # so the planner cannot pick it for the $ne both stale queries carry, which would read it whole
+        self._getDb()["samples"].create_index("pichash_unrehashable_smda_version", sparse=True)
         self._getDb()["families"].create_index("family_id")
         self._getDb()["families"].create_index("family_name")
         self._getDb()["functions"].create_index("function_id")
@@ -918,7 +921,17 @@ class MongoDbStorage(StorageInterface):
         return {
             "architecture": {"$nin": ["intel", ""]},
             "$or": [{"picblockhash_version": {"$exists": False}}, {"picblockhash_version": {"$in": stale_values}}],
+            **self._notUnrehashableQuery(),
         }
+
+    @staticmethod
+    def _notUnrehashableQuery() -> Dict[str, Any]:
+        """Leaves out samples the running smda already found missing disassembly, which a rerun
+        cannot rehash either; a marker of an older smda is retried once (#249)."""
+        return {"pichash_unrehashable_smda_version": {"$ne": SmdaConfig().VERSION}}
+
+    def countSamplesWithUnrehashablePicHashes(self) -> Optional[int]:
+        return self._getDb().samples.count_documents({"pichash_unrehashable_smda_version": SmdaConfig().VERSION})
 
     def countSamplesWithStalePicBlockHashes(self) -> Optional[int]:
         return self._getDb().samples.count_documents(self._stalePicBlockHashQuery())
@@ -939,7 +952,8 @@ class MongoDbStorage(StorageInterface):
                 {"pichash_smda_version": None, "smda_version": {"$in": stale_reports}},
                 # a report without any smda version, which distinct need not answer as null
                 {"pichash_smda_version": None, "smda_version": None},
-            ]
+            ],
+            **self._notUnrehashableQuery(),
         }
 
     def countSamplesWithStalePicHashes(self) -> Optional[int]:
@@ -2874,10 +2888,15 @@ class MongoDbStorage(StorageInterface):
                 self._getDb().functions.bulk_write(pic_hash_updates, ordered=False)
             # only a sample whose every function was rehashed holds hashes of this smda and picblocks,
             # whether or not any of them changed; smda_version keeps naming the smda of the report
+            # one that was not is marked, so neither selection picks it again until smda changes
             if sample_xcfg_missing:
                 samples_skipped += 1
+                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"pichash_unrehashable_smda_version": smda_version}})
             else:
-                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"pichash_smda_version": smda_version, "picblockhash_version": PICBLOCKS_VERSION}})
+                self._getDb().samples.update_one(
+                    {"sample_id": sample_id},
+                    {"$set": {"pichash_smda_version": smda_version, "picblockhash_version": PICBLOCKS_VERSION}, "$unset": {"pichash_unrehashable_smda_version": ""}},
+                )
             if progress_reporter:
                 progress_reporter.step()
         self._getDb().command("reIndex", "functions")
@@ -2885,7 +2904,9 @@ class MongoDbStorage(StorageInterface):
             f"Found {total_samples} outdated samples, {functions_updated}/{functions_updatable} PicHashes and {picblockhashes_updated}/{picblockhashes_updatable} PicBlockHashes were updated."
         )
         if xcfg_missing:
-            LOGGER.warning(f"{xcfg_missing} functions in {samples_skipped} samples could not be updated as no CFG was available for them, these samples stay pending.")
+            LOGGER.warning(
+                f"{xcfg_missing} functions in {samples_skipped} samples could not be updated as no CFG was available for them, these samples are marked unrehashable until smda changes."
+            )
         if picblockhash_index_invalidated:
             LOGGER.warning("picblockhash index invalidated by the recalculation - run rebuildPicBlockHashIndex().")
         return {

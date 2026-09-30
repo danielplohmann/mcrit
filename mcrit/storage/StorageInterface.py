@@ -894,6 +894,11 @@ class StorageInterface:
         for /status (#249). None where the backend does not record it."""
         return None
 
+    def countSamplesWithUnrehashablePicHashes(self) -> Optional[int]:
+        """How many samples recalculateAllPicHashes found missing disassembly under the running
+        smda, and so no longer picks, for /status (#249). None where the backend does not record it."""
+        return None
+
     def deleteAllMinHashes(self, progress_reporter=None) -> int:
         """drop every minhash in all function_entries as a preparation for a full rebuild
         Args:
