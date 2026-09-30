@@ -451,6 +451,27 @@ with this release, smda 4.9.0 and picblocks 2.1.0:
   block without instructions the same way. `UniqueBlocksResult.generateBlockCover` skips such a
   block too, for results stored before. A sample hashed under `STORAGE_DROP_DISASSEMBLY` therefore
   completes the job with no unique blocks to show and no YARA rule, and says why in that count.
+### Fixed
+
+- With memory storage and the fake queue (`STORAGE_METHOD = "memory"`, `QUEUE_METHOD = "fake"`), no
+  job or result could be fetched by id: `LocalQueue` minted `uuid4` ids, and `/jobs/{id}`,
+  `/jobs/{id}/result`, `/results/{id}` and `/results/{id}/job`, as well as `DELETE /jobs/{id}`,
+  accept only the 24 hex characters of an ObjectId, so every one of them answered 400 ([#203]).
+  `LocalQueue` now mints ObjectIds as `MongoQueue` does; the accepted id format is unchanged. The id
+  check is also anchored at the end: an id that merely started with 24 hex characters used to pass
+  it and then fail as an invalid ObjectId inside `MongoQueue`, which the client saw as a 500
+  instead of the 400 it now gets. Ids from either queue have exactly 24, so no valid request is
+  affected, and the routes hand them on in lower case, the form both queues store, so an id in
+  upper case now finds its job in `LocalQueue` too, as it always did in `MongoQueue` - and so does
+  one in a `GET /jobs?job_ids=...` selection. Reaching these
+  routes in that mode exposed `LocalQueue` indexing its file tables with ids they did not hold.
+  `/results/{id}/job` for an unknown id and `DELETE /jobs/{id}` for a job without a result (failed
+  or terminated; this one also answered 500 and left the job half deleted) each left an empty entry
+  behind, on which the next periodic clean-up, and from then on every new job, failed with a
+  `TypeError`; `/results/{id}?compact=true` for an unknown id answered 500. All three now answer
+  `null`, or delete the job, and leave the tables alone. `MongoQueue` answered every one of the
+  result routes for an unknown result id with a 500 (GridFS raising `NoFile` for its metadata) and
+  now answers `null` as well.
 
 ## [1.12.0] - 2026-09-25
 
@@ -1035,3 +1056,4 @@ date, the version, and what changed.
 [#202]: https://github.com/danielplohmann/mcrit/issues/202
 [#215]: https://github.com/danielplohmann/mcrit/issues/215
 [#126]: https://github.com/danielplohmann/mcrit/issues/126
+[#203]: https://github.com/danielplohmann/mcrit/issues/203
