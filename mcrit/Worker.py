@@ -31,7 +31,6 @@ from mcrit.minhash.MinHasher import MINHASH_SHINGLER_REVISION, MinHasher
 from mcrit.queue.LocalQueue import Job
 from mcrit.queue.QueueFactory import QueueFactory
 from mcrit.queue.QueueRemoteCalls import NoProgressReporter, QueueRemoteCallee, Remote, UncacheableResult
-from mcrit.queue.QueueRemoteCalls import NoProgressReporter, QueueRemoteCallee, Remote
 from mcrit.storage.FunctionEntry import smdaFunctionFromXcfg
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageFactory import StorageFactory
