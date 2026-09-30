@@ -18,6 +18,7 @@ def _csv_items(value):
     parts = value if isinstance(value, list) else [value]
     return [item.strip() for part in parts for item in part.split(",")]
 
+
 def _normalizeObjectId(value: Optional[str]) -> Optional[str]:
     """A job or result id as both queues store it - an ObjectId in lower-case hex - or None if it is not one."""
     if value is None or re.fullmatch("[0-9a-fA-F]{24}", value) is None:
