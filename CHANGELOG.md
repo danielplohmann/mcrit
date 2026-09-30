@@ -362,6 +362,13 @@ with this release, smda 4.9.0 and picblocks 2.1.0:
   was served. The fallback no longer serves a hash whose bucket 0 names a tail above 0; one that
   pulls shrank below the cutoff is therefore left out by it rather than served truncated. (The
   df-indexed lookup reads such a shrunk hash's upper buckets only with the separate fix for it.)
+### Fixed
+
+- **Unique blocks in memory mode failed for any subset of the stored samples.**
+  `MemoryStorage.getUniqueBlocks` raised `KeyError` whenever the store held samples other than the
+  ones asked about: it collected the blocks of every stored function and then counted them against
+  the requested samples only. It now reads the blocks of the requested samples, as `MongoDbStorage`
+  does, and answers the same.
 
 ## [1.12.0] - 2026-09-25
 
