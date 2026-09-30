@@ -341,6 +341,10 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["samples"].create_index([("architecture", 1), ("picblockhash_version", 1)])
         # and over these two for its shingler revision clause (#238)
         self._getDb()["samples"].create_index([("architecture", 1), ("minhash_shingler_revision", 1)])
+        # and the stale-pichash count over these two, the report's version standing in where no stamp exists (#249)
+        self._getDb()["samples"].create_index([("pichash_smda_version", 1), ("smda_version", 1)])
+        # and the distinct over the reports' versions it builds that count from
+        self._getDb()["samples"].create_index("smda_version")
         self._getDb()["families"].create_index("family_id")
         self._getDb()["families"].create_index("family_name")
         self._getDb()["functions"].create_index("function_id")
@@ -919,6 +923,37 @@ class MongoDbStorage(StorageInterface):
     def countSamplesWithStalePicBlockHashes(self) -> Optional[int]:
         return self._getDb().samples.count_documents(self._stalePicBlockHashQuery())
 
+    def _stalePicHashQuery(self, threshold_version: str) -> Dict[str, Any]:
+        """Samples whose PicHashes an smda older than the threshold escaped, as recorded by
+        recalculateAllPicHashes, or - where it never stamped one - as the report's smda says (#249).
+        Like the minhash query, this compares the few distinct recorded values, not every document."""
+        threshold = version.parse(threshold_version)
+        stamped = self._getDb().samples.distinct("pichash_smda_version")
+        # distinct answers null for unstamped (or null-stamped) documents, which the other clauses decide
+        stale_stamps = [value for value in stamped if value is not None and self._isStaleMinHashVersion(value, threshold)]
+        reported = self._getDb().samples.distinct("smda_version")
+        stale_reports = [value for value in reported if self._isStaleMinHashVersion(self._stripReportVersionPrefix(value), threshold)]
+        return {
+            "$or": [
+                {"pichash_smda_version": {"$in": stale_stamps}},
+                {"pichash_smda_version": None, "smda_version": {"$in": stale_reports}},
+                # a report without any smda version, which distinct need not answer as null
+                {"pichash_smda_version": None, "smda_version": None},
+            ]
+        }
+
+    def countSamplesWithStalePicHashes(self) -> Optional[int]:
+        return self._getDb().samples.count_documents(self._stalePicHashQuery(self._getPicHashCompatibilityThreshold()))
+
+    @staticmethod
+    def _getPicHashCompatibilityThreshold() -> str:
+        smda_config = SmdaConfig()
+        smda_downward_compatibility = getattr(smda_config, "ESCAPER_DOWNWARD_COMPATIBILITY", None)
+        if smda_downward_compatibility is None:
+            LOGGER.warning("SMDA downward compatibility version unknown, using current SMDA version as threshold...")
+            smda_downward_compatibility = smda_config.VERSION
+        return smda_downward_compatibility
+
     def _updateFamilyStats(self, family_id, num_samples_inc, num_functions_inc, num_library_samples_inc):
         result = self._getDb().families.update_one(
             {"family_id": family_id},
@@ -1216,7 +1251,8 @@ class MongoDbStorage(StorageInterface):
             if not self.getSampleBySha256(smda_report.sha256):
                 family_id = self.addFamily(smda_report.family or "")
                 sample_entry = SampleEntry(smda_report, sample_id=self._useCounter("samples"), family_id=family_id)
-                self._dbInsert("samples", {**sample_entry.toDict(), "picblockhash_version": PICBLOCKS_VERSION})
+                # its hashes are computed right here, by the running smda and picblocks
+                self._dbInsert("samples", {**sample_entry.toDict(), "pichash_smda_version": SmdaConfig().VERSION, "picblockhash_version": PICBLOCKS_VERSION})
                 function_ids = self._useCounterBulk("functions", smda_report.num_functions)
                 function_dicts = []
                 for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
@@ -2746,21 +2782,15 @@ class MongoDbStorage(StorageInterface):
 
     def recalculateAllPicHashes(self, progress_reporter=None):
         # get current SMDA version
-        smda_config = SmdaConfig()
-        smda_version = smda_config.VERSION
-        smda_downward_compatibility = getattr(smda_config, "ESCAPER_DOWNWARD_COMPATIBILITY", None)
-        if smda_downward_compatibility is None:
-            LOGGER.warning("SMDA downward compatibility version unknown, using current SMDA version as threshold...")
-            smda_downward_compatibility = smda_version
-        compatibility_threshold = version.parse(smda_downward_compatibility)
-        # get samples where recalculation is necessary
+        smda_version = SmdaConfig().VERSION
+        # get samples where recalculation is necessary: those not yet stamped as rehashed by a
+        # compatible smda, rather than those whose report is old, which every run would pick again (#249)
         samples_to_be_updated = {}
-        for sample_document in self._getDb().samples.find({}, {"sample_id": 1, "smda_version": 1, "architecture": 1, "base_addr": 1, "binary_size": 1, "bitness": 1, "_id": 0}):
-            report_version = sample_document["smda_version"]
-            if report_version.startswith("MCRIT4IDA"):
-                report_version = report_version.rsplit(" ", 1)[-1]
-            if version.parse(report_version) < compatibility_threshold:
-                samples_to_be_updated[sample_document["sample_id"]] = sample_document
+        for sample_document in self._getDb().samples.find(
+            self._stalePicHashQuery(self._getPicHashCompatibilityThreshold()),
+            {"sample_id": 1, "smda_version": 1, "architecture": 1, "base_addr": 1, "binary_size": 1, "bitness": 1, "_id": 0},
+        ):
+            samples_to_be_updated[sample_document["sample_id"]] = sample_document
         # and those whose block hashes a picblocks escaped as Intel code while they are not (#240)
         num_stale_picblockhash_samples = 0
         for sample_document in self._getDb().samples.find(
@@ -2778,6 +2808,7 @@ class MongoDbStorage(StorageInterface):
         picblockhashes_updatable = 0
         picblockhashes_updated = 0
         xcfg_missing = 0
+        samples_skipped = 0
         picblockhash_index_invalidated = False
         for sample_id, sample_info in samples_to_be_updated.items():
             pic_hash_updates = []
@@ -2840,11 +2871,13 @@ class MongoDbStorage(StorageInterface):
                     # old against new hashes per function, which is what the rebuild does anyway.
                     self._setPicBlockHashIndexComplete(False)
                     picblockhash_index_invalidated = True
-                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"smda_version": smda_version}})
                 self._getDb().functions.bulk_write(pic_hash_updates, ordered=False)
-            # only a sample whose every function was rehashed holds block hashes of this picblocks
-            if not sample_xcfg_missing:
-                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"picblockhash_version": PICBLOCKS_VERSION}})
+            # only a sample whose every function was rehashed holds hashes of this smda and picblocks,
+            # whether or not any of them changed; smda_version keeps naming the smda of the report
+            if sample_xcfg_missing:
+                samples_skipped += 1
+            else:
+                self._getDb().samples.update_one({"sample_id": sample_id}, {"$set": {"pichash_smda_version": smda_version, "picblockhash_version": PICBLOCKS_VERSION}})
             if progress_reporter:
                 progress_reporter.step()
         self._getDb().command("reIndex", "functions")
@@ -2852,7 +2885,7 @@ class MongoDbStorage(StorageInterface):
             f"Found {total_samples} outdated samples, {functions_updated}/{functions_updatable} PicHashes and {picblockhashes_updated}/{picblockhashes_updatable} PicBlockHashes were updated."
         )
         if xcfg_missing:
-            LOGGER.warning(f"{xcfg_missing} functions could not be updated as there was not CFG available.")
+            LOGGER.warning(f"{xcfg_missing} functions in {samples_skipped} samples could not be updated as no CFG was available for them, these samples stay pending.")
         if picblockhash_index_invalidated:
             LOGGER.warning("picblockhash index invalidated by the recalculation - run rebuildPicBlockHashIndex().")
         return {
@@ -2863,6 +2896,7 @@ class MongoDbStorage(StorageInterface):
             "picblockhashes_updatable": picblockhashes_updatable,
             "picblockhashes_updated": picblockhashes_updated,
             "xcfg_missing": xcfg_missing,
+            "samples_skipped_xcfg_missing": samples_skipped,
         }
 
     ##### picblockhash inverted index #####

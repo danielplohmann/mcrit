@@ -15,6 +15,25 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ## [Unreleased]
 
+### Fixed
+
+- **`recalculatePicHashes` picked most of the corpus again on every run.** It chose samples by
+  their report's `smda_version` and only overwrote that field on samples where some hash changed, so
+  every sample whose hashes came out the same stayed selected - 8,691, then 7,096 of 8,699 samples
+  on a real corpus, each run a near-full pass ([#249]). It now records the smda it rehashed a sample
+  with in a new per-sample field, `pichash_smda_version`, for every sample whose functions were all
+  rehashed, changed or not, and selects by that; a sample without the field is judged by its report's
+  `smda_version` as before, so a corpus the old code already bumped is not revisited, and one without
+  any `smda_version` is picked. A newly added report is stamped on insert, as its hashes are computed
+  then; an imported sample is not, and is judged by its report's version. A second run now selects
+  nothing. NOTE that `smda_version` is no longer overwritten: it keeps naming the smda
+  that produced the report. A sample with a function whose disassembly is gone stays pending, as its
+  `picblockhash_version` does; the result counts these in `samples_skipped_xcfg_missing`, and
+  `/status` reports how many samples are still pending in `num_samples_with_stale_pichashes`. It
+  reads two new `samples` indexes, built on first start: one on `smda_version` for the distinct
+  report versions, and one on `pichash_smda_version` and `smda_version` for the stamps and the count.
+  A run killed midway loses at most the sample it was on.
+
 ## [1.13.0] - 2026-09-29
 
 **Results change in this release, and the upgrade has an order.** Matching stays within one
@@ -943,3 +962,4 @@ date, the version, and what changed.
 [#238]: https://github.com/danielplohmann/mcrit/issues/238
 [#240]: https://github.com/danielplohmann/mcrit/issues/240
 [#69]: https://github.com/danielplohmann/mcrit/issues/69
+[#249]: https://github.com/danielplohmann/mcrit/issues/249
