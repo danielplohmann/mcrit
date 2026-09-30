@@ -393,6 +393,11 @@ with this release, smda 4.9.0 and picblocks 2.1.0:
   `FuzzyStatPairShingler` weighted 0, as `ShingleLoader` instantiates every shingler - instead of
   `KeyError` in the middle of indexing. A `SHINGLER_LOGBUCKETS` below 1 or a negative range raises
   `ValueError` as well, and a non-int value of either `TypeError`.
+### Added
+
+- `docs/limitations.md` records what the data model deliberately leaves out, starting with
+  functions whose body a linker folded under several names: MCRIT keeps one of them, which bounds
+  attribution by name and understates it when scored against a single expected name ([#126]).
 
 ## [1.12.0] - 2026-09-25
 
@@ -976,3 +981,4 @@ date, the version, and what changed.
 [#69]: https://github.com/danielplohmann/mcrit/issues/69
 [#202]: https://github.com/danielplohmann/mcrit/issues/202
 [#215]: https://github.com/danielplohmann/mcrit/issues/215
+[#126]: https://github.com/danielplohmann/mcrit/issues/126
