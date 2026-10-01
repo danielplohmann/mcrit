@@ -292,7 +292,9 @@ class McritClient:
         """
         Schedule a job that deletes the GridFS files and chunks no job refers to any more (#80); with dry_run it only counts them; answers the job id
         """
-        response = self._session.post(f"{self.mcrit_server}/delete_orphaned_queue_files", params={"dry_run": "true" if dry_run else "false"}, headers=self.headers, timeout=self.timeout)
+        response = self._session.post(
+            f"{self.mcrit_server}/delete_orphaned_queue_files", params={"dry_run": "true" if dry_run else "false"}, headers=self.headers, timeout=self.timeout
+        )
         if self.raw:
             return response
         return self._handle(response)
@@ -742,7 +744,9 @@ class McritClient:
             band_df_cutoff=band_df_cutoff,
             preset=preset,
         )
-        response = self._session.get(f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.get(
+            f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params, timeout=self.timeout
+        )
         if self.raw:
             return response
         return self._handle(response)
