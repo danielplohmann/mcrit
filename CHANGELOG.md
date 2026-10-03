@@ -15,6 +15,23 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ## [Unreleased]
 
+### Changed
+
+- **Minhashes are stored as BSON binary instead of hex text**, half the bytes per signature. On
+  a 7,244-sample corpus with 64.8% of its functions hashed, that is 5.7% of `functions`
+  uncompressed, 342 MiB of its 6,018 MiB, and an estimated 12.9% on disk after snappy, about
+  299 MiB of its 2,318 MiB. Minhashes stored as hex before are still read, so nothing has to be
+  migrated. `python -m mcrit.migrations.migrate_minhash_binary --mode binary` converts
+  them, and `--mode count` says how many are left; MongoDB reuses the space this frees, and only
+  `compact` returns it to the filesystem. Exports and the REST API still carry hex.
+
+  NOTE that this changes the stored data shape. An MCRIT from before this release fails on a
+  binary minhash (`bytes.fromhex` refuses `bytes`), so upgrade the server and every worker
+  together, and run `--mode revert` with them stopped before going back to an older release.
+  Scripts that read `functions.minhash` directly get `bytes` for functions hashed after the
+  upgrade, hex for those hashed before it until the migration runs, and `""` for functions not
+  hashed yet.
+
 ## [1.13.0] - 2026-09-29
 
 **Results change in this release, and the upgrade has an order.** Matching stays within one
