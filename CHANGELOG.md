@@ -15,6 +15,18 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ## [Unreleased]
 
+### Fixed
+
+- **`McritClient` raised a `JSONDecodeError` for a 2xx whose body is not JSON** ([#257]). A reverse
+  proxy's error or login page, or an empty answer, with a 200 or 202 status went through
+  `response.json()` unguarded and came out of the client as a `ValueError` in either error mode,
+  past a caller that relies on `None` by default or catches `McritClientError` under
+  `raise_server_errors`. Such an answer is now a failed one like any other: `None` by default,
+  `McritServerError` with an empty message under `raise_server_errors`, and a warning in the log
+  naming the status, which is where to start looking for the proxy. A JSON body that is not an
+  object was already handled this way. The IDA and Binary Ninja plugin vendors this client and gets
+  the same once it takes this version up.
+
 ## [1.13.0] - 2026-09-29
 
 **Results change in this release, and the upgrade has an order.** Matching stays within one
@@ -943,3 +955,4 @@ date, the version, and what changed.
 [#238]: https://github.com/danielplohmann/mcrit/issues/238
 [#240]: https://github.com/danielplohmann/mcrit/issues/240
 [#69]: https://github.com/danielplohmann/mcrit/issues/69
+[#257]: https://github.com/danielplohmann/mcrit/issues/257

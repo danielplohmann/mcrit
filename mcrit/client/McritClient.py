@@ -85,7 +85,7 @@ class McritConflict(McritRequestError):
 
 class McritServerError(McritClientError):
     """The server failed to answer the request (500, 501, an unexpected status, or a 2xx
-    whose body reports ``"status": "failed"``). The request may or may not have been acted
+    whose body reports ``"status": "failed"`` or is not JSON). The request may or may not have been acted
     on, which is what makes this different from a refused request."""
 
 
@@ -122,8 +122,9 @@ def handle_response(response, raise_client_errors=False, raise_server_errors=Fal
 
     With ``raise_client_errors`` any 4xx raises a :class:`McritRequestError` (400, 401/403,
     404, 409 and 410 have subclasses of their own); with ``raise_server_errors`` a 500, 501,
-    any status this client does not know, and a 2xx that reports ``"status": "failed"``
-    raise :class:`McritServerError`. Both default to False, so existing callers keep getting
+    any status this client does not know, and a 2xx that does not report ``"status": "successful"``
+    - including one whose body is not JSON at all, as a proxy's login page - raise
+    :class:`McritServerError`. Both default to False, so existing callers keep getting
     ``None``, which they cannot tell apart from "not found" (fkie-cad/mcritweb#43).
     """
     data = None
@@ -137,8 +138,14 @@ def handle_response(response, raise_client_errors=False, raise_server_errors=Fal
         if raise_client_errors:
             raise request_error_for(status)(status, failure_message(response), url)
     elif status in [200, 202]:
-        json_response = response.json()
-        if "status" in json_response and json_response["status"] == "successful":
+        # a proxy's error or login page, or an empty answer, arrives as a 2xx too; it is a
+        # failed answer like any other, not a ValueError out of the client (#257)
+        try:
+            json_response = response.json()
+        except ValueError:
+            LOGGER.warning("McritClient received status code %d from MCRIT with a body that is not JSON.", status)
+            json_response = None
+        if isinstance(json_response, dict) and json_response.get("status") == "successful":
             data = json_response["data"]
         elif raise_server_errors:
             raise McritServerError(status, failure_message(response), url)
@@ -163,7 +170,7 @@ class McritClient:
         """
         raw_responses: every method answers the requests.Response itself.
         raise_client_errors: a 4xx raises a McritRequestError (McritBadRequest, McritUnauthorized, McritNotFound, McritConflict, McritGone) instead of answering None.
-        raise_server_errors: a 500, 501, unknown status or a failed 2xx raises McritServerError instead of answering None.
+        raise_server_errors: a 500, 501, unknown status or a failed or non-JSON 2xx raises McritServerError instead of answering None.
         timeout: (connect, read) seconds for every request, or one number for both; see DEFAULT_TIMEOUT. A request that
             runs out raises requests.exceptions.ConnectTimeout or ReadTimeout, like any other connection failure.
         """
