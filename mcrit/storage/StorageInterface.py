@@ -1,7 +1,7 @@
 import datetime
 import logging
 import random
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Set, Tuple, Union
 
 from packaging import version
 
@@ -34,6 +34,25 @@ BandId = int
 BandHash = int
 PicHash = int
 Sha256 = str
+
+# The fixed cutoffs every band df coverage report is also evaluated at, whatever cutoff it was asked
+# about, so two reports taken months apart stay comparable. 200 is the documented starting point;
+# the rest bracket it by the factors an operator would plausibly move it by.
+BAND_DF_REFERENCE_CUTOFFS = (50, 100, 200, 500, 1000)
+# The largest cutoff a coverage report can be asked about: it is compared against df inside a
+# MongoDB aggregation, and BSON integers are signed 64-bit, so a larger one cannot be encoded.
+BAND_DF_CUTOFF_MAX = 2**63 - 1
+
+
+class BinaryStream(Protocol):
+    """What openSampleBinary hands back: enough of a file to stream it out and close it.
+
+    Not typing.IO - a GridFS GridOut is not one, and widening the annotation to Any to make it
+    fit would hide the only two methods the callers actually use."""
+
+    def read(self, size: int = -1, /) -> bytes: ...
+
+    def close(self) -> None: ...
 
 
 class StorageInterface:
@@ -165,6 +184,8 @@ class StorageInterface:
     def updateFunctionLabels(self, smda_report: "SmdaReport", username: str) -> Optional["SampleEntry"]:
         """Use a given SMDA report to update all non-dummy function labels for the SampleEntry matching its SHA256
         If no matching SampleEntry exists, no update happens.
+        One name per function address is taken, the one the report gives: other names a linker folded
+        onto the same body (identical code folding) are not recorded - see docs/limitations.md.
 
         Args:
             smda_report: the SmdaReport to be used for updating function labels
@@ -517,6 +538,46 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def deleteOrphanedQueryData(self) -> Dict[str, int]:
+        """Delete the query functions whose query sample is gone and the query disassembly whose
+        function is gone; answers how many of each were removed (#68)."""
+        raise NotImplementedError
+
+    def compactQueryCollections(self) -> Dict[str, Any]:
+        """Hand the space freed by deleted query data back to the file system, where the backend
+        can; answers per collection what happened (#68)."""
+        raise NotImplementedError
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        """Keep the raw binary a sample was submitted as; replaces an earlier one (#95).
+
+        Binaries are stored once per content (sha256), listing the samples they belong to, so
+        storing bytes that are already kept only adds the sample to them."""
+        raise NotImplementedError
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        """The raw binary kept for the sample, or None when none was kept (#95).
+
+        Reads the whole binary into memory. Prefer hasSampleBinary() to ask whether one is
+        there and openSampleBinary() to serve it."""
+        raise NotImplementedError
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        """Whether a raw binary is kept for the sample, without reading it (#95)."""
+        raise NotImplementedError
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        """The raw binary kept for the sample as a readable stream, or None when none was kept.
+
+        The caller closes it. Serving a sample through this instead of getSampleBinary() keeps
+        the file out of the server's memory (#95)."""
+        raise NotImplementedError
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        """Take the sample off the raw binary kept for it, deleting the binary once no sample is
+        left on it; True when the sample had one (#95)."""
+        raise NotImplementedError
+
     def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
         """Set every family's sample/function counters from the samples and functions that exist,
         and report how many families were corrected (#151)."""
@@ -637,6 +698,21 @@ class StorageInterface:
 
         Returns:
             a set of (family_id, sample_id, function_id) tuples with the given pichash
+        """
+        raise NotImplementedError
+
+    def getMatchesForPicHashes(self, pichashes: List[int]) -> Dict[int, Set[Tuple[int, int, int]]]:
+        """Get the (family_id, sample_id, function_id) tuples of the functions holding each of the given PicHashes, in one lookup.
+
+        A PicHash held by more than MINHASH_PICHASH_MAX_MATCHES functions is left out, and so is one
+        no function holds. (getPicHashMatchesByFunctionIds answers such a PicHash with an empty set
+        instead; matching treats both alike.)
+
+        Args:
+            pichashes: the pichashes to look up
+
+        Returns:
+            a dict mapping each pichash with holders to the set of their (family_id, sample_id, function_id) tuples
         """
         raise NotImplementedError
 
@@ -801,6 +877,149 @@ class StorageInterface:
         """Whether band documents carry a trustworthy df; the cutoff falls back when they do not."""
         raise NotImplementedError
 
+    # Whether this backend's candidate lookup honours STORAGE_BAND_DF_CUTOFF at all. The coverage
+    # report says so, because a backend that ignores the cutoff skips nothing, whatever it counts.
+    APPLIES_BAND_DF_CUTOFF = False
+
+    def _bandDfUnavailableReason(self) -> Optional[str]:
+        """Why the band df counts cannot be read trustworthily right now, or None when they can."""
+        if not self.isBandDfIndexComplete():
+            return (
+                "Band documents do not carry a trustworthy df yet (band_df_index_complete is not set), so what "
+                "STORAGE_BAND_DF_CUTOFF skips cannot be read from the (band_hash, df) index. Run the band df "
+                "rebuild (GET /rebuild_band_df_index), then request the coverage again."
+            )
+        return None
+
+    def _countBandDf(self, band_number: int, thresholds: List[int]) -> Dict[str, Any]:
+        """Count one band's posting lists by length (df).
+
+        Returns band_hashes (hashes holding at least one posting), postings (the sum of their df),
+        max_df and, under `over`, for each threshold t the pair [hashes with df > t, postings in
+        them]. Only called once _bandDfUnavailableReason() has answered None.
+        """
+        raise NotImplementedError
+
+    @staticmethod
+    def _summariseBandDfCounts(counts: Dict[str, Any], band_df_cutoff: int) -> Dict[str, Any]:
+        """Turn raw counts into what the cutoff skips; a cutoff of 0 is off and skips nothing."""
+        band_hashes = int(counts["band_hashes"])
+        postings = int(counts["postings"])
+        hashes_over, postings_over = counts["over"][band_df_cutoff] if band_df_cutoff > 0 else (0, 0)
+        return {
+            "band_hashes": band_hashes,
+            "postings": postings,
+            "band_hashes_over_cutoff": int(hashes_over),
+            "postings_over_cutoff": int(postings_over),
+            "band_hashes_over_cutoff_fraction": hashes_over / band_hashes if band_hashes else 0.0,
+            "postings_over_cutoff_fraction": postings_over / postings if postings else 0.0,
+            "max_df": int(counts["max_df"]),
+        }
+
+    def getBandDfCutoffCoverage(self, band_df_cutoff: Optional[int] = None, progress_reporter=None) -> Dict[str, Any]:
+        """Measure how much of the band index STORAGE_BAND_DF_CUTOFF skips, per band and in total.
+
+        The cutoff drops a band hash whose posting list is longer than it, and nothing on the query
+        path says how much that is: counting skipped postings per lookup would roughly double each
+        lookup's index work. This is the offline answer - how many band hashes and postings there
+        are, and how many of them sit in posting lists over the cutoff. As the corpus grows, posting
+        lists lengthen and a fixed cutoff skips a growing share; this is how that becomes visible.
+
+        Args:
+            band_df_cutoff: the cutoff to evaluate; None evaluates the configured STORAGE_BAND_DF_CUTOFF.
+                0 means off, which skips nothing - the reference cutoffs then show what one would skip.
+            progress_reporter: optional progress reporter, stepped once per band
+        Returns:
+            a dict carrying the cutoff evaluated and where it came from, `available` (False, with the
+            reason in `message` and no numbers, when the df counts cannot be trusted), `totals` and
+            `bands` (band_hashes, postings, band_hashes_over_cutoff, postings_over_cutoff, both
+            fractions, max_df) and `at_reference_cutoffs`, the totals at a
+            fixed set of cutoffs, so any two reports can be compared whatever cutoff each evaluated.
+        Raises:
+            ValueError: if band_df_cutoff is not an integer from 0 to BAND_DF_CUTOFF_MAX
+        """
+        # the lookup treats any cutoff <= 0 as off, so a negative setting reports as 0 rather than failing
+        configured_cutoff = max(0, int(getattr(self._storage_config, "STORAGE_BAND_DF_CUTOFF", 0) or 0))
+        if band_df_cutoff is None:
+            cutoff, cutoff_source = configured_cutoff, "STORAGE_BAND_DF_CUTOFF"
+        else:
+            if isinstance(band_df_cutoff, bool) or int(band_df_cutoff) != band_df_cutoff:
+                raise ValueError(f"band_df_cutoff must be an integer from 0 to {BAND_DF_CUTOFF_MAX}, not {band_df_cutoff!r}.")
+            cutoff, cutoff_source = int(band_df_cutoff), "parameter"
+        if not 0 <= cutoff <= BAND_DF_CUTOFF_MAX:
+            raise ValueError(f"band_df_cutoff must be an integer from 0 to {BAND_DF_CUTOFF_MAX}, not {cutoff}.")
+        num_bands = self._storage_config.STORAGE_NUM_BANDS
+        report: Dict[str, Any] = {
+            "available": False,
+            "message": "",
+            "band_df_cutoff": cutoff,
+            "band_df_cutoff_source": cutoff_source,
+            "configured_band_df_cutoff": configured_cutoff,
+            "backend_applies_cutoff": self.APPLIES_BAND_DF_CUTOFF,
+            "band_bucket_size": max(0, int(getattr(self._storage_config, "STORAGE_BAND_BUCKET_SIZE", 0) or 0)),
+            "num_bands": num_bands,
+            "reference_cutoffs": list(BAND_DF_REFERENCE_CUTOFFS),
+            "totals": None,
+            "bands": [],
+            "at_reference_cutoffs": [],
+        }
+        unavailable_reason = self._bandDfUnavailableReason()
+        if unavailable_reason is not None:
+            report["message"] = unavailable_reason
+            LOGGER.warning("Band df cutoff coverage not measured: %s", unavailable_reason)
+            return report
+        thresholds = sorted(set(BAND_DF_REFERENCE_CUTOFFS) | ({cutoff} if cutoff > 0 else set()))
+        if progress_reporter is not None:
+            progress_reporter.set_total(num_bands)
+        total: Dict[str, Any] = {"band_hashes": 0, "postings": 0, "max_df": 0, "over": {t: [0, 0] for t in thresholds}}
+        for band_number in range(num_bands):
+            counts = self._countBandDf(band_number, thresholds)
+            report["bands"].append({"band_number": band_number, **self._summariseBandDfCounts(counts, cutoff)})
+            for key in ("band_hashes", "postings"):
+                total[key] += int(counts[key])
+            total["max_df"] = max(total["max_df"], int(counts["max_df"]))
+            for threshold in thresholds:
+                total["over"][threshold][0] += int(counts["over"][threshold][0])
+                total["over"][threshold][1] += int(counts["over"][threshold][1])
+            if progress_reporter is not None:
+                progress_reporter.step()
+        totals = self._summariseBandDfCounts(total, cutoff)
+        report["totals"] = totals
+        for reference_cutoff in BAND_DF_REFERENCE_CUTOFFS:
+            at_reference = self._summariseBandDfCounts(total, reference_cutoff)
+            report["at_reference_cutoffs"].append(
+                {
+                    "band_df_cutoff": reference_cutoff,
+                    **{key: value for key, value in at_reference.items() if "over_cutoff" in key},
+                }
+            )
+        report["available"] = True
+        report["message"] = self._describeBandDfCutoffCoverage(report)
+        LOGGER.info(report["message"])
+        return report
+
+    @staticmethod
+    def _describeBandDfCutoffCoverage(report: Dict[str, Any]) -> str:
+        """The headline of a coverage report: the share of postings the cutoff skips."""
+        totals = report["totals"]
+        cutoff = report["band_df_cutoff"]
+        if cutoff > 0:
+            headline = (
+                f"Band df cutoff {cutoff} skips {totals['postings_over_cutoff_fraction']:.2%} of band postings "
+                f"({totals['postings_over_cutoff']:,} of {totals['postings']:,}), held by "
+                f"{totals['band_hashes_over_cutoff_fraction']:.2%} of band hashes ({totals['band_hashes_over_cutoff']:,} of {totals['band_hashes']:,})."
+            )
+        else:
+            suggested = next(entry for entry in report["at_reference_cutoffs"] if entry["band_df_cutoff"] == 200)
+            headline = (
+                f"Band df cutoff is off (0) and skips nothing of {totals['postings']:,} band postings in {totals['band_hashes']:,} band hashes; "
+                f"a cutoff of 200 would skip {suggested['postings_over_cutoff_fraction']:.2%} of the postings, "
+                f"held by {suggested['band_hashes_over_cutoff_fraction']:.2%} of the band hashes."
+            )
+        if not report["backend_applies_cutoff"]:
+            headline += " This storage backend does not apply the cutoff when matching; the numbers are what MongoDbStorage would skip."
+        return headline
+
     def rebuildMinhashBandIndex(self, progress_reporter=None) -> int:
         """Drop the current band index and rebuild it from scratch
         Args:
@@ -811,7 +1030,9 @@ class StorageInterface:
         raise NotImplementedError
 
     def recalculateAllPicHashes(self, progress_reporter=None) -> int:
-        """Iterate across all SampleEntries and check if the SMDA version is older than the one currently available
+        """Iterate across all SampleEntries and check if the SMDA version is older than the one currently available,
+            and which it has not yet rehashed with a compatible one (#249),
+            or if their block hashes were computed by a picblocks that escaped non-Intel code as Intel (#240).
             If yes, process all FunctionEntries and use this SMDA version to recalculate and update the PicHash
             In the end, rebuild the PicHashIndex
         Returns:
@@ -830,23 +1051,57 @@ class StorageInterface:
         except Exception:
             return True
 
+    @staticmethod
+    def _isStaleShinglerRevision(architecture: Optional[str], recorded_revision: Optional[int]) -> bool:
+        """A sample's minhashes are also stale when a shingler changed for its architecture after
+        they were computed (#238)."""
+        from mcrit.minhash.MinHasher import SHINGLER_REVISION_SINCE
+
+        since = SHINGLER_REVISION_SINCE.get(architecture or "")
+        return since is not None and (recorded_revision is None or recorded_revision < since)
+
+    @staticmethod
+    def _stripReportVersionPrefix(report_version: Optional[str]) -> Optional[str]:
+        """Reports exported by MCRIT4IDA carry "MCRIT4IDA <smda version>" as their smda version."""
+        if report_version and report_version.startswith("MCRIT4IDA"):
+            return report_version.rsplit(" ", 1)[-1]
+        return report_version
+
     def deleteMinHashesForSample(self, sample_id: int) -> int:
         """Drop the minhashes of one sample's functions and their band entries, without touching
         the rest of the index; how many functions had one (#142)."""
         raise NotImplementedError
 
     def setMinHashVersionForSamples(self, smda_version: str, sample_ids: Optional[List[int]] = None) -> None:
-        """Record which smda escaped the minhashes of the samples (all when None) (#142)."""
+        """Record which smda escaped the minhashes of the samples (all when None) (#142), and at
+        which shingler revision they were computed (#238)."""
         raise NotImplementedError
 
     def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
         """The samples whose minhashes were escaped by an smda older than the threshold, or
-        by an unrecorded one (#142)."""
+        by an unrecorded one (#142), or computed before a shingler changed for their
+        architecture (#238)."""
         raise NotImplementedError
 
     def countSamplesWithStaleMinHashes(self, threshold_version: str) -> int:
         """How many samples getSamplesWithStaleMinHashes would answer, for /status (#142)."""
         return len(self.getSamplesWithStaleMinHashes(threshold_version))
+
+    def countSamplesWithStalePicBlockHashes(self) -> Optional[int]:
+        """How many samples of an architecture other than Intel hold block hashes computed by a
+        picblocks that escaped them as Intel code, which recalculateAllPicHashes redoes, for
+        /status (#240). None where the backend does not record it."""
+        return None
+
+    def countSamplesWithStalePicHashes(self) -> Optional[int]:
+        """How many samples recalculateAllPicHashes would still pick for an older smda escaper,
+        for /status (#249). None where the backend does not record it."""
+        return None
+
+    def countSamplesWithUnrehashablePicHashes(self) -> Optional[int]:
+        """How many samples recalculateAllPicHashes found missing disassembly under the running
+        smda, and so no longer picks, for /status (#249). None where the backend does not record it."""
+        return None
 
     def deleteAllMinHashes(self, progress_reporter=None) -> int:
         """drop every minhash in all function_entries as a preparation for a full rebuild

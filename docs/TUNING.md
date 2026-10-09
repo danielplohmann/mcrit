@@ -43,6 +43,26 @@ Always keep `WiredTiger cache + Σ worker peaks + 2 GiB` inside physical RAM, an
 `mem_limit` on the worker service in `docker-compose.yml` — an unlimited container leaves any
 overcommit to the host OOM killer, which may choose mongod.
 
+A container limit is shared by every job the worker runs. To bound each job instead, set
+`QUEUE_SPAWNINGWORKER_CHILD_MAX_MEMORY` (bytes, `0` = off, the default) on a spawning worker. Once
+a second it adds up the resident memory of each job process and everything that process started,
+such as its hashing pool; a job over the limit is killed and is retried or marked failed like any
+other failing job, while the worker and the jobs beside it carry on. It needs `/proc`, so Linux
+only; elsewhere it is ignored with a warning. Resident memory counts shared pages once per
+process, so a pool of forked workers reads higher than it costs - size it against a measured peak,
+and keep it below the container limit so the job is the one stopped rather than the worker.
+Measuring reads the parent of every process on the host from `/proc` once a second per running job,
+which costs little on a worker host but adds up where thousands of processes run beside it.
+
+A worker that runs jobs in its own process (`mcrit worker`, as opposed to `spawningworker`) keeps
+what a job allocated in glibc's arenas after the job ends, so its resident size stays at its
+largest job's peak. It hands the freed memory back to the operating system after every job
+(`malloc_trim`, glibc only). Measured on a 7,244-sample corpus, a worker idle after sample matching
+jobs held 1.0-2.3 GiB without that and 0.45-0.58 GiB with it, at 30-120 ms per job and identical
+reports. `MALLOC_ARENA_MAX=2` in the worker's environment limits the arenas that fragmentation
+builds up in during a job as well; a spawning worker's job process ends with its job, so only the
+job's peak matters there.
+
 These settings are strictly better and involve no trade-off. **As of MCRIT 1.6.1 they are the
 defaults**, so on 1.6.1 or later there is nothing to set — they are listed here for what they
 buy, and because the value is what you would restore to on 1.6.0:
@@ -89,7 +109,7 @@ stage of a 1-vs-N query - and the result set itself - otherwise grows with the c
 |---|---|---|
 | `MINHASH_MATCHING_SHORTLIST_SIZE` | `0` (off) | how many corpus samples the exact matching stage may look at. A cheap stage ranks candidate samples first; only the best N are matched exactly |
 | `STORAGE_BAND_DF_CUTOFF` | `0` (off) | skip band hashes whose posting list is longer than this. A band hash held by much of the corpus is a stopword: expensive to read, uninformative about *which* samples match |
-| `MINHASH_PICHASH_MAX_MATCHES` | `0` (off) | skip PicHashes held by more than this many corpus functions. Same argument for the exact-match path, which the shortlist does not bound: a hash covering a common library function returns one tuple per holder |
+| `MINHASH_PICHASH_MAX_MATCHES` | `0` (off) | skip PicHashes held by more than this many corpus functions, in sample and query matching alike. Same argument for the exact-match path, which the shortlist does not bound: a hash covering a common library function returns one tuple per holder |
 
 **Both default to off, so an upgrade changes nothing until you opt in.** Two indexes need one
 build each before they take effect, and neither is read until a completeness flag vouches for
@@ -203,6 +223,50 @@ Tuning the cutoff at 12,500 samples, shortlist held at 100: cutoff 1000 gives a 
 200 gives 0.374 s, 100 gives 0.332 s — all three at top-10 and top-25 recall of 1.000. 200 is
 where the traversal stops scaling; below that there is little left to win.
 
+### Watching what the cutoff skips as the corpus grows
+
+`STORAGE_BAND_DF_CUTOFF` is a fixed number, and the posting lists it is compared against are not.
+Vocabulary grows sublinearly with the corpus (Heaps' law, V(n) = 1412.8 · n^0.7247 as fitted by
+`benchmarks/measure_growth.py`) while postings grow with the number of functions, so posting lists
+lengthen and the same cutoff skips a growing share of the index. Nothing on the query path says so:
+counting skipped postings per lookup would roughly double the index work of every band lookup. The
+measurement is a job instead:
+
+    curl http://localhost:8000/band_df_cutoff_coverage                      # the configured cutoff
+    curl 'http://localhost:8000/band_df_cutoff_coverage?band_df_cutoff=500' # any other one
+
+Both answer a job id (`McritClient.requestBandDfCutoffCoverage()` does the same); the report is the
+job's result under `/jobs/<job_id>/result`, and the worker logs its headline at INFO. Per band and
+in total it gives `band_hashes`, `postings` (the sum of their df), `band_hashes_over_cutoff`,
+`postings_over_cutoff` and both fractions, plus `max_df`. `at_reference_cutoffs` repeats the totals
+at 50, 100, 200, 500 and 1000 whatever cutoff was asked about, so two reports taken months apart
+compare directly, and a cutoff of `0` (off, skipping nothing) still shows what one would skip. A
+`band_df_cutoff` that is not an integer from 0 to 2^63 - 1 (the largest a BSON integer holds) is
+refused with a 400.
+
+Measured on the 7,244-sample corpus at a cutoff of 200: **46.4 % of all band postings (51.8 M of
+111.8 M) sit in the 0.97 % of band hashes (83,235 of 8,538,312) whose df exceeds it.** A large
+share is what the cutoff is for - stopword hashes are few and hold many postings - so the number
+to watch is how `postings_over_cutoff_fraction` moves between runs at the same cutoff. A rising
+share is the cutoff starting to bite; it is not a recall measurement, so when it moves, re-measure
+recall against the uncapped result with `benchmarks/compare_quality.py` before changing the cutoff.
+
+Each band is counted by one `$group` over the `(band_hash, df)` index alone, a covered scan that
+never fetches a band document and keeps one running total per band, so its memory does not grow
+with the number of band hashes and it needs no `allowDiskUse`. On that 7,244-sample corpus
+(MongoDB 7.0) a single index-only `$group` of exactly this shape took 39.3 s for all 20 bands, about
+1.1 to 2 s per band. Under `STORAGE_BAND_BUCKET_SIZE` only bucket 0 carries df, as the total across
+the hash's buckets, so a spilled hash counts once with its whole posting-list length. On a database
+whose df is not yet trusted - one that predates df, until `rebuild_band_df_index` has run - the
+report comes back with `available: false` and says so, rather than counting df-less posting lists
+as empty. The postings of a bucketed hash whose bucket 0 is missing carry no df: the report does
+not count them, and with the cutoff on they are never served. `rebuild_band_df_index` repairs such
+a hash by recreating its bucket 0 from the buckets that remain.
+
+There is no dynamic pruning (WAND/MaxScore) behind the cutoff: it would need posting lists sorted
+by function id, which the fill-order buckets of `STORAGE_BAND_BUCKET_SIZE` are not. Until that
+changes, this report is how to tell whether the fixed cutoff still fits the corpus.
+
 ## Growing past ~270,000 samples: `STORAGE_BAND_BUCKET_SIZE`
 
 Separate from latency, and a hard stop rather than a slowdown. A band posting list is a
@@ -233,6 +297,9 @@ Documents written before the knob was on have no `bucket` field, so the upsert f
 `{band_hash, bucket: 0}` will not match them - it would insert a second document for the hash and
 split the posting list invisibly, which no error would report. The rebuild stamps `bucket: 0` and
 is what makes them addressable. Run it after setting the knob and before the next ingest.
+**Switching it back to `0` on a database that has spilled is not supported:** the single-document
+code paths neither read nor maintain the buckets above 0, so deletions and lookups made that way
+leave them out of step with bucket 0.
 
 Matching results are unchanged with it on or off; the tests assert identical matches against a
 corpus where the split is forced.
@@ -311,3 +378,52 @@ machine; raising it buys nothing once the round trip has stopped mattering.
   preferential-attachment urn calibrated to its measured Heaps exponent). They were measured on
   a 4-core / 16 GiB host with mongod 7.0. The shape of the result - one-stage grows with the
   corpus, two-stage does not - is the finding; the absolute seconds are host-specific.
+
+## Reclaiming space after the query cleanup
+
+| setting | default | effect |
+|---|---|---|
+| `STORAGE_MONGODB_COMPACT_AFTER_CLEANUP` | `False` | run MongoDB's `compact` on `query_samples`, `query_functions` and `query_xcfg` after every `DbCleanup` job |
+
+The cleanup job deletes expired query samples, their functions and disassembly, and the
+orphans a broken deletion or an interrupted insert left behind; WiredTiger keeps the freed
+pages inside the collection files and reuses them for later inserts, so disk usage does not
+shrink on its own. `compact` returns that space to the file system. It needs the `compact`
+privilege on the database (the default `readWrite` role does not carry it - grant `dbAdmin`
+or a custom role). Since MongoDB 4.4 it no longer blocks reads and writes, but it holds off
+index builds and drops on the collection it is working on, and it is I/O-heavy for as long as
+it runs (seconds to minutes, depending on collection size). On a replica set it runs on the
+member it is sent to only. Leave it off unless the query collections are large and the
+instance's disk is tight; the cleanup report says how many bytes each compaction returned.
+
+The cleanup deletes query jobs too, and so their results in the job queue's GridFS
+(`fs.files`, `fs.chunks`). Those are compacted as well when the queue keeps its data in the
+storage database - the same server, port and `QUEUE_MONGODB_DBNAME` as `STORAGE_MONGODB_DBNAME`,
+as by default - and left alone when it has a database of its own, which this cannot reach.
+
+## Keeping submitted binaries
+
+| setting | default | effect |
+|---|---|---|
+| `STORAGE_KEEP_SUBMITTED_BINARIES` | `False` | store the raw bytes a sample was submitted with (`POST /samples/binary`) in the GridFS bucket `sample_binaries` |
+| `STORAGE_SERVE_SUBMITTED_BINARIES` | `False` | hand the stored bytes out at `GET /samples/{sample_id}/binary`; while off, that route answers 403 |
+
+Off, MCRIT keeps only the disassembly. On, every distinct binary costs its own size once in
+MongoDB (GridFS chunks of 255 KiB; a 50 GB corpus of binaries is 50 GB more disk on the
+database host). Binaries are stored once per content: the file is keyed by its sha256 and
+lists in `metadata.sample_ids` the samples it belongs to. The bytes live as long as a sample
+refers to them: `deleteSample` takes the sample off the file and deletes the file with the
+last one, a resubmission of a known sample stores them if they were not kept before, and
+reports submitted as SMDA JSON (`POST /samples`) never have any. Turn it on when analysts need
+the original file back from MCRIT (re-disassembly with a newer smda, hand-off to other
+tooling); leave it off when the binaries are kept elsewhere.
+
+Keeping and serving are separate switches because they are separate decisions. The stored
+binaries are the submitted samples - on most instances, live malware - and serving them makes
+the REST API a download point for it, for anyone who can reach it. Turn serving on only when
+the API is not reachable by anyone who should not be able to download the samples; keeping
+alone costs disk, not exposure, and leaves the bytes in the database for tooling that reads
+them there.
+
+Exports do not carry kept binaries: an instance filled by an import has none until its samples
+are submitted again.

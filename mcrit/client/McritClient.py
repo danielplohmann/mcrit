@@ -25,6 +25,23 @@ class JobTerminatedError(Exception):
     """Raised by awaitResult when the awaited job was terminated instead of finishing."""
 
 
+class JobFailedError(Exception):
+    """A job the client waited for used up its attempts without producing a result.
+
+    Like JobTerminatedError it is raised whatever error mode the client was built in: the
+    failure is the queue's answer about the job, not one HTTP status a mode could decide over.
+    Carries the job id and the queue's ``last_error`` for the job, which is None when no
+    attempt recorded one - a lock expiry can use up the last attempt on its own."""
+
+    def __init__(self, job_id, last_error=None):
+        self.job_id = job_id
+        self.last_error = last_error
+        message = f"job {job_id} failed"
+        if last_error:
+            message += f": {last_error}"
+        super().__init__(message)
+
+
 def isJobTerminated(job):
     if job is None:
         return True
@@ -85,7 +102,7 @@ class McritConflict(McritRequestError):
 
 class McritServerError(McritClientError):
     """The server failed to answer the request (500, 501, an unexpected status, or a 2xx
-    whose body reports ``"status": "failed"``). The request may or may not have been acted
+    whose body reports ``"status": "failed"`` or is not JSON). The request may or may not have been acted
     on, which is what makes this different from a refused request."""
 
 
@@ -122,8 +139,9 @@ def handle_response(response, raise_client_errors=False, raise_server_errors=Fal
 
     With ``raise_client_errors`` any 4xx raises a :class:`McritRequestError` (400, 401/403,
     404, 409 and 410 have subclasses of their own); with ``raise_server_errors`` a 500, 501,
-    any status this client does not know, and a 2xx that reports ``"status": "failed"``
-    raise :class:`McritServerError`. Both default to False, so existing callers keep getting
+    any status this client does not know, and a 2xx that does not report ``"status": "successful"``
+    - including one whose body is not JSON at all, as a proxy's login page - raise
+    :class:`McritServerError`. Both default to False, so existing callers keep getting
     ``None``, which they cannot tell apart from "not found" (fkie-cad/mcritweb#43).
     """
     data = None
@@ -137,8 +155,14 @@ def handle_response(response, raise_client_errors=False, raise_server_errors=Fal
         if raise_client_errors:
             raise request_error_for(status)(status, failure_message(response), url)
     elif status in [200, 202]:
-        json_response = response.json()
-        if "status" in json_response and json_response["status"] == "successful":
+        # a proxy's error or login page, or an empty answer, arrives as a 2xx too; it is a
+        # failed answer like any other, not a ValueError out of the client (#257)
+        try:
+            json_response = response.json()
+        except ValueError:
+            LOGGER.warning("McritClient received status code %d from MCRIT with a body that is not JSON.", status)
+            json_response = None
+        if isinstance(json_response, dict) and json_response.get("status") == "successful":
             data = json_response["data"]
         elif raise_server_errors:
             raise McritServerError(status, failure_message(response), url)
@@ -178,7 +202,7 @@ class McritClient:
         raise_client_errors: a 4xx raises a :class:`McritRequestError` (``McritBadRequest``,
             ``McritUnauthorized``, ``McritNotFound``, ``McritConflict``, ``McritGone``) instead
             of answering None
-        raise_server_errors: a 500, 501, unknown status or a failed 2xx raises
+        raise_server_errors: a 500, 501, unknown status or a failed or non-JSON 2xx raises
             :class:`McritServerError` instead of answering None
         timeout: ``(connect, read)`` seconds for every request, or one number for both; see
             ``DEFAULT_TIMEOUT``. A request that runs out raises
@@ -201,6 +225,8 @@ class McritClient:
         self.raise_client_errors = raise_client_errors
         self.raise_server_errors = raise_server_errors
         self.timeout = timeout
+        # one session keeps connections open; a new TLS handshake per request costs most of a second
+        self._session = requests.Session()
         if apitoken:
             self.headers.update({"apitoken": apitoken})
         if username:
@@ -262,70 +288,87 @@ class McritClient:
 
     def respawn(self) -> Optional[Dict[str, Any]]:
         """POST /respawn: drop the whole database and set up a fresh, empty instance. Answers the server's confirmation message."""
-        response = requests.post(f"{self.mcrit_server}/respawn", headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/respawn", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def completeMinhashes(self) -> Optional[str]:
         """GET /complete_minhashes: schedule a job that calculates every missing minhash. Answers the job id."""
-        response = requests.get(f"{self.mcrit_server}/complete_minhashes", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/complete_minhashes", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def rebuildIndex(self) -> Optional[str]:
         """GET /rebuild_index: schedule a job that drops the band index and rebuilds it from the stored minhashes. Answers the job id."""
-        response = requests.get(f"{self.mcrit_server}/rebuild_index", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/rebuild_index", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def rebuildPicBlockHashIndex(self) -> Optional[str]:
         """GET /rebuild_picblockhash_index: schedule a job that rebuilds the inverted picblockhash index getUniqueBlocks reads. Answers the job id."""
-        response = requests.get(f"{self.mcrit_server}/rebuild_picblockhash_index", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/rebuild_picblockhash_index", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def rebuildFunctionRangeIndex(self) -> Optional[str]:
         """GET /rebuild_function_range_index: schedule a job that rebuilds the function->sample range index two-stage matching needs. Answers the job id."""
-        response = requests.get(f"{self.mcrit_server}/rebuild_function_range_index", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/rebuild_function_range_index", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def rebuildBandDfIndex(self) -> Optional[str]:
         """GET /rebuild_band_df_index: schedule a job that stores and indexes each band's posting-list length, so STORAGE_BAND_DF_CUTOFF can skip from the index. Answers the job id."""
-        response = requests.get(f"{self.mcrit_server}/rebuild_band_df_index", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/rebuild_band_df_index", headers=self.headers, timeout=self.timeout)
+        if self.raw:
+            return self._passthrough(response)
+        return self._handle(response)
+
+    def requestBandDfCutoffCoverage(self, band_df_cutoff: Optional[int] = None) -> Optional[str]:
+        """GET /band_df_cutoff_coverage: schedule a job that measures what STORAGE_BAND_DF_CUTOFF skips - band hashes and postings over the cutoff, per band and in total (#201); ``band_df_cutoff`` evaluates another cutoff than the configured one. Answers the job id; the job's result is the coverage report."""
+        params = {} if band_df_cutoff is None else {"band_df_cutoff": band_df_cutoff}
+        response = self._session.get(f"{self.mcrit_server}/band_df_cutoff_coverage", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def repairMinHashes(self) -> Optional[str]:
         """POST /repair_minhashes: schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (#142). Answers the job id."""
-        response = requests.post(f"{self.mcrit_server}/repair_minhashes", headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/repair_minhashes", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def recomputeFamilyStats(self) -> Optional[str]:
         """POST /recompute_family_stats: schedule a job that sets every family's sample/function counters from the collections (#151). Answers the job id."""
-        response = requests.post(f"{self.mcrit_server}/recompute_family_stats", headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/recompute_family_stats", headers=self.headers, timeout=self.timeout)
+        if self.raw:
+            return self._passthrough(response)
+        return self._handle(response)
+
+    def deleteOrphanedQueueFiles(self, dry_run: bool = False) -> Optional[str]:
+        """POST /delete_orphaned_queue_files: schedule a job that deletes the GridFS files and chunks no job refers to any more (#80); with ``dry_run`` it only counts them. Answers the job id."""
+        response = self._session.post(
+            f"{self.mcrit_server}/delete_orphaned_queue_files", params={"dry_run": "true" if dry_run else "false"}, headers=self.headers, timeout=self.timeout
+        )
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def recalculatePicHashes(self) -> Optional[str]:
         """GET /recalculate_pichashes: schedule a job that recalculates the pichashes of samples hashed with an older smda. Answers the job id."""
-        response = requests.get(f"{self.mcrit_server}/recalculate_pichashes", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/recalculate_pichashes", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def recalculateMinHashes(self) -> Optional[str]:
         """GET /recalculate_minhashes: schedule a job that drops every minhash and recalculates all of them. Answers the job id."""
-        response = requests.get(f"{self.mcrit_server}/recalculate_minhashes", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/recalculate_minhashes", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -338,7 +381,7 @@ class McritClient:
             no hashing was scheduled); None when the server rejected the report
         """
         smda_json = smda_report.toDict()
-        response = requests.post(f"{self.mcrit_server}/samples", json=smda_json, headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/samples", json=smda_json, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -363,7 +406,10 @@ class McritClient:
 
         Args:
             binary: file content, or a memory dump when ``is_dump`` is set
-            filename, family, version: metadata stored with the sample
+            filename, family, version: metadata stored with the sample, spliced into the query
+                string as given, so a caller passes them percent-encoded
+                (``urllib.parse.quote(value, safe="")``); MCRITweb does exactly that. They are
+                deliberately not handed to requests as params, which would encode them a second time
             is_dump: disassemble as a mapped image loaded at ``base_addr``
             base_addr: image base of a dump
             bitness: 32 or 64, for dumps
@@ -387,7 +433,7 @@ class McritClient:
         query_string = ""
         if len(query_fields) > 0:
             query_string = "?" + "&".join(query_fields)
-        response = requests.post(f"{self.mcrit_server}/samples/binary{query_string}", data=binary, headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/samples/binary{query_string}", data=binary, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -396,14 +442,17 @@ class McritClient:
     ### Families
     ###########################################
 
-    def modifyFamily(self, family_id: int, family_name: Optional[str] = None, is_library: Optional[bool] = None) -> Optional[Dict[str, Any]]:
-        """PUT /families/{family_id}: rename a family and/or mark it as a library. Answers the confirmation message, None when rejected."""
+    def modifyFamily(self, family_id: int, family_name: Optional[str] = None, is_library: Optional[bool] = None, actors: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        """PUT /families/{family_id}: rename a family, mark it as a library, and/or set the actors it is attributed to (#57); ``actors`` is a list of names, an empty list clears them. Answers the confirmation message, None when rejected."""
         update_dict = {}
         if family_name is not None:
             update_dict["family_name"] = family_name
         if is_library is not None:
             update_dict["is_library"] = is_library
-        response = requests.put(f"{self.mcrit_server}/families/{family_id}", update_dict, headers=self.headers, timeout=self.timeout)
+        if actors is not None:
+            update_dict["actors"] = list(actors)
+        # JSON, since a list of actors does not survive form encoding
+        response = self._session.put(f"{self.mcrit_server}/families/{family_id}", json=update_dict, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -411,7 +460,7 @@ class McritClient:
     def getFamily(self, family_id: int, with_samples: bool = True) -> Optional[FamilyEntry]:
         """GET /families/{family_id}: one family, with its samples unless ``with_samples`` is False. None for an unknown id."""
         query_params = "?with_samples=true" if with_samples else "?with_samples=false"
-        response = requests.get(f"{self.mcrit_server}/families/{family_id}{query_params}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/families/{family_id}{query_params}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -424,7 +473,7 @@ class McritClient:
         if not family_ids:
             return {}
         family_id_string = ",".join(["%d" % fid for fid in family_ids])
-        response = requests.post(f"{self.mcrit_server}/families/ids", data=family_id_string, headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/families/ids", data=family_id_string, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -434,7 +483,7 @@ class McritClient:
 
     def getFamilies(self) -> Optional[Dict[int, FamilyEntry]]:
         """GET /families: every family, keyed by family id."""
-        response = requests.get(f"{self.mcrit_server}/families", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/families", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -444,7 +493,7 @@ class McritClient:
 
     def isFamilyId(self, family_id: int) -> bool:
         """GET /families/{family_id}: whether the id names a family."""
-        response = requests.get(f"{self.mcrit_server}/families/{family_id}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/families/{family_id}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -455,7 +504,7 @@ class McritClient:
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> Optional[bool]:
         """DELETE /families/{family_id}: delete a family and its samples, or with ``keep_samples`` move the samples to the unknown family. Answers True on success, None for an unknown id."""
         query_params = "?keep_samples=true" if keep_samples else "?keep_samples=false"
-        response = requests.delete(f"{self.mcrit_server}/families/{family_id}{query_params}", headers=self.headers, timeout=self.timeout)
+        response = self._session.delete(f"{self.mcrit_server}/families/{family_id}{query_params}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -466,7 +515,7 @@ class McritClient:
 
     def isSampleId(self, sample_id: int) -> bool:
         """GET /samples/{sample_id}: whether the id names a sample."""
-        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -487,14 +536,14 @@ class McritClient:
             update_dict["component"] = component
         if is_library is not None:
             update_dict["is_library"] = is_library
-        response = requests.put(f"{self.mcrit_server}/samples/{sample_id}", update_dict, headers=self.headers, timeout=self.timeout)
+        response = self._session.put(f"{self.mcrit_server}/samples/{sample_id}", update_dict, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def deleteSample(self, sample_id: int) -> Optional[bool]:
         """DELETE /samples/{sample_id}: delete a sample with its functions and index entries. Answers True on success."""
-        response = requests.delete(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers, timeout=self.timeout)
+        response = self._session.delete(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -508,19 +557,33 @@ class McritClient:
 
     def getSampleById(self, sample_id: int) -> Optional[SampleEntry]:
         """GET /samples/{sample_id}: one sample; None for an unknown id."""
-        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/samples/{sample_id}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
         if data is not None:
             return SampleEntry.fromDict(data)
 
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        """GET /samples/{sample_id}/binary: the raw binary the sample was submitted as, when the server keeps them (STORAGE_KEEP_SUBMITTED_BINARIES) and serves them (STORAGE_SERVE_SUBMITTED_BINARIES); None otherwise.
+
+        None does not tell those cases apart: a server not serving binaries answers 403, which is also what a missing or invalid token gets; raise_client_errors raises McritUnauthorized or McritNotFound instead, and raw mode hands back the response to look at.
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/binary", headers=self.headers, timeout=self.timeout)
+        if self.raw:
+            return self._passthrough(response)
+        if response.status_code != 200:
+            # the failure goes through the error modes every other call honours; the bytes of a
+            # 200 are the answer itself, not a JSON envelope
+            return self._handle(response)
+        return response.content
+
     def getSamplesByIds(self, sample_ids: List[int]) -> Dict[int, SampleEntry]:
         """POST /samples/ids: the samples with these ids, keyed by sample id; negative ids resolve against query samples, as in getSampleById, and ids that are not found are left out."""
         if not sample_ids:
             return {}
         sample_id_string = ",".join(["%d" % sid for sid in sample_ids])
-        response = requests.post(f"{self.mcrit_server}/samples/ids", data=sample_id_string, headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/samples/ids", data=sample_id_string, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -533,7 +596,7 @@ class McritClient:
         query_string = ""
         if (isinstance(start, int) and start >= 0) and (isinstance(limit, int) and limit >= 0):
             query_string = f"?start={start}&limit={limit}"
-        response = requests.get(f"{self.mcrit_server}/samples{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/samples{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -546,7 +609,7 @@ class McritClient:
 
     def getFunctionsBySampleId(self, sample_id: int) -> Optional[List[FunctionEntry]]:
         """GET /samples/{sample_id}/functions: every function of a sample; None for an unknown id."""
-        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/functions", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/samples/{sample_id}/functions", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -558,7 +621,7 @@ class McritClient:
         query_string = ""
         if (isinstance(start, int) and start >= 0) and (isinstance(limit, int) and limit >= 0):
             query_string = f"?start={start}&limit={limit}"
-        response = requests.get(f"{self.mcrit_server}/functions{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/functions{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -569,7 +632,7 @@ class McritClient:
         """POST /functions: the functions with the given ids keyed by id; with ``with_label_only`` only those carrying a label."""
         query_with_label_only = "?with_label_only=True" if with_label_only else ""
         function_id_string = ",".join(["%d" % fid for fid in function_ids])
-        response = requests.post(f"{self.mcrit_server}/functions{query_with_label_only}", data=function_id_string, headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/functions{query_with_label_only}", data=function_id_string, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -579,7 +642,7 @@ class McritClient:
 
     def isFunctionId(self, function_id: int) -> bool:
         """GET /functions/{function_id}: whether the id names a function."""
-        response = requests.get(f"{self.mcrit_server}/functions/{function_id}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/functions/{function_id}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -590,7 +653,7 @@ class McritClient:
     def getFunctionById(self, function_id: int, with_xcfg: bool = False) -> Optional[FunctionEntry]:
         """GET /functions/{function_id}: one function, with its disassembly when ``with_xcfg`` is set; None for an unknown id."""
         query_with_xcfg = "?with_xcfg=True" if with_xcfg else ""
-        response = requests.get(f"{self.mcrit_server}/functions/{function_id}{query_with_xcfg}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/functions/{function_id}{query_with_xcfg}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -599,7 +662,7 @@ class McritClient:
 
     def modifyFunction(self, function_id: int, function_name: str) -> Optional[Dict[str, Any]]:
         """PUT /functions/{function_id}: rename a function; the name is also recorded as a label by this client's username. Answers the confirmation message, None when rejected."""
-        response = requests.put(f"{self.mcrit_server}/functions/{function_id}", {"function_name": function_name}, headers=self.headers, timeout=self.timeout)
+        response = self._session.put(f"{self.mcrit_server}/functions/{function_id}", {"function_name": function_name}, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -637,7 +700,7 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
         )
-        response = requests.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -675,7 +738,7 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
         )
-        response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -713,7 +776,7 @@ class McritClient:
             minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
         )
 
-        response = requests.post(f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -733,7 +796,7 @@ class McritClient:
         params = self._getMatchingRequestParams(
             minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
         )
-        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -751,7 +814,7 @@ class McritClient:
     ) -> Optional[str]:
         """GET /matches/sample/{sample_id}/{other_sample_id}: schedule matching of one stored sample against another; matching parameters as for requestMatchesForSmdaReport, except ``shortlist_size``, which does not apply to a match restricted to the samples it names. Answers the job id."""
         params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, band_df_cutoff=band_df_cutoff, preset=preset)
-        response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}", headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -779,14 +842,16 @@ class McritClient:
             band_df_cutoff=band_df_cutoff,
             preset=preset,
         )
-        response = requests.get(f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.get(
+            f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params, timeout=self.timeout
+        )
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def getMatchFunctionVs(self, function_id_a: int, function_id_b: int) -> Optional[Dict[str, Any]]:
         """GET /matches/function/{function_id_a}/{function_id_b}: compare two stored functions directly (minhash score, pichash equality, the matched function entry). None for an unknown id."""
-        response = requests.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/matches/function/{function_id_a}/{function_id_b}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -814,7 +879,7 @@ class McritClient:
             band_df_cutoff=band_df_cutoff,
             preset=preset,
         )
-        response = requests.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers, params=params, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -822,7 +887,7 @@ class McritClient:
     def getMatchesForPicHash(self, pichash: int, summary: bool = False) -> Optional[Any]:
         """GET /query/pichash/{pichash}[/summary]: the (family_id, sample_id, function_id) tuples of the functions with this pichash, or with ``summary`` the counts of families, samples and functions."""
         summary_string = "/summary" if summary else ""
-        response = requests.get(f"{self.mcrit_server}/query/pichash/{pichash:016x}{summary_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/query/pichash/{pichash:016x}{summary_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -830,14 +895,14 @@ class McritClient:
     def getMatchesForPicBlockHash(self, picblockhash: int, summary: bool = False) -> Optional[Any]:
         """GET /query/picblockhash/{picblockhash}[/summary]: the (family_id, sample_id, function_id, offset) tuples of the basic blocks with this picblockhash, or with ``summary`` the counts of families, samples and functions."""
         summary_string = "/summary" if summary else ""
-        response = requests.get(f"{self.mcrit_server}/query/picblockhash/{picblockhash:016x}{summary_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/query/picblockhash/{picblockhash:016x}{summary_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def getSampleBySha256(self, sample_sha256: str) -> Optional[SampleEntry]:
         """GET /samples/sha256/{sha256}: one sample by its sha256; None when unknown or malformed."""
-        response = requests.get(f"{self.mcrit_server}/samples/sha256/{sample_sha256}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/samples/sha256/{sample_sha256}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -854,14 +919,14 @@ class McritClient:
         query_string = ""
         if with_pichash:
             query_string = "?with_pichash=True"
-        response = requests.get(f"{self.mcrit_server}/status{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/status{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def getVersion(self) -> Optional[str]:
         """GET /version: the version of the MCRIT server."""
-        response = requests.get(f"{self.mcrit_server}/version", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/version", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -871,13 +936,8 @@ class McritClient:
 
     def getJobCount(self, filter: Optional[str] = None) -> Optional[int]:
         """GET /jobs: how many jobs the queue holds, optionally only those whose descriptor contains ``filter``."""
-        query_string = ""
-        if isinstance(filter, str) and filter is not None:
-            if len(query_string) == 0:
-                query_string = f"?filter={filter}"
-            else:
-                query_string += f"&filter={filter}"
-        response = requests.get(f"{self.mcrit_server}/jobs{query_string}", headers=self.headers, timeout=self.timeout)
+        params = {"filter": filter} if isinstance(filter, str) else {}
+        response = self._session.get(f"{self.mcrit_server}/jobs", params=params, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -890,7 +950,7 @@ class McritClient:
         if with_refresh:
             if len(query_string) == 0:
                 query_string = "?with_refresh=True"
-        response = requests.get(f"{self.mcrit_server}/jobs/stats/{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/jobs/stats/{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -926,7 +986,7 @@ class McritClient:
             sample_ids=None if sample_ids is None else ",".join(str(sample_id) for sample_id in sample_ids),
             job_ids=None if job_ids is None else ",".join(str(job_id) for job_id in job_ids),
         )
-        response = requests.get(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -951,7 +1011,7 @@ class McritClient:
             sample_ids=None if sample_ids is None else ",".join(str(sample_id) for sample_id in sample_ids),
             job_ids=None if job_ids is None else ",".join(str(job_id) for job_id in job_ids),
         )
-        response = requests.get(f"{self.mcrit_server}/jobs/count{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/jobs/count{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -962,37 +1022,28 @@ class McritClient:
         self, method: Optional[str] = None, created_before: Optional[datetime.datetime] = None, finished_before: Optional[datetime.datetime] = None
     ) -> Optional[Dict[str, int]]:
         """DELETE /jobs: delete the jobs matching all given filters. Answers ``num_deleted``."""
-        query_string = ""
-        if isinstance(method, str) and method is not None:
-            if len(query_string) == 0:
-                query_string = f"?method={method}"
-            else:
-                query_string += f"&method={method}"
-        if isinstance(created_before, datetime.datetime) and created_before is not None:
-            if len(query_string) == 0:
-                query_string = f"?created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-            else:
-                query_string += f"&created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-        if isinstance(finished_before, datetime.datetime) and finished_before is not None:
-            if len(query_string) == 0:
-                query_string = f"?finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-            else:
-                query_string += f"&finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-        response = requests.delete(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers, timeout=self.timeout)
+        params = {}
+        if isinstance(method, str):
+            params["method"] = method
+        if isinstance(created_before, datetime.datetime):
+            params["created_before"] = created_before.strftime("%Y-%m-%dT%H:%M:%S")
+        if isinstance(finished_before, datetime.datetime):
+            params["finished_before"] = finished_before.strftime("%Y-%m-%dT%H:%M:%S")
+        response = self._session.delete(f"{self.mcrit_server}/jobs/", params=params, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def deleteJob(self, job_id: str) -> Optional[Dict[str, int]]:
         """DELETE /jobs/{job_id}: delete one job and its result. Answers ``num_deleted``."""
-        response = requests.delete(f"{self.mcrit_server}/jobs/{job_id}", headers=self.headers, timeout=self.timeout)
+        response = self._session.delete(f"{self.mcrit_server}/jobs/{job_id}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def getJobData(self, job_id: str) -> Optional[Job]:
         """GET /jobs/{job_id}: one job; None for an unknown or malformed id."""
-        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/jobs/{job_id}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -1002,7 +1053,7 @@ class McritClient:
     def getResultForJob(self, job_id: str, compact: bool = False) -> Optional[Any]:
         """GET /jobs/{job_id}/result: the result of a job, None while it has not finished; ``compact`` strips the per-function matches of a matching result."""
         query_string = "?compact=True" if compact else ""
-        response = requests.get(f"{self.mcrit_server}/jobs/{job_id}/result{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/jobs/{job_id}/result{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -1010,14 +1061,14 @@ class McritClient:
     def getResult(self, result_id: str, compact: bool = False) -> Optional[Any]:
         """GET /results/{result_id}: the result stored under a result id; ``compact`` strips the per-function matches of a matching result."""
         query_string = "?compact=True" if compact else ""
-        response = requests.get(f"{self.mcrit_server}/results/{result_id}{query_string}", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/results/{result_id}{query_string}", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
 
     def getJobForResult(self, result_id: str) -> Optional[Job]:
         """GET /results/{result_id}/job: the job that produced a result."""
-        response = requests.get(f"{self.mcrit_server}/results/{result_id}/job", headers=self.headers, timeout=self.timeout)
+        response = self._session.get(f"{self.mcrit_server}/results/{result_id}/job", headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         data = self._handle(response)
@@ -1039,6 +1090,11 @@ class McritClient:
         if isJobTerminated(job):
             raise JobTerminatedError
         assert job is not None
+        if job.result is None:
+            # the wait above only ends without a result on a failed job - a job the queue
+            # reclaimed mid-run keeps attempts_left 0 but can still finish, and then carries
+            # its result, so the failure is decided by the missing result, not isJobFailed
+            raise JobFailedError(job_id, job.last_error)
         result_id = job.result
         return self.getResult(result_id, compact=compact)
 
@@ -1057,12 +1113,12 @@ class McritClient:
         if sample_ids is not None:
             if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
                 sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
-                response = requests.get(f"{self.mcrit_server}/export/{sample_ids_as_str}{compress_uri_param}", headers=self.headers, timeout=self.timeout)
+                response = self._session.get(f"{self.mcrit_server}/export/{sample_ids_as_str}{compress_uri_param}", headers=self.headers, timeout=self.timeout)
                 result_data = self._passthrough(response) if self.raw else self._handle(response)
             else:
                 raise ValueError("sample_ids must be a list of int.")
         else:
-            response = requests.get(f"{self.mcrit_server}/export{compress_uri_param}", headers=self.headers, timeout=self.timeout)
+            response = self._session.get(f"{self.mcrit_server}/export{compress_uri_param}", headers=self.headers, timeout=self.timeout)
             result_data = self._passthrough(response) if self.raw else self._handle(response)
         return result_data
 
@@ -1074,7 +1130,7 @@ class McritClient:
         """
         if not isinstance(import_data, dict):
             raise ValueError("Can only forward dictionaries with export data.")
-        response = requests.post(f"{self.mcrit_server}/import", json=import_data, headers=self.headers, timeout=self.timeout)
+        response = self._session.post(f"{self.mcrit_server}/import", json=import_data, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return self._passthrough(response)
         return self._handle(response)
@@ -1103,7 +1159,7 @@ class McritClient:
         if isinstance(sample_ids, list) and all(isinstance(item, int) for item in sample_ids):
             sample_ids_as_str = ",".join([str(sample_id) for sample_id in sample_ids])
             params = self._getUniqueBlocksParams(covers_required, min_instructions)
-            response = requests.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}", headers=self.headers, params=params, timeout=self.timeout)
+            response = self._session.get(f"{self.mcrit_server}/uniqueblocks/samples/{sample_ids_as_str}", headers=self.headers, params=params, timeout=self.timeout)
             result_data = self._passthrough(response) if self.raw else self._handle(response)
         else:
             raise ValueError("sample_ids must be a list of int.")
@@ -1117,7 +1173,7 @@ class McritClient:
         """
         if isinstance(family_id, int):
             params = self._getUniqueBlocksParams(covers_required, min_instructions)
-            response = requests.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}", headers=self.headers, params=params, timeout=self.timeout)
+            response = self._session.get(f"{self.mcrit_server}/uniqueblocks/family/{family_id}", headers=self.headers, params=params, timeout=self.timeout)
             result_data = self._passthrough(response) if self.raw else self._handle(response)
         else:
             raise ValueError("family_id must be an int.")
@@ -1160,7 +1216,7 @@ class McritClient:
         if limit is not None:
             params["limit"] = limit
         encoded_params = urllib.parse.urlencode(params)
-        return requests.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers, timeout=self.timeout)
+        return self._session.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers, timeout=self.timeout)
 
     def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
         response = self._search_request(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
