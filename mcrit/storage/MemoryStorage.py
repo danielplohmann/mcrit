@@ -1,5 +1,8 @@
+import base64
 import datetime
 import functools
+import hashlib
+import io
 import logging
 import operator
 import re
@@ -21,7 +24,7 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache, StorageBackedMatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.StorageInterface import StorageInterface
+from mcrit.storage.StorageInterface import BinaryStream, StorageInterface
 
 if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaFunction import SmdaFunction
@@ -148,6 +151,8 @@ class MemoryStorage(StorageInterface):
         self._db_timestamp = self._getCurrentTimestamp()
         self._families = {}
         self._samples = {}
+        # keyed by sha256 like MongoDbStorage's bucket: the bytes, and the ids of the samples they belong to (#95)
+        self._sample_binaries: Dict[str, Tuple[bytes, Set[int]]] = {}
         self._functions = {}
         self._query_samples = {}
         self._query_functions = {}
@@ -233,6 +238,7 @@ class MemoryStorage(StorageInterface):
         self._updateFamilyStats(sample_entry.family_id, -1, -len(function_ids), -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
+        self.deleteSampleBinary(sample_id)
         if sample_entry.family_id != 0 and not any(s.family_id == sample_entry.family_id for s in self._samples.values()):
             self._families.pop(sample_entry.family_id, None)
         return True
@@ -349,6 +355,43 @@ class MemoryStorage(StorageInterface):
 
     def compactQueryCollections(self) -> Dict[str, Any]:
         return {}
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        binary = bytes(binary)
+        sha256 = hashlib.sha256(binary).hexdigest()
+        for other_sha256 in [key for key, (_, sample_ids) in self._sample_binaries.items() if sample_id in sample_ids and key != sha256]:
+            self._releaseSampleBinary(other_sha256, sample_id)
+        self._sample_binaries.setdefault(sha256, (binary, set()))[1].add(sample_id)
+        return True
+
+    def _releaseSampleBinary(self, sha256: str, sample_id: int) -> None:
+        sample_ids = self._sample_binaries[sha256][1]
+        sample_ids.discard(sample_id)
+        if not sample_ids:
+            del self._sample_binaries[sha256]
+
+    def _findSampleBinary(self, sample_id: int) -> Optional[str]:
+        return next((sha256 for sha256, (_, sample_ids) in self._sample_binaries.items() if sample_id in sample_ids), None)
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        sha256 = self._findSampleBinary(sample_id)
+        return self._sample_binaries[sha256][0] if sha256 is not None else None
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        return self._findSampleBinary(sample_id) is not None
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        binary = self.getSampleBinary(sample_id)
+        return io.BytesIO(binary) if binary is not None else None
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        sha256 = self._findSampleBinary(sample_id)
+        if sha256 is None:
+            return False
+        self._releaseSampleBinary(sha256, sample_id)
+        return True
 
     def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
         report: Dict[str, Any] = {"num_families": 0, "num_families_corrected": 0, "num_families_created": 0, "corrections": {}}
@@ -919,6 +962,11 @@ class MemoryStorage(StorageInterface):
             "samples": {sample_id: sample.toDict() for sample_id, sample in self._samples.items()},
             "functions": {function_id: function.toDict() for function_id, function in self._functions.items()},
             "bands": self._bands,
+            # kept binaries (#95) travel with the rest; base64, as the content is carried as JSON
+            "sample_binaries": {
+                sha256: {"binary": base64.b64encode(binary).decode("ascii"), "sample_ids": sorted(sample_ids)}
+                for sha256, (binary, sample_ids) in self._sample_binaries.items()
+            },
         }
         return content
 
@@ -928,6 +976,11 @@ class MemoryStorage(StorageInterface):
         self._samples = {int(k): SampleEntry.fromDict(v) for k, v in content["samples"].items()}
         self._bands = {int(k): {int(ik): iv for ik, iv in v.items()} for k, v in content["bands"].items()}
         self._sample_by_sha256 = {sample.sha256: sample_id for sample_id, sample in self._samples.items()}
+        # content saved before binaries were kept has none
+        self._sample_binaries = {
+            sha256: (base64.b64decode(stored["binary"]), {int(sample_id) for sample_id in stored["sample_ids"]})
+            for sha256, stored in content.get("sample_binaries", {}).items()
+        }
         self._sample_id_to_function_ids = defaultdict(list)
         self._pichashes = {}
         for function_id, function in content["functions"].items():
