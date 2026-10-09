@@ -17,6 +17,13 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ### Added
 
+- **`docs/api_reference.md`, a REST API reference generated from the route table**, listing
+  every route with its methods, what it does and the `McritClient` method that calls it.
+  `python -m mcrit.server.api_reference` rewrites it (`--check` exits 1 when it is stale), every
+  responder now carries the docstring it is described by, and `tests/testApiReference.py` fails
+  when the committed file no longer matches the code, when a route is undocumented, or when a
+  public client method has no docstring or return annotation. Every public `McritClient` method
+  is now typed and documented with the route it calls ([#54]).
 - `STORAGE_MONGODB_COMPACT_AFTER_CLEANUP`, default `False`, runs MongoDB's `compact` on
   `query_samples`, `query_functions` and `query_xcfg` after every query cleanup (`DbCleanup`), so
   the space the cleanup freed goes back to the file system instead of staying inside the collection
@@ -74,6 +81,15 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   the cookies a server sets for the life of the client, is not formally thread-safe, and can hit a
   pooled connection the server already closed, which surfaces as a connection error on that call.
   Tests patch `requests.Session` methods instead of the module-level `requests` functions. (#254)
+- **Behaviour change: `McritClient(raw_responses=True)` now answers the `requests.Response` from
+  ten more methods** - `respawn`, `addBinarySample`, `modifyFamily`, `deleteFamily`,
+  `modifySample`, `deleteSample`, `getExportData`, `addImportData`,
+  `requestUniqueBlocksForSamples` and `requestUniqueBlocksForFamily` never checked the mode and
+  answered the parsed data, or `None` for a failed request. A caller in raw mode that relied on
+  that gets the response now, like from every other request method. `search_families`,
+  `search_samples` and `search_functions` are unchanged and still answer the parsed data in raw
+  mode; `getSamplesByFamilyId` and `awaitResult` do not work in raw mode. A test reads the
+  client's source and fails for a request method that ignores the mode ([#54]).
 
 ### Fixed
 
@@ -1231,6 +1247,7 @@ date, the version, and what changed.
 [#42]: https://github.com/danielplohmann/mcrit/issues/42
 [#207]: https://github.com/danielplohmann/mcrit/issues/207
 [#210]: https://github.com/danielplohmann/mcrit/issues/210
+[#54]: https://github.com/danielplohmann/mcrit/issues/54
 [#241]: https://github.com/danielplohmann/mcrit/issues/241
 [#93]: https://github.com/danielplohmann/mcrit/issues/93
 [#196]: https://github.com/danielplohmann/mcrit/pull/196
