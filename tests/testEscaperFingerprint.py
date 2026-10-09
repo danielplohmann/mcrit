@@ -92,12 +92,14 @@ class EscaperFingerprintTestSuite(unittest.TestCase):
     def testFingerprintIsUnavailableWhenEscaperCannotBeResolved(self):
         # smda releases before 4.2.13 have no getInstructionEscaper; the fingerprint is a
         # diagnostic and must degrade instead of breaking callers such as getStatus()
-        original = SmdaFunction.getInstructionEscaper
+        # the staticmethod itself, not what attribute access unwraps it to: a plain function put
+        # back would bind `self` on instances for every test that runs after this one
+        original = SmdaFunction.__dict__["getInstructionEscaper"]
         try:
             del SmdaFunction.getInstructionEscaper
             self.assertEqual(FINGERPRINT_UNAVAILABLE, getEscaperFingerprint())
         finally:
-            SmdaFunction.getInstructionEscaper = original
+            setattr(SmdaFunction, "getInstructionEscaper", original)
 
     def testFingerprintReactsToAnEscaperChange(self):
         """The regression this exists to catch: smda 4.4.5 stopped escaping segment-qualified
