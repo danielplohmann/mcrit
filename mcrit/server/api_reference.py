@@ -16,7 +16,7 @@ import inspect
 import os
 import re
 import sys
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, TypeGuard
 
 import falcon.inspect
 
@@ -111,7 +111,7 @@ def _public_names(
     return names
 
 
-def _is_request_call(node: ast.AST) -> bool:
+def _is_request_call(node: ast.AST) -> TypeGuard[ast.Call]:
     """``requests.<verb>(...)`` or ``self._session.<verb>(...)``: the two ways McritClient sends a request (#254)."""
     if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
         return False
@@ -153,8 +153,9 @@ def client_calls() -> List[Tuple[str, str, str]]:
             partials.setdefault(helper_name, []).append((node.targets[0].id, bound))
     for method in methods:
         for node in ast.walk(method):
-            if not _is_request_call(node):
+            if not _is_request_call(node) or not isinstance(node.func, ast.Attribute):
                 continue
+            verb = node.func.attr
             url = node.args[0] if node.args else None
             if not isinstance(url, ast.JoinedStr):
                 continue
@@ -177,7 +178,7 @@ def client_calls() -> List[Tuple[str, str, str]]:
                     bound_variant = variant
                     for parameter, value in bound.items():
                         bound_variant = bound_variant.replace("{%s}" % parameter, value)
-                    calls.append((node.func.attr.upper(), bound_variant.rstrip("/") or "/", name))
+                    calls.append((verb.upper(), bound_variant.rstrip("/") or "/", name))
     return calls
 
 
