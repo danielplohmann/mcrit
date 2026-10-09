@@ -187,18 +187,22 @@ class McritClient:
 
     Every public method maps to one endpoint (see docs/api_reference.md) and answers the
     parsed ``data`` of the server's JSON response, converted to the storage entry classes
-    where one exists; ``None`` when the server answered with a failure status, unless the
-    client was built to raise (``raise_client_errors``, ``raise_server_errors``). The return
-    annotations describe this default mode; with ``raw_responses=True`` every method answers
-    the ``requests.Response`` itself instead. Methods that
-    schedule work on the MCRIT queue answer the job id, which ``getResultForJob`` or
-    ``awaitResult`` turn into the result.
+    where one exists (``getSampleBinary`` answers the bytes); ``None`` when the server
+    answered with a failure status or a non-JSON 2xx, unless the client was built to raise
+    (``raise_client_errors``, ``raise_server_errors``). The return annotations describe this
+    default mode; with ``raw_responses=True`` the methods that send a request answer the
+    ``requests.Response`` itself instead, with these exceptions: ``search_families``,
+    ``search_samples`` and ``search_functions`` keep answering the parsed data, and
+    ``getSamplesByFamilyId`` and ``awaitResult``, which build on other methods' parsed
+    answers, do not work in raw mode. Methods that schedule work on the MCRIT queue answer
+    the job id, which ``getResultForJob`` or ``awaitResult`` turn into the result.
 
     Args:
         mcrit_server: base URL of the server, default ``http://localhost:8000``
         apitoken: sent as the ``apitoken`` header when the server requires one
         username: sent as the ``username`` header and recorded with the jobs this client creates
-        raw_responses: when True every method returns the ``requests.Response`` unchanged
+        raw_responses: when True the request methods return the ``requests.Response``
+            unchanged, with the exceptions named above
         raise_client_errors: a 4xx raises a :class:`McritRequestError` (``McritBadRequest``,
             ``McritUnauthorized``, ``McritNotFound``, ``McritConflict``, ``McritGone``) instead
             of answering None
@@ -1079,7 +1083,10 @@ class McritClient:
         """Poll GET /jobs/{job_id} every ``sleep_time`` seconds until the job finished, then fetch its result.
 
         Raises:
-            JobTerminatedError: when the job was terminated instead of finishing
+            JobTerminatedError: when the job was terminated instead of finishing, or when looking
+                the job up answers None (an unknown job id, or a failed request)
+            JobFailedError: when the job used up its attempts without producing a result; carries
+                the job id and the queue's ``last_error``
         """
         if job_id is None:
             return None
