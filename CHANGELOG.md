@@ -202,6 +202,14 @@ indexes, no change to `RESULTS_VERSION`, no repair jobs.
   result: the failure is decided by the missing result, not by `attempts_left`. `Job.last_error`
   reads a missing field as None now - the client wraps server answers in that class, and a job
   that never errored does not carry one.
+### Changed
+
+- `McritClient` sends all requests through one `requests.Session`, so consecutive calls reuse a
+  connection instead of opening a new one, with a new TLS handshake on HTTPS, every time. Against
+  mcrit.malpedia.io, 166 sequential block-hash queries took 46 s instead of 166 s. A session keeps
+  the cookies a server sets for the life of the client, is not formally thread-safe, and can hit a
+  pooled connection the server already closed, which surfaces as a connection error on that call.
+  Tests patch `requests.Session` methods instead of the module-level `requests` functions. (#254)
 
 ## [1.13.0] - 2026-09-29
 
