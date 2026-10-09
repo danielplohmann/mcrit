@@ -874,8 +874,10 @@ class MongoDbStorage(StorageInterface):
         self._deleteXcfgForFunctionIds([function_minhash["function_id"] for function_minhash in function_minhashes])
         num_functions_deleted = self._getDb().functions.delete_many({"sample_id": sample_id}).deleted_count
         # remove sample
-        num_samples_deleted = self._getDb().samples.delete_one({"sample_id": sample_id}).deleted_count
+        # the report's extras before the sample document, as for a query sample: an interrupted
+        # deletion leaves a sample to delete again, never extras nothing refers to (#94)
         self._deleteSmdaExtras(sample_id)
+        num_samples_deleted = self._getDb().samples.delete_one({"sample_id": sample_id}).deleted_count
         # the raw submission goes with the sample it belongs to (#95)
         self.deleteSampleBinary(sample_id)
         # update family stats by what was actually removed, not by what the sample claimed (#151)
@@ -1246,7 +1248,7 @@ class MongoDbStorage(StorageInterface):
         return deleted
 
     # the collections the query cleanup deletes from, and so the ones compactQueryCollections reclaims
-    QUERY_COLLECTIONS = ("query_samples", "query_functions", "query_xcfg")
+    QUERY_COLLECTIONS = ("query_samples", "query_functions", "query_xcfg", "query_smda_extras")
     # where the job queue keeps the results of the query jobs the cleanup deletes
     QUEUE_GRIDFS_COLLECTIONS = ("fs.files", "fs.chunks")
 

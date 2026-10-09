@@ -1136,7 +1136,7 @@ class MongoDbStorageTest(MemoryStorageTest):
     def testCompactingTheQueryCollectionsAnswersPerCollection(self):
         self.storage.clearStorage()
         outcome = self.storage.compactQueryCollections()
-        self.assertEqual({"query_samples", "query_functions", "query_xcfg"}, set(outcome))
+        self.assertEqual({"query_samples", "query_functions", "query_xcfg", "query_smda_extras"}, set(outcome))
         for collection, result in outcome.items():
             self.assertIn("ok", result, collection)
 
@@ -1152,8 +1152,8 @@ class MongoDbStorageTest(MemoryStorageTest):
         separate.QUEUE_SERVER, separate.QUEUE_PORT = shared.QUEUE_SERVER, shared.QUEUE_PORT
         separate.QUEUE_MONGODB_DBNAME = shared.QUEUE_MONGODB_DBNAME + "_queue"
         for queue_config, expected in (
-            (shared, ["query_samples", "query_functions", "query_xcfg", "fs.files", "fs.chunks"]),
-            (separate, ["query_samples", "query_functions", "query_xcfg"]),
+            (shared, ["query_samples", "query_functions", "query_xcfg", "query_smda_extras", "fs.files", "fs.chunks"]),
+            (separate, ["query_samples", "query_functions", "query_xcfg", "query_smda_extras"]),
         ):
             with self.subTest(queue_db=queue_config.QUEUE_MONGODB_DBNAME):
                 self.storage._config.QUEUE_CONFIG = queue_config

@@ -80,8 +80,9 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   extras fall back to an empty report's defaults), `disassembly_missing` counts functions without
   stored `xcfg` (`STORAGE_DROP_DISASSEMBLY`, or a blob over the limit), which are absent from the
   rebuilt report. NOTE that exports do not carry the extras, so an imported sample rebuilds as
-  `extras_missing`; deleting a sample, its family or a query sample deletes its extras, and
-  `STORAGE_DROP_DISASSEMBLY` keeps them ([#94]).
+  `extras_missing`; deleting a sample, its family or a query sample (also by the query cleanup)
+  deletes its extras, `STORAGE_MONGODB_COMPACT_AFTER_CLEANUP` compacts `query_smda_extras` too,
+  and `STORAGE_DROP_DISASSEMBLY` keeps them ([#94]).
 
 ### Changed
 
