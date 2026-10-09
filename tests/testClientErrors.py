@@ -4,6 +4,8 @@ import re
 import unittest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from mcrit.client.McritClient import (
     McritBadRequest,
     McritClient,
@@ -87,6 +89,22 @@ class HandleResponseTest(unittest.TestCase):
             handle_response(answer(502), raise_server_errors=True)
         self.assertEqual("", raised.exception.message)
         self.assertIn("no message", str(raised.exception))
+
+    def test_a_two_hundred_that_is_not_json_is_a_failed_answer(self):
+        """A reverse proxy's login or error page, or an empty answer, with a 2xx status
+        answered a ValueError out of the client in either mode (#257)."""
+        for status in [200, 202]:
+            for body in [b"<html>login</html>", b""]:
+                response = requests.Response()
+                response.status_code = status
+                response._content = body
+                response.url = "http://mcrit.test/samples/7"
+                self.assertIsNone(handle_response(response), (status, body))
+                self.assertIsNone(handle_response(response, raise_client_errors=True), (status, body))
+                with self.assertRaises(McritServerError) as raised:
+                    handle_response(response, raise_server_errors=True)
+                self.assertEqual("", raised.exception.message)
+                self.assertEqual(status, raised.exception.status_code)
 
 
 class ClientModesTest(unittest.TestCase):
