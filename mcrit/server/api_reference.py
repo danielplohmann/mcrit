@@ -111,6 +111,16 @@ def _public_names(
     return names
 
 
+def _is_request_call(node: ast.AST) -> bool:
+    """``requests.<verb>(...)`` or ``self._session.<verb>(...)``: the two ways McritClient sends a request (#254)."""
+    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+        return False
+    target = node.func.value
+    if isinstance(target, ast.Name):
+        return target.id == "requests"
+    return isinstance(target, ast.Attribute) and target.attr == "_session" and isinstance(target.value, ast.Name) and target.value.id == "self"
+
+
 def client_calls() -> List[Tuple[str, str, str]]:
     """(HTTP method, path as the client writes it, McritClient method) for every request in McritClient."""
     with open(CLIENT_SOURCE) as handle:
@@ -143,7 +153,7 @@ def client_calls() -> List[Tuple[str, str, str]]:
             partials.setdefault(helper_name, []).append((node.targets[0].id, bound))
     for method in methods:
         for node in ast.walk(method):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id == "requests"):
+            if not _is_request_call(node):
                 continue
             url = node.args[0] if node.args else None
             if not isinstance(url, ast.JoinedStr):

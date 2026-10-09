@@ -7,8 +7,10 @@ Every response is a JSON document `{"status": "successful" | "failed", "data": .
 | Method | Path | Description | Client |
 |---|---|---|---|
 | `GET` | `/` | Welcome message; a cheap reachability check for the server. | - |
+| `GET` | `/band_df_cutoff_coverage` | Schedule a job that measures what STORAGE_BAND_DF_CUTOFF skips - band hashes and postings over the cutoff, per band and in total (#201). ``band_df_cutoff`` evaluates another cutoff than the configured one. Answers the job id. | `requestBandDfCutoffCoverage` |
 | `GET` | `/complete_minhashes` | Schedule a job that calculates every missing minhash, for samples whose hashing job failed earlier. Answers the job id. | `completeMinhashes` |
 | `GET` | `/config` | Not implemented; answers 501. | - |
+| `POST` | `/delete_orphaned_queue_files` | Schedule a job that deletes the GridFS files and chunks no job refers to any more; with ``dry_run=true`` it only counts them. Answers the job id. | `deleteOrphanedQueueFiles` |
 | `GET` | `/export` | Export every family, sample and function entry (with minhashes) of the instance for import into another one. ``compress=true`` compresses the function entries per sample. | `getExportData` |
 | `GET` | `/export/{comma_separated_sample_ids}` | Export only the samples with the given comma separated ids, in the same format as ``/export``. | `getExportData` |
 | `GET` | `/families` | All families keyed by id; optional ``start`` (first family id) and ``limit``. | `getFamilies` |
@@ -60,6 +62,7 @@ Every response is a JSON document `{"status": "successful" | "failed", "data": .
 | `DELETE` | `/samples/{sample_id:int}` | Delete a sample and its functions, minhashes and band entries; a family left without samples is removed as well. | `deleteSample` |
 | `GET` | `/samples/{sample_id:int}` | One sample by id. Unknown ids answer 404. | `getSampleById`, `isSampleId` |
 | `PUT` | `/samples/{sample_id:int}` | Modify a sample; JSON body with ``family_name``, ``version``, ``component`` (1-64 printable chars) and/or ``is_library``. Answers 202 on success, 400 for a malformed body. | `modifySample` |
+| `GET` | `/samples/{sample_id:int}/binary` | The raw binary the sample was submitted as, when STORAGE_KEEP_SUBMITTED_BINARIES kept it and STORAGE_SERVE_SUBMITTED_BINARIES allows handing it out (#95). | `getSampleBinary` |
 | `GET` | `/samples/{sample_id:int}/functions` | All functions of a sample keyed by function id. Unknown sample ids answer 404. | `getFunctionsBySampleId` |
 | `GET` | `/samples/{sample_id:int}/functions/{function_id:int}` | One function of a sample by ids. Unknown ids answer 404. | - |
 | `GET` | `/search/families` | Search families by name. Query parameters: ``query`` (search term, e.g. ``name:?emotet``), ``sort_by``, ``is_ascending`` (default true), ``limit``, ``cursor`` (forward/backward cursor of a previous page). Answers ``search_results`` keyed by id, a ``cursor`` pair and an ``id_match`` when the term is an id. A field/operator combination the backend cannot serve answers 400. | `searchFamilies`, `search_families` |

@@ -58,6 +58,9 @@ def _sends_a_request(method):
             target = node.func.value
             if isinstance(target, ast.Name) and target.id == "requests":
                 return True
+            # self._session.<verb>(...), which every call but getSampleBinary goes through since #254
+            if isinstance(target, ast.Attribute) and target.attr == "_session" and isinstance(target.value, ast.Name) and target.value.id == "self":
+                return True
             if isinstance(target, ast.Name) and target.id == "self" and node.func.attr == "_search_request":
                 return True
     return False
@@ -77,11 +80,16 @@ class ClientSurfaceTest(unittest.TestCase):
         self.assertEqual([], missing)
 
     def test_every_request_method_honours_raw_responses(self):
+        sending = [method.name for method in _client_methods() if _sends_a_request(method)]
+        # a matcher that stops recognising the client's calls would pass the checks below over
+        # nothing: the client sends requests from several dozen methods
+        self.assertGreaterEqual(len(sending), 50, sending)
         # _search_request hands the response to the methods that do the checking
+        exempt = {"_search_request"}
         ignoring_raw = [
             method.name
             for method in _client_methods()
-            if method.name != "_search_request" and _sends_a_request(method) and not any(isinstance(node, ast.Attribute) and node.attr == "raw" for node in ast.walk(method))
+            if method.name not in exempt and _sends_a_request(method) and not any(isinstance(node, ast.Attribute) and node.attr == "raw" for node in ast.walk(method))
         ]
         self.assertEqual([], ignoring_raw)
         # and answers the response through _passthrough, which is what keeps the annotations honest
