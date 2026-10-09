@@ -9,7 +9,7 @@ from .StorageConfig import StorageConfig
 
 class McritConfig:
     # served by /version; has to equal [project].version in pyproject.toml, which the release workflow checks
-    VERSION = "1.12.0"
+    VERSION = "1.14.0"
     # basic pathing info
     CONFIG_FILE_PATH = str(os.path.abspath(__file__))
     PROJECT_ROOT = str(os.path.abspath(os.sep.join([CONFIG_FILE_PATH, "..", ".."])))

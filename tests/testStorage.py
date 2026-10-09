@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import os
@@ -351,6 +352,102 @@ class MemoryStorageTest(TestCase):
 
     def _numBandEntries(self):
         return sum(len(function_ids) for band in self.storage._bands.values() for function_ids in band.values())
+
+    def _numStoredBinaries(self):
+        return len(self.storage._sample_binaries)
+
+    def _addTwoSamples(self):
+        with open(self.example_file_path) as fjson:
+            smda_json = json.load(fjson)
+        sample_ids = []
+        for sha256 in (64 * "a", 64 * "b"):
+            report = SmdaReport.fromDict(smda_json)
+            assert report is not None
+            report.sha256 = sha256
+            sample_entry = self.storage.addSmdaReport(report)
+            assert sample_entry is not None
+            sample_ids.append(sample_entry.sample_id)
+        return sample_ids
+
+    def testTheSameBytesAreStoredOnceForEverySampleTheyBelongTo(self):
+        """#95: binaries are keyed by content, listing their samples, and a binary goes only with
+        the last sample that refers to it."""
+        self.storage.clearStorage()
+        sample_a, sample_b = self._addTwoSamples()
+        payload = b"MZ\x90\x00" * 5000
+        self.assertTrue(self.storage.storeSampleBinary(sample_a, payload))
+        self.assertTrue(self.storage.storeSampleBinary(sample_b, payload))
+        self.assertEqual(1, self._numStoredBinaries())
+        self.assertEqual(payload, self.storage.getSampleBinary(sample_a))
+        self.assertEqual(payload, self.storage.getSampleBinary(sample_b))
+        self.storage.deleteSample(sample_a)
+        self.assertFalse(self.storage.hasSampleBinary(sample_a))
+        self.assertEqual(payload, self.storage.getSampleBinary(sample_b), "still referred to by the other sample")
+        self.assertEqual(1, self._numStoredBinaries())
+        self.storage.deleteSample(sample_b)
+        self.assertEqual(0, self._numStoredBinaries())
+
+    def testStoringOtherBytesForASampleReleasesTheOnesItHadBefore(self):
+        self.storage.clearStorage()
+        sample_a, sample_b = self._addTwoSamples()
+        self.storage.storeSampleBinary(sample_a, b"shared")
+        self.storage.storeSampleBinary(sample_b, b"shared")
+        self.storage.storeSampleBinary(sample_a, b"only a")
+        self.assertEqual(b"only a", self.storage.getSampleBinary(sample_a))
+        self.assertEqual(b"shared", self.storage.getSampleBinary(sample_b))
+        self.assertEqual(2, self._numStoredBinaries())
+        self.storage.storeSampleBinary(sample_b, b"only a")
+        self.assertEqual(b"only a", self.storage.getSampleBinary(sample_b))
+        self.assertEqual(1, self._numStoredBinaries(), "the shared bytes went with the last sample on them")
+        # the same bytes again change nothing
+        self.assertTrue(self.storage.storeSampleBinary(sample_b, b"only a"))
+        self.assertEqual(1, self._numStoredBinaries())
+
+    def testABinaryCanBeCheckedForAndStreamedWithoutReadingItWhole(self):
+        """hasSampleBinary answers from the GridFS metadata and openSampleBinary hands back a
+        handle, so neither the resubmission check in Worker.addBinarySample nor serving a
+        sample pulls the whole file into memory."""
+        self.storage.clearStorage()
+        with open(self.example_file_path) as fjson:
+            report = SmdaReport.fromDict(json.load(fjson))
+        assert report is not None
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        sample_id = sample_entry.sample_id
+        self.assertFalse(self.storage.hasSampleBinary(sample_id))
+        self.assertIsNone(self.storage.openSampleBinary(sample_id))
+        payload = b"MZ\x00\x01" * 1000
+        self.storage.storeSampleBinary(sample_id, payload)
+        self.assertTrue(self.storage.hasSampleBinary(sample_id))
+        handle = self.storage.openSampleBinary(sample_id)
+        assert handle is not None
+        self.assertEqual(payload[:4], handle.read(4), "a stream, not the whole file")
+        self.assertEqual(payload[4:], handle.read())
+        handle.close()
+        self.storage.deleteSampleBinary(sample_id)
+        self.assertFalse(self.storage.hasSampleBinary(sample_id))
+        self.assertFalse(self.storage.hasSampleBinary(4242))
+
+    def testASubmittedBinaryCanBeKeptAndGoesWithItsSample(self):
+        # #95
+        self.storage.clearStorage()
+        with open(self.example_file_path) as fjson:
+            report = SmdaReport.fromDict(json.load(fjson))
+        assert report is not None
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        self.assertIsNone(self.storage.getSampleBinary(sample_entry.sample_id))
+        self.assertFalse(self.storage.storeSampleBinary(4242, b"nope"))
+        self.assertTrue(self.storage.storeSampleBinary(sample_entry.sample_id, b"MZ\x00\x01" * 1000))
+        self.assertEqual(b"MZ\x00\x01" * 1000, self.storage.getSampleBinary(sample_entry.sample_id))
+        # storing again replaces
+        self.assertTrue(self.storage.storeSampleBinary(sample_entry.sample_id, b"second"))
+        self.assertEqual(b"second", self.storage.getSampleBinary(sample_entry.sample_id))
+        self.assertTrue(self.storage.deleteSampleBinary(sample_entry.sample_id))
+        self.assertFalse(self.storage.deleteSampleBinary(sample_entry.sample_id))
+        self.storage.storeSampleBinary(sample_entry.sample_id, b"third")
+        self.storage.deleteSample(sample_entry.sample_id)
+        self.assertIsNone(self.storage.getSampleBinary(sample_entry.sample_id))
 
     def testSampleHandling(self):
         self.storage.clearStorage()
@@ -769,6 +866,32 @@ class MemoryStorageTest(TestCase):
         self.assertIsNone(self.storage.getFamilyEntriesByIds([id_a])[id_a].samples)
         self.assertNotIn("samples", self.storage.getFamilyEntriesByIds([id_a])[id_a].toDict())
 
+    def testKeptBinariesSurviveTheContentRoundTrip(self):
+        """MemoryStorage's whole state travels as getContent/setContent, through JSON - kept
+        binaries included, or a restored instance silently loses them (#95)."""
+        if self._storage_config.STORAGE_METHOD != StorageFactory.STORAGE_METHOD_MEMORY:
+            self.skipTest("content round trip is MemoryStorage's persistence")
+        self.storage.clearStorage()
+        sample_a, sample_b = self._addTwoSamples()
+        payload = b"MZ\x90\x00\xff" * 100
+        self.storage.storeSampleBinary(sample_a, payload)
+        self.storage.storeSampleBinary(sample_b, payload)
+        content = json.loads(json.dumps(self.storage.getContent()))
+        self.storage.clearStorage()
+        self.storage.setContent(content)
+        self.assertEqual(payload, self.storage.getSampleBinary(sample_a))
+        self.storage.deleteSample(sample_a)
+        self.assertEqual(payload, self.storage.getSampleBinary(sample_b), "the restored binary still lists both samples")
+
+    def testContentSavedBeforeBinariesWereKeptLoads(self):
+        if self._storage_config.STORAGE_METHOD != StorageFactory.STORAGE_METHOD_MEMORY:
+            self.skipTest("content round trip is MemoryStorage's persistence")
+        self.storage.clearStorage()
+        content = json.loads(json.dumps(self.storage.getContent()))
+        del content["sample_binaries"]
+        self.storage.setContent(content)
+        self.assertEqual({}, self.storage._sample_binaries)
+
 
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
@@ -787,6 +910,143 @@ class MongoDbStorageTest(MemoryStorageTest):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
+
+    def testOrphanedQueryDataIsDeletedAndReferencedDataKept(self):
+        # #68: query functions whose sample is gone, and query disassembly whose function is gone
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        report = SmdaReport.fromFile(self.example_file_path)
+        query_entry = self.storage.addSmdaReport(report, isQuery=True)
+        assert query_entry is not None
+        num_functions = db.query_functions.count_documents({})
+        db.query_functions.insert_many([{"function_id": -1000, "sample_id": -999}, {"function_id": -1001, "sample_id": -999}])
+        db.query_xcfg.insert_many([{"_id": -1000, "_xcfg": "{}"}, {"_id": -500, "_xcfg": "{}"}])
+        self.assertEqual({"query_functions": 2, "query_xcfg": 2}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(num_functions, db.query_functions.count_documents({}))
+        self.assertEqual(num_functions, db.query_xcfg.count_documents({}))
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        # many ids: batches, not one command
+        db.query_functions.insert_many([{"function_id": -20000 - i, "sample_id": -777} for i in range(12000)])
+        db.query_samples.insert_one({"sample_id": -777, "sha256": 64 * "f"})
+        db.query_samples.delete_one({"sample_id": -777})
+        self.assertEqual(12000, self.storage.deleteOrphanedQueryData()["query_functions"])
+
+    def testOrphanedDisassemblyIsCollectedOnceNoQueryFunctionRemains(self):
+        """#68 follow-up: the boundary is taken from the newest query function, so an empty
+        query_functions used to return early and leave the disassembly behind forever.
+
+        addSmdaReport writes the disassembly before the functions, so an insert interrupted
+        between the two leaves exactly this, and deleting the queries around it empties the
+        collection the boundary came from."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.query_xcfg.insert_many([{"_id": -1, "_xcfg": "{}"}, {"_id": -2, "_xcfg": "{}"}])
+        self.assertEqual({"query_functions": 0, "query_xcfg": 2}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(0, db.query_xcfg.count_documents({}))
+
+    def testOrphanedDisassemblyIsKeptWhileAQuerySampleExists(self):
+        """The other half of the same case: a query sample is written before its disassembly,
+        so one that exists without all of its functions is the evidence that an insert may be in
+        flight and the blobs about to be deleted may be its. A sample written before samples
+        recorded their function count is taken as possibly in flight."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        db.query_samples.insert_one({"sample_id": -1, "sha256": 64 * "a"})
+        db.query_xcfg.insert_one({"_id": -1, "_xcfg": "{}"})
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(1, db.query_xcfg.count_documents({}))
+
+    def testOrphanedQueryFunctionsAreJudgedInBatchesOfSamples(self):
+        """More distinct sample ids than one batch holds. The sample ids used to come from two
+        unbounded distinct() calls, each of which answers with a single document and fails past
+        MongoDB's 16 MiB limit; they come from an aggregation cursor now, so this walks several
+        batches rather than one command."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        batch_size = self.storage._ORPHAN_BATCH_SIZE
+        num_orphans = 2 * batch_size + 17
+        db.query_functions.insert_many([{"function_id": -1 - i, "sample_id": -1 - i} for i in range(num_orphans)])
+        # one sample that does exist: its function must survive every batch it lands in
+        kept_sample_id = -1 - (batch_size + 3)
+        db.query_samples.insert_one({"sample_id": kept_sample_id, "sha256": 64 * "b"})
+        self.assertEqual(num_orphans - 1, self.storage.deleteOrphanedQueryData()["query_functions"])
+        self.assertEqual([kept_sample_id], [document["sample_id"] for document in db.query_functions.find({}, {"sample_id": 1, "_id": 0})])
+
+    def _queryInFlight(self, sample_id, function_ids, inserted):
+        """A query insert as addSmdaReport performs it - sample, then every function's disassembly,
+        then the functions - stopped after `inserted` functions."""
+        db = self.storage._getDb()
+        db.query_samples.insert_one({"sample_id": sample_id, "sha256": 64 * "c", "num_query_functions": len(function_ids)})
+        db.query_xcfg.insert_many([{"_id": function_id, "_xcfg": "{}"} for function_id in function_ids])
+        if inserted:
+            db.query_functions.insert_many([{"function_id": function_id, "sample_id": sample_id} for function_id in function_ids[:inserted]])
+
+    def testTheDisassemblyOfAQueryStillBeingInsertedIsKept(self):
+        """Two queries inserted concurrently finish out of order: the second one's functions are
+        in, while the first, holding the older ids, has written its disassembly and not yet its
+        functions. Judging against the newest function would take the first one's disassembly
+        for an orphan and delete it under the insert still writing it."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        self._queryInFlight(-1, [-1, -2, -3], inserted=1)
+        self._queryInFlight(-2, [-4, -5], inserted=2)
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual([-5, -4, -3, -2, -1], sorted(document["_id"] for document in db.query_xcfg.find({}, {"_id": 1})))
+        # once the first insert has finished, there is nothing to collect either
+        db.query_functions.insert_many([{"function_id": function_id, "sample_id": -1} for function_id in (-2, -3)])
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(5, db.query_xcfg.count_documents({}))
+
+    def testTheDisassemblyAnInterruptedQueryInsertLeftIsCollectedWithItsSample(self):
+        """An insert that died between the disassembly and the functions leaves a sample that
+        never completes. Its disassembly waits while the sample exists, and goes in the run that
+        deletes the sample, which only reaches the disassembly of functions that exist."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        report = SmdaReport.fromFile(self.example_file_path)
+        assert report is not None
+        query_entry = self.storage.addSmdaReport(report, isQuery=True)
+        assert query_entry is not None
+        self.assertEqual(report.num_functions, db.query_samples.find_one({"sample_id": query_entry.sample_id})["num_query_functions"])
+        function_ids = sorted(document["function_id"] for document in db.query_functions.find({}, {"function_id": 1}))
+        self.assertGreater(len(function_ids), 2)
+        # the functions written last never were
+        never_written = function_ids[: len(function_ids) // 2]
+        db.query_functions.delete_many({"function_id": {"$in": never_written}})
+        self.assertEqual({"query_functions": 0, "query_xcfg": 0}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(len(function_ids), db.query_xcfg.count_documents({}))
+        self.storage.deleteSample(query_entry.sample_id)
+        self.assertEqual(len(never_written), db.query_xcfg.count_documents({}))
+        self.assertEqual({"query_functions": 0, "query_xcfg": len(never_written)}, self.storage.deleteOrphanedQueryData())
+        self.assertEqual(0, db.query_xcfg.count_documents({}))
+
+    def testCompactingTheQueryCollectionsAnswersPerCollection(self):
+        self.storage.clearStorage()
+        outcome = self.storage.compactQueryCollections()
+        self.assertEqual({"query_samples", "query_functions", "query_xcfg"}, set(outcome))
+        for collection, result in outcome.items():
+            self.assertIn("ok", result, collection)
+
+    def testCompactingReachesTheQueueGridFsOnlyWhereItSharesTheDatabase(self):
+        """The cleanup deletes query jobs and so their results in the queue's GridFS: those are
+        compacted when the queue keeps its data in this database, and left alone when not."""
+        self.storage.clearStorage()
+        db = self.storage._getDb()
+        shared = QueueConfig()
+        shared.QUEUE_SERVER, shared.QUEUE_PORT = self._storage_config.STORAGE_SERVER, self._storage_config.STORAGE_PORT
+        shared.QUEUE_MONGODB_DBNAME = self._storage_config.STORAGE_MONGODB_DBNAME
+        separate = QueueConfig()
+        separate.QUEUE_SERVER, separate.QUEUE_PORT = shared.QUEUE_SERVER, shared.QUEUE_PORT
+        separate.QUEUE_MONGODB_DBNAME = shared.QUEUE_MONGODB_DBNAME + "_queue"
+        for queue_config, expected in (
+            (shared, ["query_samples", "query_functions", "query_xcfg", "fs.files", "fs.chunks"]),
+            (separate, ["query_samples", "query_functions", "query_xcfg"]),
+        ):
+            with self.subTest(queue_db=queue_config.QUEUE_MONGODB_DBNAME):
+                self.storage._config.QUEUE_CONFIG = queue_config
+                with patch.object(type(db), "command", autospec=True, return_value={"ok": 1.0, "bytesFreed": 0}) as command:
+                    self.storage.compactQueryCollections()
+                self.assertEqual(expected, [call.args[2] for call in command.call_args_list if call.args[1] == "compact"])
 
     def testAnOversizedDisassemblyBlobIsDroppedAndTheFunctionKept(self):
         # #42: MongoDB refuses a document over 16 MiB; the whole batch used to fail as
@@ -895,6 +1155,88 @@ class MongoDbStorageTest(MemoryStorageTest):
             self.storage._updateFamilyStats(4242, 1, 10, 0)
         self.assertIn("has no document", logger.warning.call_args.args[0])
         self.assertEqual(4242, logger.warning.call_args.args[1])
+
+    def _numStoredBinaries(self):
+        db = self.storage._getDb()
+        num_files = db["sample_binaries.files"].count_documents({})
+        # every file's chunks and no others: a leak would show up here even when the files agree
+        chunk_owners = set(db["sample_binaries.chunks"].distinct("files_id"))
+        self.assertEqual({document["_id"] for document in db["sample_binaries.files"].find({}, {"_id": 1})}, chunk_owners)
+        return num_files
+
+    def testAStoredBinaryIsKeyedBySha256AndListsItsSamples(self):
+        self.storage.clearStorage()
+        sample_a, sample_b = self._addTwoSamples()
+        payload = b"MZ" + bytes(range(256)) * 2000
+        self.storage.storeSampleBinary(sample_a, payload)
+        self.storage.storeSampleBinary(sample_b, payload)
+        stored = list(self.storage._getDb()["sample_binaries.files"].find({}))
+        self.assertEqual(1, len(stored))
+        self.assertEqual(hashlib.sha256(payload).hexdigest(), stored[0]["metadata"]["sha256"])
+        self.assertEqual([sample_a, sample_b], stored[0]["metadata"]["sample_ids"])
+        self.assertEqual(len(payload), stored[0]["length"])
+
+    def testLosingTheRaceToStoreTheSameBytesLinksToTheWinnerAndLeavesNoChunks(self):
+        """Two submissions of the same bytes: the one whose put is refused by the unique sha256
+        index must drop the chunks GridFS already wrote for it, and link to the other's file."""
+        self.storage.clearStorage()
+        sample_a, sample_b = self._addTwoSamples()
+        payload = b"MZ" + bytes(range(256)) * 2000
+        self.storage.storeSampleBinary(sample_b, payload)
+        real_link = self.storage._linkBinaryFile
+        calls = []
+
+        def link_missing_the_winner_once(sha256, sample_id):
+            calls.append(sample_id)
+            return False if len(calls) == 1 else real_link(sha256, sample_id)
+
+        with patch.object(self.storage, "_linkBinaryFile", side_effect=link_missing_the_winner_once):
+            self.assertTrue(self.storage.storeSampleBinary(sample_a, payload))
+        self.assertEqual(2, len(calls), "linked again after the refused put")
+        self.assertEqual(1, self._numStoredBinaries())
+        self.assertEqual(payload, self.storage.getSampleBinary(sample_a))
+
+    def testASubmissionRacingTheDeletionOfItsBytesStoresAFreshCopy(self):
+        """A file whose last sample is taken off it is retired (its sha256 cleared) before it is
+        deleted. A submission of the same bytes arriving in between must store a fresh copy: had
+        it linked to the file about to be deleted, its sample would be left without a binary."""
+        self.storage.clearStorage()
+        sample_a, sample_b = self._addTwoSamples()
+        payload = b"MZ" + bytes(range(256)) * 2000
+        self.storage.storeSampleBinary(sample_a, payload)
+        real_bucket = self.storage._getBinaries()
+
+        class BucketWithASubmissionBeforeDelete:
+            def __init__(self, storage):
+                self.storage = storage
+                self.raced = False
+
+            def __getattr__(self, name):
+                return getattr(real_bucket, name)
+
+            def delete(self, file_id):
+                if not self.raced:
+                    self.raced = True
+                    # the other submission, landing between the retirement and the deletion
+                    with patch.object(self.storage, "_getBinaries", return_value=real_bucket):
+                        self.storage.storeSampleBinary(sample_b, payload)
+                real_bucket.delete(file_id)
+
+        racing_bucket = BucketWithASubmissionBeforeDelete(self.storage)
+        with patch.object(self.storage, "_getBinaries", return_value=racing_bucket):
+            self.storage.deleteSampleBinary(sample_a)
+        self.assertTrue(racing_bucket.raced)
+        self.assertFalse(self.storage.hasSampleBinary(sample_a))
+        self.assertEqual(payload, self.storage.getSampleBinary(sample_b))
+        self.assertEqual(1, self._numStoredBinaries())
+
+    def testABinaryStoredForASampleDeletedMeanwhileIsNotLeftBehind(self):
+        self.storage.clearStorage()
+        sample_a, _ = self._addTwoSamples()
+        # the sample exists when the store starts and is gone by the time it has linked the file
+        with patch.object(self.storage, "isSampleId", side_effect=[True, False, False]):
+            self.assertFalse(self.storage.storeSampleBinary(sample_a, b"MZ late"))
+        self.assertEqual(0, self._numStoredBinaries())
 
     def _numBandEntries(self):
         db = self.storage._getDb()

@@ -570,47 +570,47 @@ class TagClient(unittest.TestCase):
 
     def test_requests(self):
         client = McritClient("http://mcrit.test", username="alice")
-        with patch("mcrit.client.McritClient.requests.post", return_value=self._answer({"entity": "sample", "entity_id": 4, "tags": ["a", "b"]})) as post:
+        with patch("mcrit.client.McritClient.requests.Session.post", return_value=self._answer({"entity": "sample", "entity_id": 4, "tags": ["a", "b"]})) as post:
             self.assertEqual(["a", "b"], client.addTags("sample", 4, ["a", "b"]))
         self.assertEqual("http://mcrit.test/samples/4/tags", post.call_args.args[0])
         self.assertEqual({"tags": ["a", "b"]}, post.call_args.kwargs["json"])
         self.assertEqual("alice", post.call_args.kwargs["headers"]["username"])
-        with patch("mcrit.client.McritClient.requests.delete", return_value=self._answer({"entity": "family", "entity_id": 2, "tags": []})) as delete:
+        with patch("mcrit.client.McritClient.requests.Session.delete", return_value=self._answer({"entity": "family", "entity_id": 2, "tags": []})) as delete:
             # a single string is one tag
             self.assertEqual([], client.removeTags("family", 2, "a"))
         self.assertEqual("http://mcrit.test/families/2/tags", delete.call_args.args[0])
         self.assertEqual({"tags": ["a"]}, delete.call_args.kwargs["json"])
-        with patch("mcrit.client.McritClient.requests.post", return_value=self._answer({"entity": "function", "entity_id": 9, "tags": ["c"]})) as post:
+        with patch("mcrit.client.McritClient.requests.Session.post", return_value=self._answer({"entity": "function", "entity_id": 9, "tags": ["c"]})) as post:
             client.addTags("function", 9, ("c",))
         self.assertEqual("http://mcrit.test/functions/9/tags", post.call_args.args[0])
-        with patch("mcrit.client.McritClient.requests.get", return_value=self._answer({"entity": "function", "tags": {"c": 3}})) as get:
+        with patch("mcrit.client.McritClient.requests.Session.get", return_value=self._answer({"entity": "function", "tags": {"c": 3}})) as get:
             self.assertEqual({"c": 3}, client.getTags("function"))
         self.assertEqual("http://mcrit.test/tags", get.call_args.args[0])
         self.assertEqual({"entity": "function"}, get.call_args.kwargs["params"])
         # every method refuses an entity that carries no tags, without a request
-        with patch("mcrit.client.McritClient.requests") as requests:
+        with patch.object(client, "_session") as session:
             for call in (lambda: client.addTags("report", 1, ["x"]), lambda: client.removeTags("families", 1, ["x"]), lambda: client.getTags("report")):
                 with self.assertRaises(ValueError):
                     call()
-        self.assertEqual([], requests.method_calls)
+        self.assertEqual([], session.method_calls)
 
     def test_error_modes(self):
         # default: a failure answers None
-        with patch("mcrit.client.McritClient.requests.post", return_value=self._answer(None, 404)):
+        with patch("mcrit.client.McritClient.requests.Session.post", return_value=self._answer(None, 404)):
             self.assertIsNone(McritClient("http://mcrit.test").addTags("sample", 4, ["a"]))
         raising = McritClient("http://mcrit.test", raise_client_errors=True)
-        with patch("mcrit.client.McritClient.requests.post", return_value=self._answer(None, 404)):
+        with patch("mcrit.client.McritClient.requests.Session.post", return_value=self._answer(None, 404)):
             with self.assertRaises(McritNotFound):
                 raising.addTags("sample", 4, ["a"])
-        with patch("mcrit.client.McritClient.requests.delete", return_value=self._answer(None, 400)):
+        with patch("mcrit.client.McritClient.requests.Session.delete", return_value=self._answer(None, 400)):
             with self.assertRaises(McritBadRequest):
                 raising.removeTags("sample", 4, ["$a"])
-        with patch("mcrit.client.McritClient.requests.get", return_value=self._answer(None, 400)):
+        with patch("mcrit.client.McritClient.requests.Session.get", return_value=self._answer(None, 400)):
             with self.assertRaises(McritBadRequest):
                 raising.getTags("sample")
         raw = McritClient("http://mcrit.test", raw_responses=True)
         answer = self._answer({"tags": {}})
-        with patch("mcrit.client.McritClient.requests.get", return_value=answer):
+        with patch("mcrit.client.McritClient.requests.Session.get", return_value=answer):
             self.assertIs(answer, raw.getTags("sample"))
 
 
