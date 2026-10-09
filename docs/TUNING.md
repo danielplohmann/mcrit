@@ -388,13 +388,14 @@ machine; raising it buys nothing once the round trip has stopped mattering.
 The cleanup job deletes expired query samples, their functions, disassembly and SMDA report
 extras, and the orphans a broken deletion or an interrupted insert left behind; WiredTiger
 keeps the freed pages inside the collection files and reuses them for later inserts, so disk
-usage does not shrink on its own. `compact` returns that space to the file system. It needs the `compact`
-privilege on the database (the default `readWrite` role does not carry it - grant `dbAdmin`
-or a custom role). Since MongoDB 4.4 it no longer blocks reads and writes, but it holds off
-index builds and drops on the collection it is working on, and it is I/O-heavy for as long as
-it runs (seconds to minutes, depending on collection size). On a replica set it runs on the
-member it is sent to only. Leave it off unless the query collections are large and the
-instance's disk is tight; the cleanup report says how many bytes each compaction returned.
+usage does not shrink on its own. `compact` returns that space to the file system. It needs
+the `compact` privilege on the database (the default `readWrite` role does not carry it -
+grant `dbAdmin` or a custom role). Since MongoDB 4.4 it no longer blocks reads and writes,
+but it holds off index builds and drops on the collection it is working on, and it is
+I/O-heavy for as long as it runs (seconds to minutes, depending on collection size). On a
+replica set it runs on the member it is sent to only. Leave it off unless the query
+collections are large and the instance's disk is tight; the cleanup report says how many
+bytes each compaction returned.
 
 The cleanup deletes query jobs too, and so their results in the job queue's GridFS
 (`fs.files`, `fs.chunks`). Those are compacted as well when the queue keeps its data in the

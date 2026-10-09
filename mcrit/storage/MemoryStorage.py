@@ -977,7 +977,8 @@ class MemoryStorage(StorageInterface):
             "samples": {sample_id: sample.toDict() for sample_id, sample in self._samples.items()},
             "functions": {function_id: function.toDict() for function_id, function in self._functions.items()},
             "bands": self._bands,
-            "smda_extras": self._smda_extras,
+            # query samples are not saved, so neither are their extras
+            "smda_extras": {sample_id: extras for sample_id, extras in self._smda_extras.items() if sample_id >= 0},
             # kept binaries (#95) travel with the rest; base64, as the content is carried as JSON
             "sample_binaries": {
                 sha256: {"binary": base64.b64encode(binary).decode("ascii"), "sample_ids": sorted(sample_ids)} for sha256, (binary, sample_ids) in self._sample_binaries.items()

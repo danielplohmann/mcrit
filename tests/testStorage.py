@@ -1005,6 +1005,23 @@ class MemoryStorageTest(TestCase):
         self.storage.setContent(content)
         self.assertEqual({}, self.storage._sample_binaries)
 
+    def testTheContentLeavesOutTheQuerySampleExtras(self):
+        # query samples are not part of the saved content, so their extras must not be either
+        if self._storage_config.STORAGE_METHOD != StorageFactory.STORAGE_METHOD_MEMORY:
+            self.skipTest("content round trip is MemoryStorage's persistence")
+        self.storage.clearStorage()
+        report = self._reportWithDataRefs()
+        sample_entry = self.storage.addSmdaReport(report)
+        query_entry = self.storage.addSmdaReport(report, isQuery=True)
+        assert sample_entry is not None and query_entry is not None
+        self.assertIsNotNone(self.storage.getSmdaExtras(query_entry.sample_id))
+        content = json.loads(json.dumps(self.storage.getContent()))
+        self.storage.clearStorage()
+        self.storage.setContent(content)
+        self.assertIsNotNone(self.storage.getSmdaExtras(sample_entry.sample_id))
+        self.assertIsNone(self.storage.getSmdaExtras(query_entry.sample_id))
+        self.assertTrue(all(sample_id >= 0 for sample_id in self.storage._smda_extras))
+
 
 @pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
@@ -1023,6 +1040,21 @@ class MongoDbStorageTest(MemoryStorageTest):
         THIS_FILE_PATH = str(os.path.abspath(__file__))
         PROJECT_ROOT = str(os.path.abspath(os.sep.join([THIS_FILE_PATH, "..", ".."])))
         self.example_file_path = os.sep.join([PROJECT_ROOT, "tests", "example_report.smda"])
+
+    def testAStrayExtrasChunkDoesNotBlockStoringTheExtras(self):
+        # a chunk an interrupted store left behind under the same id must not cause a duplicate key
+        self.storage.clearStorage()
+        report = self._reportWithDataRefs()
+        sample_id = self.storage._useCounter("samples") + 1
+        self.storage._getDb().smda_extras.insert_one({"sample_id": sample_id, "chunk": 0, "num_chunks": 3, "_extras": "stale"})
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        self.assertEqual(sample_id, sample_entry.sample_id)
+        self.assertEqual(SampleEntry.smdaExtrasOf(report), self.storage.getSmdaExtras(sample_id))
+        rebuilt = self.storage.getSmdaReportForSample(sample_id)
+        assert rebuilt is not None
+        self.assertTrue(rebuilt.complete)
+        self.assertEqual(report.toDict(), rebuilt.smda_report.toDict())
 
     def testOrphanedQueryDataIsDeletedAndReferencedDataKept(self):
         # #68: query functions whose sample is gone, and query disassembly whose function is gone

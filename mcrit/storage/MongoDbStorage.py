@@ -737,6 +737,8 @@ class MongoDbStorage(StorageInterface):
         size = self._SMDA_EXTRAS_CHUNK_CHARS
         pieces = [blob[start : start + size] for start in range(0, len(blob), size)] or [""]
         documents = [{"sample_id": sample_id, "chunk": index, "num_chunks": len(pieces), "_extras": piece} for index, piece in enumerate(pieces)]
+        # clear chunks an earlier, interrupted store left under this id, or they collide on the unique index
+        self._deleteSmdaExtras(sample_id)
         self._dbInsertMany(self._smdaExtrasCollectionFor(sample_id), documents)
 
     def getSmdaExtras(self, sample_id: int) -> Optional[Dict[str, Any]]:
