@@ -133,7 +133,7 @@ class ClientModesTest(unittest.TestCase):
         """modifyFamily grew its actors on a branch written before these modes existed, where
         it called handle_response directly - which answers None whatever mode the client is in."""
         client = McritClient("http://mcrit.test", raise_client_errors=True)
-        with patch("mcrit.client.McritClient.requests.put", return_value=answer(400, FAILED, url="http://mcrit.test/families/3")):
+        with patch("mcrit.client.McritClient.requests.Session.put", return_value=answer(400, FAILED, url="http://mcrit.test/families/3")):
             with self.assertRaises(McritBadRequest):
                 client.modifyFamily(3, actors=["APT-1"])
 
@@ -262,7 +262,7 @@ class AwaitResultTest(unittest.TestCase):
         client = McritClient("http://mcrit.test")
         failure = "RuntimeError: child worker exited (returncode 1) without producing a result_id"
         with patch(
-            "mcrit.client.McritClient.requests.get",
+            "mcrit.client.McritClient.requests.Session.get",
             side_effect=[self._job_answer(), self._job_answer(attempts_left=0, last_error=failure)],
         ) as mock_get:
             with self.assertRaises(JobFailedError) as raised:
@@ -279,7 +279,7 @@ class AwaitResultTest(unittest.TestCase):
         # a lock expiry can use up the last attempt without an attempt recording one
         client = McritClient("http://mcrit.test")
         with patch(
-            "mcrit.client.McritClient.requests.get",
+            "mcrit.client.McritClient.requests.Session.get",
             side_effect=[self._job_answer(), self._job_answer(attempts_left=0)],
         ):
             with self.assertRaises(JobFailedError) as raised:
@@ -293,7 +293,7 @@ class AwaitResultTest(unittest.TestCase):
         client = McritClient("http://mcrit.test")
         result = {"status": "successful", "data": {"matches": {}}}
         with patch(
-            "mcrit.client.McritClient.requests.get",
+            "mcrit.client.McritClient.requests.Session.get",
             side_effect=[self._job_answer(attempts_left=0, result=self.RESULT_ID), answer(200, result)],
         ) as mock_get:
             self.assertEqual({"matches": {}}, client.awaitResult(self.JOB_ID, sleep_time=0))
@@ -302,7 +302,7 @@ class AwaitResultTest(unittest.TestCase):
     def test_a_terminated_job_still_raises_terminated(self):
         client = McritClient("http://mcrit.test")
         with patch(
-            "mcrit.client.McritClient.requests.get",
+            "mcrit.client.McritClient.requests.Session.get",
             side_effect=[self._job_answer(), self._job_answer(terminated=True)],
         ):
             with self.assertRaises(JobTerminatedError):

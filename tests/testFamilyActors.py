@@ -60,10 +60,10 @@ class FamilyActorsClient(unittest.TestCase):
         client = McritClient("http://mcrit.test")
         response = MagicMock(status_code=200)
         response.json.return_value = {"status": "successful", "data": {"message": "Family modified."}}
-        with patch("mcrit.client.McritClient.requests.put", return_value=response) as put:
+        with patch("mcrit.client.McritClient.requests.Session.put", return_value=response) as put:
             client.modifyFamily(5, actors=["A", "B"])
         self.assertEqual({"actors": ["A", "B"]}, put.call_args.kwargs["json"])
-        with patch("mcrit.client.McritClient.requests.put", return_value=response) as put:
+        with patch("mcrit.client.McritClient.requests.Session.put", return_value=response) as put:
             client.modifyFamily(5, family_name="new_name", is_library=True)
         self.assertEqual({"family_name": "new_name", "is_library": True}, put.call_args.kwargs["json"])
 
