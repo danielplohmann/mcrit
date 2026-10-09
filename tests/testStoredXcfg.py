@@ -188,18 +188,22 @@ class MongoRebuildPathsTest(unittest.TestCase):
 
     def test_pichash_recalculation_reads_older_xcfg_and_skips_an_empty_one(self):
         # the example report was written by smda 1.5.12, older than the escaper compatibility
-        # threshold, so every one of its functions is recalculated from the stored xcfg
+        # threshold, so every one of its functions is recalculated from the stored xcfg - once the
+        # sample is stored as before #249, without the stamp an insert now writes
         db = self.storage._getDb()
+        db.samples.update_one({"sample_id": self.sample_entry.sample_id}, {"$unset": {"pichash_smda_version": ""}})
         function_ids = [document["function_id"] for document in db.functions.find({}, {"function_id": 1, "_id": 0})]
         # an xcfg stored as {}: what importing an export of an instance with dropped disassembly writes
         db.xcfg.update_one({"_id": function_ids[0]}, {"$set": {"_xcfg": "{}"}})
         with patch("mcrit.storage.MongoDbStorage.LOGGER") as logger:
             self.storage.recalculateAllPicHashes()
         warnings = [call.args[0] for call in logger.warning.call_args_list]
-        self.assertTrue(any(message.startswith("1 functions could not be updated") for message in warnings), warnings)
+        self.assertTrue(any(message.startswith("1 functions in 1 samples could not be updated") for message in warnings), warnings)
 
     def test_pichash_recalculation_does_not_count_a_skipped_functions_block_hashes(self):
         db = self.storage._getDb()
+        # stored as before #249, so the recalculation selects it
+        db.samples.update_one({"sample_id": self.sample_entry.sample_id}, {"$unset": {"pichash_smda_version": ""}})
         block_hash_counts = {
             document["function_id"]: len(document.get("_picblockhashes", [])) for document in db.functions.find({}, {"function_id": 1, "_picblockhashes": 1, "_id": 0})
         }
