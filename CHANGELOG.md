@@ -81,17 +81,18 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   the cookies a server sets for the life of the client, is not formally thread-safe, and can hit a
   pooled connection the server already closed, which surfaces as a connection error on that call.
   Tests patch `requests.Session` methods instead of the module-level `requests` functions. (#254)
+- **Behaviour change: `McritClient(raw_responses=True)` now answers the `requests.Response` from
+  ten more methods** - `respawn`, `addBinarySample`, `modifyFamily`, `deleteFamily`,
+  `modifySample`, `deleteSample`, `getExportData`, `addImportData`,
+  `requestUniqueBlocksForSamples` and `requestUniqueBlocksForFamily` never checked the mode and
+  answered the parsed data, or `None` for a failed request. A caller in raw mode that relied on
+  that gets the response now, like from every other request method. `search_families`,
+  `search_samples` and `search_functions` are unchanged and still answer the parsed data in raw
+  mode; `getSamplesByFamilyId` and `awaitResult` do not work in raw mode. A test reads the
+  client's source and fails for a request method that ignores the mode ([#54]).
 
 ### Fixed
 
-- **`McritClient(raw_responses=True)` answered parsed data from ten request methods** - `respawn`,
-  `addBinarySample`, `modifyFamily`, `deleteFamily`, `modifySample`, `deleteSample`,
-  `getExportData`, `addImportData`, `requestUniqueBlocksForSamples` and
-  `requestUniqueBlocksForFamily` never checked the mode, so a caller relying on it got the parsed
-  data, or `None` for a failed request, instead of the response. They now answer the
-  `requests.Response` like every other method, and the dict-returning `search_*` methods do too,
-  which previously answered `None` for a failed search in raw mode. A test reads the client's source
-  and fails for a request method that ignores the mode ([#54]).
 - **`McritClient` raised a `JSONDecodeError` for a 2xx whose body is not JSON** ([#257]). A reverse
   proxy's error or login page, or an empty answer, with a 200 or 202 status went through
   `response.json()` unguarded and came out of the client as a `ValueError` in either error mode,
