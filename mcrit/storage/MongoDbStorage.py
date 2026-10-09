@@ -3161,7 +3161,9 @@ class MongoDbStorage(StorageInterface):
                 # old block hashes are not updatable
                 smda_function = smdaFunctionFromXcfg(smda_xcfg, binary_info)
                 if smda_function is None:
+                    # stored as {} - as unrehashable as a missing blob, so the sample must not be stamped
                     xcfg_missing += 1
+                    sample_xcfg_missing += 1
                     continue
                 old_pichash = int(function_document["_pichash"], 16)
                 old_blockhashes = []

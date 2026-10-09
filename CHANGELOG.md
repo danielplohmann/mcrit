@@ -15,6 +15,113 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ## [Unreleased]
 
+### Added
+
+- `STORAGE_MONGODB_COMPACT_AFTER_CLEANUP`, default `False`, runs MongoDB's `compact` on
+  `query_samples`, `query_functions` and `query_xcfg` after every query cleanup (`DbCleanup`), so
+  the space the cleanup freed goes back to the file system instead of staying inside the collection
+  files for reuse. It needs the `compact` privilege, which `readWrite` does not carry; a refusal is
+  reported per collection in the cleanup's result rather than failing the job. The queue's GridFS
+  (`fs.files`, `fs.chunks`), where the results of the deleted query jobs were, is compacted too when
+  the queue shares the storage database, as it does by default, and left alone when the queue has a
+  database of its own.
+
+- **Families carry `actors`, the names they are attributed to**, set through
+  `PUT /families/{id}` and `McritClient.modifyFamily(family_id, actors=[...])` (an empty list
+  clears them), kept through a rename, and carried by exports as `family_actors`, which imports
+  merge into what the target already knows. Names are 1-64 characters of letters, digits,
+  spaces, dots, dashes and underscores; anything else answers 400 without touching the family.
+  Families stored before read as an empty list, so no migration. NOTE that
+  `McritClient.modifyFamily` now sends its update as JSON, since a list does not survive form
+  encoding; the route accepts both, and with `raw_responses=True` it now answers the `Response`
+  like the other client methods, instead of parsed data ([#57]).
+
+### Changed
+
+- `McritClient` sends all requests through one `requests.Session`, so consecutive calls reuse a
+  connection instead of opening a new one, with a new TLS handshake on HTTPS, every time. Against
+  mcrit.malpedia.io, 166 sequential block-hash queries took 46 s instead of 166 s. A session keeps
+  the cookies a server sets for the life of the client, is not formally thread-safe, and can hit a
+  pooled connection the server already closed, which surfaces as a connection error on that call.
+  Tests patch `requests.Session` methods instead of the module-level `requests` functions. (#254)
+
+### Fixed
+
+- **`McritClient` raised a `JSONDecodeError` for a 2xx whose body is not JSON** ([#257]). A reverse
+  proxy's error or login page, or an empty answer, with a 200 or 202 status went through
+  `response.json()` unguarded and came out of the client as a `ValueError` in either error mode,
+  past a caller that relies on `None` by default or catches `McritClientError` under
+  `raise_server_errors`. Such an answer is now a failed one like any other: `None` by default,
+  `McritServerError` with an empty message under `raise_server_errors`, and a warning in the log
+  naming the status, which is where to start looking for the proxy. A JSON body that is not an
+  object was already handled this way. The IDA and Binary Ninja plugin vendors this client and gets
+  the same once it takes this version up.
+
+- `McritClient.awaitResult` asked the server for the result of a job that failed, instead of
+  reporting the failure it had just waited for ([#252]). A job whose attempts ran out keeps
+  `result` None, and the wait had only two outcomes - terminated raises, anything else fetches
+  `job.result` - so the client went on to request `/results/None` and the server answered 400
+  (`Valid ResultIDs are hexstrings with 24 characters.`): as `None` by default, as that message
+  with `raise_client_errors=True`, and in neither case naming the job or its `last_error`.
+  docker-mcrit's `repair.sh` died that way when a production `recalculatePicHashes` lost its
+  attempts to its worker's child timeout plus a lock expiry counted as the last one. The wait now
+  raises a dedicated `JobFailedError`, carrying the job id and the queue's `last_error` when one
+  is recorded, next to `JobTerminatedError` and raised whatever the client's error mode, because a
+  caller that waited wants to know the job failed rather than receive a `None` it cannot tell
+  from other failures. NOTE that a job which finished despite a reclaimed lock still answers its
+  result: the failure is decided by the missing result, not by `attempts_left`. `Job.last_error`
+  reads a missing field as None now - the client wraps server answers in that class, and a job
+  that never errored does not carry one.
+
+- **`recalculatePicHashes` picked most of the corpus again on every run.** It chose samples by
+  their report's `smda_version` and only overwrote that field on samples where some hash changed, so
+  every sample whose hashes came out the same stayed selected - 8,691, then 7,096 of 8,699 samples
+  on a real corpus, each run a near-full pass ([#249]). It now records the smda it rehashed a sample
+  with in a new per-sample field, `pichash_smda_version`, for every sample whose functions were all
+  rehashed, changed or not, and selects by that; a sample without the field is judged by its report's
+  `smda_version` as before, so a corpus the old code already bumped is not revisited, and one without
+  any `smda_version` is picked. A newly added report is stamped on insert, as its hashes are computed
+  then; an imported sample is not, and is judged by its report's version. A second run now selects
+  nothing. NOTE that `smda_version` is no longer overwritten: it keeps naming the smda
+  that produced the report. A sample with a function whose disassembly is gone (e.g. dropped with
+  `STORAGE_DROP_DISASSEMBLY`) cannot be rehashed, and would otherwise be picked again on every run,
+  by this selection and by the non-Intel block hash one of [#240]: it gets neither stamp, but is
+  marked with the running smda in `pichash_unrehashable_smda_version`, and neither selection picks
+  it again while that smda runs. The result counts the samples marked in a run in
+  `samples_skipped_xcfg_missing`. `/status` reports the samples still pending in
+  `num_samples_with_stale_pichashes` and the marked ones apart in
+  `num_samples_pichash_unrehashable`; a marked sample no longer counts in
+  `num_samples_with_stale_picblockhashes` either. NOTE that a marked sample is retried once when
+  smda changes, and unmarked if it then rehashes completely; one whose disassembly was restored
+  before that is retried by unsetting its `pichash_unrehashable_smda_version`. The counts read
+  three new `samples` indexes, built on first start: one on `smda_version` for the distinct report
+  versions, one on `pichash_smda_version` and `smda_version` for the stamps, and a sparse one on
+  `pichash_unrehashable_smda_version`. A run killed midway loses at most the sample it was on.
+  NOTE that the first run after upgrading is still about as long as before: samples the old code
+  never bumped carry no stamp and an old `smda_version`, so they are selected once more and stamped
+  then - on a 8,711-sample / 12M-function corpus a near-full pass of about 1 h 45 min. Runs after
+  that select only what changed.
+
+- The query cleanup (`STORAGE_MONGODB_ENABLE_CLEANUP`) failed on the first query job that left no
+  result - one that failed before matching - because it read the query sample
+  out of every job's result, and so never deleted anything once such a job existed ([#68]). It now
+  deletes an old job without a result and moves on, and it also reaches failed
+  `getMatchesForSmdaReport` jobs, which it did not look at. Its result says how many query
+  samples and jobs it deleted. NOTE that terminated query jobs are still not collected: the
+  cleanup looks at finished and failed ones only.
+
+- The query data nothing refers to any more is deleted by the same cleanup ([#68]): query functions
+  whose query sample is gone, and query disassembly whose function is gone. Both were left behind
+  for good by an interrupted deletion or insert. Each is judged only behind a boundary taken
+  before the walk, in batches, so that a query inserted meanwhile is never looked at. The
+  disassembly is written before its functions, so it is judged only while no query sample is
+  short of its functions: a query sample now records how many functions its insert writes
+  (`num_query_functions`), and one still missing some is an insert in flight - or one that died,
+  whose disassembly then goes in the run that deletes its sample. Without that check, two queries
+  inserted at once that finished out of order had the disassembly of the one still writing its
+  functions deleted under it. Query samples written before this release have no count and hold
+  the disassembly judgment back until the last of them has expired.
+
 ## [1.14.0] - 2026-10-09
 
 **Minor release: one addition, fixes, and nothing to run on a deployment that keeps the defaults.**
@@ -174,68 +281,6 @@ indexes, no change to `RESULTS_VERSION`, no repair jobs.
   postings survive, as the recompute after a deletion already did. Both now create it with an
   empty posting list: the recompute's upsert left `function_ids` out, so the next candidate lookup
   that returned the recreated document raised `KeyError: 'function_ids'` and failed the job.
-### Fixed
-
-- **`McritClient` raised a `JSONDecodeError` for a 2xx whose body is not JSON** ([#257]). A reverse
-  proxy's error or login page, or an empty answer, with a 200 or 202 status went through
-  `response.json()` unguarded and came out of the client as a `ValueError` in either error mode,
-  past a caller that relies on `None` by default or catches `McritClientError` under
-  `raise_server_errors`. Such an answer is now a failed one like any other: `None` by default,
-  `McritServerError` with an empty message under `raise_server_errors`, and a warning in the log
-  naming the status, which is where to start looking for the proxy. A JSON body that is not an
-  object was already handled this way. The IDA and Binary Ninja plugin vendors this client and gets
-  the same once it takes this version up.
-### Fixed
-
-- `McritClient.awaitResult` asked the server for the result of a job that failed, instead of
-  reporting the failure it had just waited for ([#252]). A job whose attempts ran out keeps
-  `result` None, and the wait had only two outcomes - terminated raises, anything else fetches
-  `job.result` - so the client went on to request `/results/None` and the server answered 400
-  (`Valid ResultIDs are hexstrings with 24 characters.`): as `None` by default, as that message
-  with `raise_client_errors=True`, and in neither case naming the job or its `last_error`.
-  docker-mcrit's `repair.sh` died that way when a production `recalculatePicHashes` lost its
-  attempts to its worker's child timeout plus a lock expiry counted as the last one. The wait now
-  raises a dedicated `JobFailedError`, carrying the job id and the queue's `last_error` when one
-  is recorded, next to `JobTerminatedError` and raised whatever the client's error mode, because a
-  caller that waited wants to know the job failed rather than receive a `None` it cannot tell
-  from other failures. NOTE that a job which finished despite a reclaimed lock still answers its
-  result: the failure is decided by the missing result, not by `attempts_left`. `Job.last_error`
-  reads a missing field as None now - the client wraps server answers in that class, and a job
-  that never errored does not carry one.
-### Changed
-
-- `McritClient` sends all requests through one `requests.Session`, so consecutive calls reuse a
-  connection instead of opening a new one, with a new TLS handshake on HTTPS, every time. Against
-  mcrit.malpedia.io, 166 sequential block-hash queries took 46 s instead of 166 s. A session keeps
-  the cookies a server sets for the life of the client, is not formally thread-safe, and can hit a
-  pooled connection the server already closed, which surfaces as a connection error on that call.
-  Tests patch `requests.Session` methods instead of the module-level `requests` functions. (#254)
-### Fixed
-
-- **`recalculatePicHashes` picked most of the corpus again on every run.** It chose samples by
-  their report's `smda_version` and only overwrote that field on samples where some hash changed, so
-  every sample whose hashes came out the same stayed selected - 8,691, then 7,096 of 8,699 samples
-  on a real corpus, each run a near-full pass ([#249]). It now records the smda it rehashed a sample
-  with in a new per-sample field, `pichash_smda_version`, for every sample whose functions were all
-  rehashed, changed or not, and selects by that; a sample without the field is judged by its report's
-  `smda_version` as before, so a corpus the old code already bumped is not revisited, and one without
-  any `smda_version` is picked. A newly added report is stamped on insert, as its hashes are computed
-  then; an imported sample is not, and is judged by its report's version. A second run now selects
-  nothing. NOTE that `smda_version` is no longer overwritten: it keeps naming the smda
-  that produced the report. A sample with a function whose disassembly is gone (e.g. dropped with
-  `STORAGE_DROP_DISASSEMBLY`) cannot be rehashed, and would otherwise be picked again on every run,
-  by this selection and by the non-Intel block hash one of [#240]: it gets neither stamp, but is
-  marked with the running smda in `pichash_unrehashable_smda_version`, and neither selection picks
-  it again while that smda runs. The result counts the samples marked in a run in
-  `samples_skipped_xcfg_missing`. `/status` reports the samples still pending in
-  `num_samples_with_stale_pichashes` and the marked ones apart in
-  `num_samples_pichash_unrehashable`; a marked sample no longer counts in
-  `num_samples_with_stale_picblockhashes` either. NOTE that a marked sample is retried once when
-  smda changes, and unmarked if it then rehashes completely; one whose disassembly was restored
-  before that is retried by unsetting its `pichash_unrehashable_smda_version`. The counts read
-  three new `samples` indexes, built on first start: one on `smda_version` for the distinct report
-  versions, one on `pichash_smda_version` and `smda_version` for the stamps, and a sparse one on
-  `pichash_unrehashable_smda_version`. A run killed midway loses at most the sample it was on.
 
 ## [1.13.0] - 2026-09-29
 
@@ -584,48 +629,6 @@ with this release, smda 4.9.0 and picblocks 2.1.0:
   was served. The fallback no longer serves a hash whose bucket 0 names a tail above 0; one that
   pulls shrank below the cutoff is therefore left out by it rather than served truncated. (The
   df-indexed lookup reads such a shrunk hash's upper buckets only with the separate fix for it.)
-### Added
-
-- `STORAGE_MONGODB_COMPACT_AFTER_CLEANUP`, default `False`, runs MongoDB's `compact` on
-  `query_samples`, `query_functions` and `query_xcfg` after every query cleanup (`DbCleanup`), so
-  the space the cleanup freed goes back to the file system instead of staying inside the collection
-  files for reuse. It needs the `compact` privilege, which `readWrite` does not carry; a refusal is
-  reported per collection in the cleanup's result rather than failing the job. The queue's GridFS
-  (`fs.files`, `fs.chunks`), where the results of the deleted query jobs were, is compacted too when
-  the queue shares the storage database, as it does by default, and left alone when the queue has a
-  database of its own.
-
-### Fixed
-
-- The query cleanup (`STORAGE_MONGODB_ENABLE_CLEANUP`) failed on the first query job that left no
-  result - one that failed before matching, or was terminated - because it read the query sample
-  out of every job's result, and so never deleted anything once such a job existed ([#68]). It now
-  deletes an old job without a result and moves on, and it also reaches failed
-  `getMatchesForSmdaReport` jobs, which it did not look at. Its result says how many query
-  samples and jobs it deleted. The memory queue could not delete such a job at all - it raised on
-  the missing result - and now deletes it.
-
-- The query data nothing refers to any more is deleted by the same cleanup ([#68]): query functions
-  whose query sample is gone, and query disassembly whose function is gone. Both were left behind
-  for good by an interrupted deletion or insert. Each is judged only behind a boundary taken
-  before the walk, in batches, so that a query inserted meanwhile is never looked at. The
-  disassembly is written before its functions, so it is judged only while no query sample is
-  short of its functions: a query sample now records how many functions its insert writes
-  (`num_query_functions`), and one still missing some is an insert in flight - or one that died,
-  whose disassembly then goes in the run that deletes its sample. Without that check, two queries
-  inserted at once that finished out of order had the disassembly of the one still writing its
-  functions deleted under it. Query samples written before this release have no count and hold
-  the disassembly judgment back until the last of them has expired.
-### Added
-
-- **Families carry `actors`, the names they are attributed to**, set through
-  `PUT /families/{id}` and `McritClient.modifyFamily(family_id, actors=[...])` (an empty list
-  clears them), kept through a rename, and carried by exports as `family_actors`, which imports
-  merge into what the target already knows. Names are 1-64 characters of letters, digits,
-  spaces, dots, dashes and underscores; anything else answers 400 without touching the family.
-  Families stored before read as an empty list, so no migration. NOTE that
-  `McritClient.modifyFamily` now sends its update as JSON, since a list does not survive form
-  encoding; the route accepts both ([#57]).
 
 ## [1.12.0] - 2026-09-25
 
@@ -1216,3 +1219,4 @@ date, the version, and what changed.
 [#252]: https://github.com/danielplohmann/mcrit/issues/252
 [#249]: https://github.com/danielplohmann/mcrit/issues/249
 [#57]: https://github.com/danielplohmann/mcrit/issues/57
+[#68]: https://github.com/danielplohmann/mcrit/issues/68

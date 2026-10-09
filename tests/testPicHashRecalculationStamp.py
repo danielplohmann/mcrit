@@ -162,6 +162,22 @@ class PicHashRecalculationStampTest(unittest.TestCase):
         self.assertEqual(0, self._stale_count())
         self.assertEqual(1, self._unrehashable_count())
 
+    def test_a_sample_whose_disassembly_is_stored_as_an_empty_object_is_marked_not_stamped(self):
+        """`{}` - what an import of a dropped blob or an oversized one leaves (#231) - takes the
+        other skip branch, where smda cannot rebuild the function; the sample is just as
+        unrehashable, and stamping it would hide it from every later run."""
+        entry = self._add("crossarch_intel_a.smda")
+        function_document = self.functions.find_one({"sample_id": entry.sample_id}, sort=[("function_id", 1)])
+        self.storage._database.xcfg.update_one({"_id": function_document["function_id"]}, {"$set": {"_xcfg": "{}"}})
+
+        result = self._recalculate()
+
+        self.assertEqual(1, result["xcfg_missing"])
+        self.assertEqual(1, result["samples_skipped_xcfg_missing"])
+        sample = self._sample(entry.sample_id)
+        self.assertNotIn("pichash_smda_version", sample)
+        self.assertEqual(SmdaConfig().VERSION, sample["pichash_unrehashable_smda_version"])
+
     def test_a_non_intel_sample_missing_disassembly_is_not_picked_by_the_block_hash_path(self):
         report = self._load("crossarch_aarch64_a.smda")
         with patch.object(BlockHasher, "_getInstructionEscaper", lambda self, block: IntelInstructionEscaper):
