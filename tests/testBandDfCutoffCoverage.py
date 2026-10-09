@@ -271,7 +271,7 @@ class BandDfCutoffCoverageEndToEndTest(unittest.TestCase):
 
     def testClientRequestsTheCoverageJob(self):
         client = McritClient("http://mcrit.test")
-        with mock.patch("mcrit.client.McritClient.requests.get", side_effect=self._forward):
+        with mock.patch("mcrit.client.McritClient.requests.Session.get", side_effect=self._forward):
             configured_job = client.requestBandDfCutoffCoverage()
             explicit_job = client.requestBandDfCutoffCoverage(band_df_cutoff=5)
         configured = self.index.getResultForJob(configured_job)
@@ -282,7 +282,7 @@ class BandDfCutoffCoverageEndToEndTest(unittest.TestCase):
         self.assertEqual(explicit["totals"]["postings_over_cutoff"], 366)
 
     def testClientErrorModes(self):
-        with mock.patch("mcrit.client.McritClient.requests.get", side_effect=self._forward):
+        with mock.patch("mcrit.client.McritClient.requests.Session.get", side_effect=self._forward):
             self.assertIsNone(McritClient("http://mcrit.test").requestBandDfCutoffCoverage(band_df_cutoff=-1))
             with self.assertRaises(McritBadRequest):
                 McritClient("http://mcrit.test", raise_client_errors=True).requestBandDfCutoffCoverage(band_df_cutoff=-1)

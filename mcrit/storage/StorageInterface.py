@@ -1,7 +1,7 @@
 import datetime
 import logging
 import random
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, Set, Tuple, Union
 
 from packaging import version
 
@@ -43,6 +43,17 @@ BAND_DF_REFERENCE_CUTOFFS = (50, 100, 200, 500, 1000)
 # The largest cutoff a coverage report can be asked about: it is compared against df inside a
 # MongoDB aggregation, and BSON integers are signed 64-bit, so a larger one cannot be encoded.
 BAND_DF_CUTOFF_MAX = 2**63 - 1
+
+
+class BinaryStream(Protocol):
+    """What openSampleBinary hands back: enough of a file to stream it out and close it.
+
+    Not typing.IO - a GridFS GridOut is not one, and widening the annotation to Any to make it
+    fit would hide the only two methods the callers actually use."""
+
+    def read(self, size: int = -1, /) -> bytes: ...
+
+    def close(self) -> None: ...
 
 
 class StorageInterface:
@@ -562,6 +573,46 @@ class StorageInterface:
         """
         raise NotImplementedError
 
+    def deleteOrphanedQueryData(self) -> Dict[str, int]:
+        """Delete the query functions whose query sample is gone and the query disassembly whose
+        function is gone; answers how many of each were removed (#68)."""
+        raise NotImplementedError
+
+    def compactQueryCollections(self) -> Dict[str, Any]:
+        """Hand the space freed by deleted query data back to the file system, where the backend
+        can; answers per collection what happened (#68)."""
+        raise NotImplementedError
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        """Keep the raw binary a sample was submitted as; replaces an earlier one (#95).
+
+        Binaries are stored once per content (sha256), listing the samples they belong to, so
+        storing bytes that are already kept only adds the sample to them."""
+        raise NotImplementedError
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        """The raw binary kept for the sample, or None when none was kept (#95).
+
+        Reads the whole binary into memory. Prefer hasSampleBinary() to ask whether one is
+        there and openSampleBinary() to serve it."""
+        raise NotImplementedError
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        """Whether a raw binary is kept for the sample, without reading it (#95)."""
+        raise NotImplementedError
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        """The raw binary kept for the sample as a readable stream, or None when none was kept.
+
+        The caller closes it. Serving a sample through this instead of getSampleBinary() keeps
+        the file out of the server's memory (#95)."""
+        raise NotImplementedError
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        """Take the sample off the raw binary kept for it, deleting the binary once no sample is
+        left on it; True when the sample had one (#95)."""
+        raise NotImplementedError
+
     def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
         """Set every family's sample/function counters from the samples and functions that exist,
         and report how many families were corrected (#151)."""
@@ -1015,6 +1066,7 @@ class StorageInterface:
 
     def recalculateAllPicHashes(self, progress_reporter=None) -> int:
         """Iterate across all SampleEntries and check if the SMDA version is older than the one currently available,
+            and which it has not yet rehashed with a compatible one (#249),
             or if their block hashes were computed by a picblocks that escaped non-Intel code as Intel (#240).
             If yes, process all FunctionEntries and use this SMDA version to recalculate and update the PicHash
             In the end, rebuild the PicHashIndex
@@ -1043,6 +1095,13 @@ class StorageInterface:
         since = SHINGLER_REVISION_SINCE.get(architecture or "")
         return since is not None and (recorded_revision is None or recorded_revision < since)
 
+    @staticmethod
+    def _stripReportVersionPrefix(report_version: Optional[str]) -> Optional[str]:
+        """Reports exported by MCRIT4IDA carry "MCRIT4IDA <smda version>" as their smda version."""
+        if report_version and report_version.startswith("MCRIT4IDA"):
+            return report_version.rsplit(" ", 1)[-1]
+        return report_version
+
     def deleteMinHashesForSample(self, sample_id: int) -> int:
         """Drop the minhashes of one sample's functions and their band entries, without touching
         the rest of the index; how many functions had one (#142)."""
@@ -1067,6 +1126,16 @@ class StorageInterface:
         """How many samples of an architecture other than Intel hold block hashes computed by a
         picblocks that escaped them as Intel code, which recalculateAllPicHashes redoes, for
         /status (#240). None where the backend does not record it."""
+        return None
+
+    def countSamplesWithStalePicHashes(self) -> Optional[int]:
+        """How many samples recalculateAllPicHashes would still pick for an older smda escaper,
+        for /status (#249). None where the backend does not record it."""
+        return None
+
+    def countSamplesWithUnrehashablePicHashes(self) -> Optional[int]:
+        """How many samples recalculateAllPicHashes found missing disassembly under the running
+        smda, and so no longer picks, for /status (#249). None where the backend does not record it."""
         return None
 
     def deleteAllMinHashes(self, progress_reporter=None) -> int:

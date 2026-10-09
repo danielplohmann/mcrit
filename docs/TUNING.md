@@ -378,3 +378,52 @@ machine; raising it buys nothing once the round trip has stopped mattering.
   preferential-attachment urn calibrated to its measured Heaps exponent). They were measured on
   a 4-core / 16 GiB host with mongod 7.0. The shape of the result - one-stage grows with the
   corpus, two-stage does not - is the finding; the absolute seconds are host-specific.
+
+## Reclaiming space after the query cleanup
+
+| setting | default | effect |
+|---|---|---|
+| `STORAGE_MONGODB_COMPACT_AFTER_CLEANUP` | `False` | run MongoDB's `compact` on `query_samples`, `query_functions` and `query_xcfg` after every `DbCleanup` job |
+
+The cleanup job deletes expired query samples, their functions and disassembly, and the
+orphans a broken deletion or an interrupted insert left behind; WiredTiger keeps the freed
+pages inside the collection files and reuses them for later inserts, so disk usage does not
+shrink on its own. `compact` returns that space to the file system. It needs the `compact`
+privilege on the database (the default `readWrite` role does not carry it - grant `dbAdmin`
+or a custom role). Since MongoDB 4.4 it no longer blocks reads and writes, but it holds off
+index builds and drops on the collection it is working on, and it is I/O-heavy for as long as
+it runs (seconds to minutes, depending on collection size). On a replica set it runs on the
+member it is sent to only. Leave it off unless the query collections are large and the
+instance's disk is tight; the cleanup report says how many bytes each compaction returned.
+
+The cleanup deletes query jobs too, and so their results in the job queue's GridFS
+(`fs.files`, `fs.chunks`). Those are compacted as well when the queue keeps its data in the
+storage database - the same server, port and `QUEUE_MONGODB_DBNAME` as `STORAGE_MONGODB_DBNAME`,
+as by default - and left alone when it has a database of its own, which this cannot reach.
+
+## Keeping submitted binaries
+
+| setting | default | effect |
+|---|---|---|
+| `STORAGE_KEEP_SUBMITTED_BINARIES` | `False` | store the raw bytes a sample was submitted with (`POST /samples/binary`) in the GridFS bucket `sample_binaries` |
+| `STORAGE_SERVE_SUBMITTED_BINARIES` | `False` | hand the stored bytes out at `GET /samples/{sample_id}/binary`; while off, that route answers 403 |
+
+Off, MCRIT keeps only the disassembly. On, every distinct binary costs its own size once in
+MongoDB (GridFS chunks of 255 KiB; a 50 GB corpus of binaries is 50 GB more disk on the
+database host). Binaries are stored once per content: the file is keyed by its sha256 and
+lists in `metadata.sample_ids` the samples it belongs to. The bytes live as long as a sample
+refers to them: `deleteSample` takes the sample off the file and deletes the file with the
+last one, a resubmission of a known sample stores them if they were not kept before, and
+reports submitted as SMDA JSON (`POST /samples`) never have any. Turn it on when analysts need
+the original file back from MCRIT (re-disassembly with a newer smda, hand-off to other
+tooling); leave it off when the binaries are kept elsewhere.
+
+Keeping and serving are separate switches because they are separate decisions. The stored
+binaries are the submitted samples - on most instances, live malware - and serving them makes
+the REST API a download point for it, for anyone who can reach it. Turn serving on only when
+the API is not reachable by anyone who should not be able to download the samples; keeping
+alone costs disk, not exposure, and leaves the bytes in the database for tooling that reads
+them there.
+
+Exports do not carry kept binaries: an instance filled by an import has none until its samples
+are submitted again.
