@@ -276,6 +276,60 @@ class PichashPaddingTest(TestCase):
             holders = {function_id for _, _, function_id in self.storage.getPicHashMatchesByFunctionIds([target["function_id"]])[value]}
             self.assertEqual({target["function_id"], other["function_id"]}, holders, index_complete)
 
+    def test_the_batched_pichash_lookup_finds_both_shapes(self):
+        """getMatchesForPicHashes (the query matcher's one $in) encodes like the instance stores."""
+        function_entries = self.storage.getFunctionsBySampleId(self.sample_id)
+        expected = {}
+        for function_entry in function_entries:
+            expected.setdefault(function_entry.pichash, set()).add((function_entry.family_id, self.sample_id, function_entry.function_id))
+        pichashes = list(expected)
+        for legacy in (False, True):
+            if legacy:
+                self._make_legacy()
+            self.assertEqual(expected, self.storage.getMatchesForPicHashes(pichashes + [0x1234567]), legacy)
+        # mid-migration, one value held in both spellings is one group, cut off as a unit
+        target = self._leading_zero_function()
+        other = next(d for d in self.functions if d["function_id"] != target["function_id"])
+        self.db.functions.update_one({"function_id": other["function_id"]}, {"$set": {"_pichash": target["_pichash"]}})
+        value = int(target["_pichash"], 16)
+        self.assertNotEqual(hex(value), target["_pichash"])
+        self.assertEqual({target["function_id"], other["function_id"]}, {t[2] for t in self.storage.getMatchesForPicHashes([value])[value]})
+        self.storage._minhash_config.MINHASH_PICHASH_MAX_MATCHES = 1
+        self.assertNotIn(value, self.storage.getMatchesForPicHashes([value]))
+
+    def _recalculation_rewrites(self):
+        """Corrupt the hashes of a function with leading-zero block hashes, recalculate, return the
+        original values and the stored document afterwards."""
+        target = next(d for d in self.differing if any(short_form(e["hash"]) != e["hash"] for e in d.get("_picblockhashes", [])))
+        stored = self.db.functions.find_one({"function_id": target["function_id"]})
+        assert stored is not None
+        original_pichash = int(stored["_pichash"], 16)
+        original_blocks = sorted((entry["offset"], int(entry["hash"], 16)) for entry in stored["_picblockhashes"])
+        self.db.functions.update_one(
+            {"function_id": target["function_id"]},
+            {"$set": {"_pichash": hex(original_pichash ^ 1), "_picblockhashes": [{**entry, "hash": hex(int(entry["hash"], 16) ^ 1)} for entry in stored["_picblockhashes"]]}},
+        )
+        # an unstamped sample disassembled by an smda below the compatibility threshold is rehashed
+        self.db.samples.update_one({"sample_id": self.sample_id}, {"$unset": {"pichash_smda_version": ""}, "$set": {"smda_version": "1.5.12"}})
+        self.storage.recalculateAllPicHashes()
+        rewritten = self.db.functions.find_one({"function_id": target["function_id"]})
+        assert rewritten is not None
+        return original_pichash, original_blocks, rewritten
+
+    def test_the_recalculation_writes_padded_values_on_a_padded_instance(self):
+        original_pichash, original_blocks, rewritten = self._recalculation_rewrites()
+        self.assertEqual(encode_pichash_value(original_pichash, padded=True), rewritten["_pichash"])
+        self.assertEqual(original_blocks, sorted((entry["offset"], int(entry["hash"], 16)) for entry in rewritten["_picblockhashes"]))
+        self.assertTrue(all(is_padded(entry["hash"]) for entry in rewritten["_picblockhashes"]))
+        self.assertTrue(any(short_form(entry["hash"]) != entry["hash"] for entry in rewritten["_picblockhashes"]))
+
+    def test_the_recalculation_keeps_the_legacy_width_until_the_migration(self):
+        self._make_legacy()
+        original_pichash, original_blocks, rewritten = self._recalculation_rewrites()
+        self.assertEqual(hex(original_pichash), rewritten["_pichash"])
+        self.assertEqual(original_blocks, sorted((entry["offset"], int(entry["hash"], 16)) for entry in rewritten["_picblockhashes"]))
+        self.assertTrue(all(entry["hash"] == short_form(entry["hash"]) for entry in rewritten["_picblockhashes"]))
+
     def test_padding_invalidates_the_pichash_counts_instead_of_dropping_matches(self):
         """After a migration the stored counts are keyed on the old spelling; they must not be trusted."""
         self._make_legacy()

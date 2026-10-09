@@ -4,12 +4,12 @@
 #
 # This exercises the full pipeline (SmdaReport -> MinHashIndex -> Worker.calculateMinHashes
 # -> ShingleLoader -> EscapedBlockShingler / FuzzyStatPairShingler -> storage -> MatcherSample)
-# for AArch64 and CIL samples, verifying that:
+# for AArch64, CIL and Dalvik samples, verifying that:
 #   * minhashes are computed with the correct per-architecture escaper (not a hardcoded Intel one),
 #   * a near-duplicate of the same architecture yields MINHASH-only matches (score < 100.0),
 #   * a PicHash match (score == 100.0) is also detected where expected,
-#   * an Intel sample and an AArch64 sample do NOT match via minhash (known limitation until
-#     cross-architecture matching is gated - documented here as current behavior).
+#   * an Intel sample and an AArch64 sample do NOT match: matching reports no samples of another
+#     architecture (#93).
 #
 # Fixtures are the SMDA reports you used for validation. Until they are in place under
 # tests/fixtures/, the tests skip with a clear message. The expected match offsets below are
@@ -22,6 +22,7 @@ import unittest
 from smda.aarch64.AArch64InstructionEscaper import AArch64InstructionEscaper
 from smda.cil.CilInstructionEscaper import CilInstructionEscaper
 from smda.common.SmdaReport import SmdaReport
+from smda.dalvik.DalvikInstructionEscaper import DalvikInstructionEscaper
 from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
 
 from mcrit.index.MinHashIndex import MinHashIndex
@@ -55,6 +56,8 @@ AARCH64_REPORT_A = _report_path("crossarch_aarch64_a.smda")
 AARCH64_REPORT_B = _report_path("crossarch_aarch64_b.smda")
 CIL_REPORT_A = _report_path("crossarch_cil_a.smda")
 CIL_REPORT_B = _report_path("crossarch_cil_b.smda")
+DALVIK_REPORT_A = _report_path("crossarch_dalvik_a.smda")
+DALVIK_REPORT_B = _report_path("crossarch_dalvik_b.smda")
 INTEL_REPORT = _report_path("crossarch_intel_a.smda")
 
 # Function offsets (within report A) that you confirmed as:
@@ -62,11 +65,12 @@ INTEL_REPORT = _report_path("crossarch_intel_a.smda")
 #   * pichash matches (score == 100.0) against report B of the same architecture
 # AArch64: flexibleferret (A) vs frostyferret (B).
 AARCH64_MINHASH_ONLY_OFFSETS = [
-    0x100003438,  # score 70.3125 (confirmed validation offset)
-    0x100003684,  # score 60.9375
+    0x100003438,  # score 67.1875 (confirmed validation offset; 70.3125 before AArch64 frame sizes, #238)
+    0x100003684,  # score 62.5 (60.9375 before)
     0x100003A74,  # score 54.6875
     0x100004CC8,  # score 75.0
-    0x100004DC4,  # score 57.8125
+    # 0x100004DC4 scored 57.8125 before; with its frame size it scores 56.25 but shares one band with its
+    # partner instead of two, below BAND_MATCHES_REQUIRED, so it is no longer a candidate (#238)
 ]
 AARCH64_PICHASH_OFFSETS = [
     0x1000039A8,  # score 100.0, flags = MINHASH + PICHASH
@@ -81,10 +85,21 @@ CIL_MINHASH_ONLY_OFFSETS = [
     0x2A3C,  # score 68.75
 ]
 CIL_PICHASH_OFFSETS = []
+# Dalvik (#239): two builds of the HackingTeam RCS Android implant, classes.dex of APK 87efe6a1... (A)
+# and of APK 07278c56... (B). Both reports keep only three of the implant's own methods; their
+# statistics are cut down to them, other report metadata (code areas, binweight) still describes the
+# whole DEX.
+DALVIK_MINHASH_ONLY_OFFSETS = [
+    0x16D0C,  # HttpUtils.uploadFile, score 87.5 (189 instructions in A, 161 in B)
+    0x205F8,  # Logger.WriteErrorLog, score 81.25
+]
+DALVIK_PICHASH_OFFSETS = [
+    0x19B10,  # Serialization.binarySerialize, score 100.0
+]
 
 
 def _have_fixtures():
-    return all(os.path.isfile(p) for p in (AARCH64_REPORT_A, AARCH64_REPORT_B, CIL_REPORT_A, CIL_REPORT_B, INTEL_REPORT))
+    return all(os.path.isfile(p) for p in (AARCH64_REPORT_A, AARCH64_REPORT_B, CIL_REPORT_A, CIL_REPORT_B, DALVIK_REPORT_A, DALVIK_REPORT_B, INTEL_REPORT))
 
 
 def _expected_escaper(architecture):
@@ -92,11 +107,12 @@ def _expected_escaper(architecture):
         "intel": IntelInstructionEscaper,
         "aarch64": AArch64InstructionEscaper,
         "cil": CilInstructionEscaper,
+        "dalvik": DalvikInstructionEscaper,
     }[architecture]
 
 
 class CrossArchMinHashingTestSuite(unittest.TestCase):
-    """Full-pipeline minhash matching for AArch64 and CIL samples."""
+    """Full-pipeline minhash matching for AArch64, CIL and Dalvik samples."""
 
     @classmethod
     def setUpClass(cls):
@@ -104,7 +120,8 @@ class CrossArchMinHashingTestSuite(unittest.TestCase):
             raise unittest.SkipTest(
                 "Cross-arch fixtures not present under tests/fixtures/ yet "
                 "(expected: crossarch_aarch64_a.smda, crossarch_aarch64_b.smda, "
-                "crossarch_cil_a.smda, crossarch_cil_b.smda, crossarch_intel_a.smda)."
+                "crossarch_cil_a.smda, crossarch_cil_b.smda, crossarch_dalvik_a.smda, crossarch_dalvik_b.smda, "
+                "crossarch_intel_a.smda)."
             )
 
     def _assert_minhashes_use_escaper(self, report, architecture):
@@ -152,6 +169,33 @@ class CrossArchMinHashingTestSuite(unittest.TestCase):
         report = SmdaReport.fromFile(CIL_REPORT_A)
         assert report is not None
         self._assert_minhashes_use_escaper(report, "cil")
+
+    def test_dalvik_minhash_uses_dalvik_escaper(self):
+        report = SmdaReport.fromFile(DALVIK_REPORT_A)
+        assert report is not None
+        self._assert_minhashes_use_escaper(report, "dalvik")
+
+    def test_dalvik_near_duplicate_minhash_and_pichash_matches(self):
+        report_a = SmdaReport.fromFile(DALVIK_REPORT_A)
+        assert report_a is not None
+        report_b = SmdaReport.fromFile(DALVIK_REPORT_B)
+        assert report_b is not None
+        entry_a, entry_b, result = self._submit_pair_and_match(report_a, report_b)
+
+        for offset in DALVIK_MINHASH_ONLY_OFFSETS:
+            matches = self._matches_for_offset(result, entry_b.sample_id, offset)
+            self.assertTrue(matches, f"expected a minhash match for Dalvik offset {hex(offset)}")
+            for m in matches:
+                self.assertEqual(m[4] & IS_MINHASH_FLAG, IS_MINHASH_FLAG)
+                self.assertEqual(m[4] & IS_PICHASH_FLAG, 0)
+                self.assertLess(m[3], 100.0)
+
+        for offset in DALVIK_PICHASH_OFFSETS:
+            matches = self._matches_for_offset(result, entry_b.sample_id, offset)
+            self.assertTrue(matches, f"expected a pichash match for Dalvik offset {hex(offset)}")
+            for m in matches:
+                self.assertEqual(m[4] & IS_PICHASH_FLAG, IS_PICHASH_FLAG)
+                self.assertEqual(m[3], 100.0)
 
     def test_aarch64_near_duplicate_minhash_and_pichash_matches(self):
         report_a = SmdaReport.fromFile(AARCH64_REPORT_A)
@@ -208,10 +252,12 @@ class CrossArchMinHashingTestSuite(unittest.TestCase):
         worker.updateMinHashesForSample(aarch64_entry.sample_id)
         matcher = MatcherSample(worker)
         result = matcher.getMatchesForSample(intel_entry.sample_id)
-        # the only expected matches (if any) should be within the intel sample, never vs AArch64
+        # the only expected matches (if any) should be within the intel sample, never vs AArch64;
+        # the match layout is (family_id, sample_id, function_id, score, flags)
         for function_data in result["matches"]["functions"]:
             for m in function_data["matches"]:
-                self.assertNotEqual(m[0], aarch64_entry.sample_id)
+                self.assertNotEqual(m[1], aarch64_entry.sample_id)
+        self.assertNotIn(aarch64_entry.sample_id, [sample["sample_id"] for sample in result["matches"]["samples"]])
 
 
 if __name__ == "__main__":

@@ -56,12 +56,46 @@ def add_duration(func):
     return wrapper
 
 
+def shortlistUnavailableReason(storage) -> Optional[str]:
+    """Why `storage` cannot shortlist right now, or None when it can.
+
+    Shortlisting resolves each candidate function to its sample through the function range index,
+    so it needs that index and needs it complete - it is not while rebuildFunctionRangeIndex runs.
+    The server asks this before submitting a job (#217), and the matcher again when it runs.
+    """
+    if getattr(storage, "getSampleIdsForFunctionIdArray", None) is None or getattr(storage, "isFunctionRangeIndexComplete", None) is None:
+        return "function_range_index_unsupported"
+    if not storage.isFunctionRangeIndexComplete():
+        return "function_range_index_incomplete"
+    return None
+
+
 class MatcherInterface:
     # how many band votes one exact (PicHash) match is worth when ranking the shortlist
     _PICHASH_SHORTLIST_VOTE_WEIGHT = 4
 
-    def __init__(self, worker: "Worker", minhash_threshold=None, pichash_size=None, band_matches_required=None, exclude_self_matches=False, progress_reporter=NoProgressReporter()):
+    def __init__(
+        self,
+        worker: "Worker",
+        minhash_threshold=None,
+        pichash_size=None,
+        band_matches_required=None,
+        exclude_self_matches=False,
+        progress_reporter=NoProgressReporter(),
+        shortlist_size=None,
+        band_df_cutoff=None,
+        shortlist_unavailable=None,
+    ):
         self.matcher_type = "MatcherInterface"
+        # what the job was asked for, None where it left the choice to the configuration; the
+        # report shows it next to what was applied (#217)
+        self._requested_knobs = {
+            "minhash_threshold": minhash_threshold,
+            "pichash_size": pichash_size,
+            "band_matches_required": band_matches_required,
+            "shortlist_size": shortlist_size,
+            "band_df_cutoff": band_df_cutoff,
+        }
         # Extended by Query, VS, Sample
         self._worker: Worker = worker
         self._storage = worker.getStorage()
@@ -83,6 +117,8 @@ class MatcherInterface:
         self._shortlist_candidate_cache: Optional[Dict[int, Tuple[np.ndarray, np.ndarray]]] = None
         # the shortlist as a sorted array, for vectorised membership tests
         self._shortlist_array: Optional[np.ndarray] = None
+        if minhash_threshold is None:
+            minhash_threshold = self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_THRESHOLD
         self._minhash_threshold = minhash_threshold
         self._exclude_self_matches = exclude_self_matches
         if pichash_size is None:
@@ -91,6 +127,17 @@ class MatcherInterface:
             band_matches_required = self._worker.config.MINHASH_CONFIG.BAND_MATCHES_REQUIRED
         self._band_matches_required = band_matches_required
         self._pichash_size = pichash_size
+        # the two-stage knobs change which matches are reported, so a job may set them itself
+        # rather than inherit the deployment's (#217): None falls back to the configuration
+        if shortlist_size is None:
+            shortlist_size = getattr(self._worker.config.MINHASH_CONFIG, "MINHASH_MATCHING_SHORTLIST_SIZE", 0)
+        self._shortlist_size = shortlist_size
+        self._band_df_cutoff = band_df_cutoff
+        # set by the server when the storage could not shortlist as the job was submitted, so that
+        # job's arguments, and with them its cache key, differ from a shortlisted one's (#217)
+        self._shortlist_unavailable = shortlist_unavailable
+        # why a requested shortlist was not applied, for the report
+        self._shortlist_fallback: Optional[str] = None
         self._additional_setup()
         self._sample_to_lib_info: Dict[int, bool]
         # NOTE: query matchers seed this with a sentinel entry for the query sample itself
@@ -128,13 +175,19 @@ class MatcherInterface:
             function_id_to_minhash = {}
             for function_entry in self._function_entries[start:end]:
                 function_id_to_minhash[function_entry.function_id] = function_entry.getMinHash(minhash_bits=self._worker._minhash_config.MINHASH_SIGNATURE_BITS)
-            candidate_groups = self._storage.getCandidatesForMinHashes(function_id_to_minhash, band_matches_required=self._band_matches_required)
+            candidate_groups = self._storage.getCandidatesForMinHashes(
+                function_id_to_minhash, band_matches_required=self._band_matches_required, band_df_cutoff=self._band_df_cutoff
+            )
         return self._restrictToShortlist(candidate_groups)
 
     # ---- two-stage matching: shortlist the corpus samples worth matching exactly ----------
 
     def _getShortlistSize(self) -> int:
-        return getattr(self._worker.config.MINHASH_CONFIG, "MINHASH_MATCHING_SHORTLIST_SIZE", 0)
+        return self._shortlist_size
+
+    def _takesShortlist(self) -> bool:
+        """False for matchers restricted to the samples they name, which never shortlist."""
+        return True
 
     def _resolveSampleIds(self, function_ids: np.ndarray) -> Optional[np.ndarray]:
         """Sample id per candidate function id, or None when storage cannot answer cheaply."""
@@ -168,6 +221,11 @@ class MatcherInterface:
         shortlist_size = self._getShortlistSize()
         if shortlist_size <= 0 or not self._function_entries:
             return None
+        reason = self._shortlist_unavailable or shortlistUnavailableReason(self._storage)
+        if reason is not None:
+            LOGGER.warning("Shortlisting requested but not available (%s); matching against the whole corpus instead.", reason)
+            self._shortlist_fallback = reason
+            return None
         signature_bits = self._worker._minhash_config.MINHASH_SIGNATURE_BITS
         votes: Counter = Counter()
         # candidates are kept as arrays, together with the sample each one belongs to, so the
@@ -185,16 +243,20 @@ class MatcherInterface:
             # numpy, and boxing it into sets only to unbox it here is pure overhead
             array_getter = getattr(self._storage, "getCandidateArraysForMinHashes", None)
             if array_getter is not None:
-                candidate_groups = array_getter(function_id_to_minhash, band_matches_required=self._band_matches_required)
+                candidate_groups = array_getter(function_id_to_minhash, band_matches_required=self._band_matches_required, band_df_cutoff=self._band_df_cutoff)
             else:
-                candidate_groups = self._storage.getCandidatesForMinHashes(function_id_to_minhash, band_matches_required=self._band_matches_required)
+                candidate_groups = self._storage.getCandidatesForMinHashes(
+                    function_id_to_minhash, band_matches_required=self._band_matches_required, band_df_cutoff=self._band_df_cutoff
+                )
             for function_id, candidate_ids in candidate_groups.items():
                 if not len(candidate_ids):
                     continue
                 candidates = candidate_ids if isinstance(candidate_ids, np.ndarray) else np.fromiter(candidate_ids, dtype=np.int64, count=len(candidate_ids))
                 sample_ids = self._resolveSampleIds(candidates)
                 if sample_ids is None:
+                    # the index went incomplete after the check above: a rebuild started mid-job
                     LOGGER.warning("Shortlisting requested but the function range index is unavailable; matching against the whole corpus instead.")
+                    self._shortlist_fallback = "function_range_index_incomplete"
                     return None
                 cached_groups[function_id] = (candidates, sample_ids)
                 # np.unique per query function is what makes this one vote per sample per
@@ -212,6 +274,10 @@ class MatcherInterface:
         # the query's own sample must never be shortlisted away - self-matches are how a
         # sample-vs-corpus result reports its own functions
         votes.pop(self._sample_id, None)
+        # samples of another architecture are dropped from the report, so they must not take the
+        # places of samples that would be reported
+        for sample_id in self._otherArchitectureSampleIds(set(votes)):
+            del votes[sample_id]
         shortlist = self._rankShortlist(votes, shortlist_size)
         if self._sample_id is not None:
             shortlist.add(self._sample_id)
@@ -404,9 +470,54 @@ class MatcherInterface:
                 minhash_matches = self._harmonizeMinHashMatches(self._sample_id, self._performMinHashMatching(candidate_groups, matching_cache))
                 all_minhash_matches.update(minhash_matches)
             LOGGER.info("Calculated MinHash matches.")
+        pichash_matches = self._dropOtherArchitectures(pichash_matches)
+        all_minhash_matches = self._dropOtherArchitectures(all_minhash_matches)
         matching_report = self._craftResultDict(pichash_matches, all_minhash_matches)
         LOGGER.info("Returning aggregated match report.")
         return matching_report
+
+    def _prefetchSampleEntries(self, sample_ids) -> None:
+        """Fetch the entries of sample_ids not fetched yet in one lookup, rather than one or two
+        per sample later on (N+1, #111). Lazy per-id lookups stay the fallback for anything the
+        batch did not return."""
+        missing = [sample_id for sample_id in sample_ids if sample_id not in self._sample_id_to_entry]
+        if not missing or not hasattr(self._storage, "getSampleEntriesByIds"):
+            return
+        for sample_id, entry in self._storage.getSampleEntriesByIds(missing).items():
+            self._sample_id_to_entry.setdefault(sample_id, entry)
+            # same predicate as getLibraryInfoForSampleId(...) is not None
+            self._sample_to_lib_info.setdefault(sample_id, bool(entry.is_library))
+
+    def _otherArchitectureSampleIds(self, sample_ids) -> Set[int]:
+        """The samples among sample_ids that are of another architecture than the one matched (#93).
+
+        A PicHash or a MinHash says the same thing about two functions only when both were escaped
+        by the same instruction set's rules; across architectures an equal hash is a coincidence,
+        and the shingles of different instruction sets can still share bands. An architecture that
+        is not known on either side (an empty string, as a sample SMDA could not disassemble has)
+        is not taken as a different one.
+        """
+        own_architecture = (self._sample_info or {}).get("architecture")
+        if not own_architecture:
+            return set()
+        self._prefetchSampleEntries(sample_ids)
+        return {
+            sample_id
+            for sample_id in sample_ids
+            if sample_id in self._sample_id_to_entry and self._sample_id_to_entry[sample_id].architecture and self._sample_id_to_entry[sample_id].architecture != own_architecture
+        }
+
+    def _dropOtherArchitectures(self, matches: HarmonizedMatches) -> HarmonizedMatches:
+        """Leave out matches against samples of another architecture. For a corpus of one
+        architecture this changes nothing."""
+        if not matches:
+            return matches
+        other = self._otherArchitectureSampleIds({match_ids[1] for match_ids in matches})
+        if not other:
+            return matches
+        kept = {match_ids: strength for match_ids, strength in matches.items() if match_ids[1] not in other}
+        LOGGER.info("Left out %d matches against %d samples of another architecture", len(matches) - len(kept), len(other))
+        return kept
 
     # Reports PROGRESS
     @staticmethod
@@ -437,7 +548,7 @@ class MatcherInterface:
         """
         minhash_config = self._worker.config.MINHASH_CONFIG
         signature_length = minhash_config.MINHASH_SIGNATURE_LENGTH
-        min_matches = self._minMatchesForThreshold(signature_length, minhash_config.MINHASH_MATCHING_THRESHOLD)
+        min_matches = self._minMatchesForThreshold(signature_length, self._minhash_threshold)
         sorted_ids, rows, matrix = cache.getSignatureMatrix(signature_length=signature_length, signature_bits=minhash_config.MINHASH_SIGNATURE_BITS)
         func_id_to_sample_id = cache._func_id_to_sample_id
         organized_matching_results: Dict[Tuple[int, int, int], Tuple[int, float]] = {}
@@ -522,7 +633,7 @@ class MatcherInterface:
                     for single_result in pool_result:
                         sample_id_a, function_id_a, sample_id_b, function_id_b, score = single_result
                         counted_scores[score] += 1
-                        if score > self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_THRESHOLD:
+                        if score > self._minhash_threshold:
                             key = (sample_id_a, function_id_a, sample_id_b)
                             new_value = (function_id_b, score)
                             original_value = organized_matching_results[key]
@@ -540,7 +651,7 @@ class MatcherInterface:
                 for single_result in pool_result:
                     sample_id_a, function_id_a, sample_id_b, function_id_b, score = single_result
                     counted_scores[score] += 1
-                    if score > self._worker.config.MINHASH_CONFIG.MINHASH_MATCHING_THRESHOLD:
+                    if score > self._minhash_threshold:
                         key = (sample_id_a, function_id_a, sample_id_b)
                         new_value = (function_id_b, score)
                         original_value = organized_matching_results[key]
@@ -653,6 +764,21 @@ class MatcherInterface:
 
         return minhash_mapping
 
+    def _getCorpusPicHashMatchesForFunctionEntries(self) -> Dict[int, Set[Tuple[int, int, int]]]:
+        """PicHash matches of functions that are not in the corpus themselves (query input), from one lookup.
+
+        Each pichash some corpus function holds maps to its holders plus the query functions with
+        it; this used to take one query per distinct pichash, uncapped by MINHASH_PICHASH_MAX_MATCHES (#69).
+        """
+        own_functions_by_pichash: Dict[int, List[Tuple[int, int, int]]] = {}
+        for function_entry in self._function_entries:
+            if function_entry.pichash:
+                own_functions_by_pichash.setdefault(function_entry.pichash, []).append((function_entry.family_id, function_entry.sample_id, function_entry.function_id))
+        pichash_matches = self._storage.getMatchesForPicHashes(list(own_functions_by_pichash))
+        for pichash, holders in pichash_matches.items():
+            holders.update(own_functions_by_pichash[pichash])
+        return pichash_matches
+
     # summarizing, formatting starts here:
 
     def _summarizeMatches(self, sample_id, matches: HarmonizedMatches, aggregation_only: bool) -> Tuple[List, Dict, Dict, float]:
@@ -662,12 +788,7 @@ class MatcherInterface:
         # prefetch every foreign sample entry in one $in instead of two find_ones per
         # distinct sample inside the loop below (N+1, #111). The lazy per-id lookups stay
         # as the fallback for anything the batch did not return.
-        missing_sample_ids = {match_ids[1] for match_ids in matches if match_ids[1] != sample_id and match_ids[1] not in self._sample_id_to_entry}
-        if missing_sample_ids and hasattr(self._storage, "getSampleEntriesByIds"):
-            for foreign_sample_id, entry in self._storage.getSampleEntriesByIds(list(missing_sample_ids)).items():
-                self._sample_id_to_entry.setdefault(foreign_sample_id, entry)
-                # same predicate as getLibraryInfoForSampleId(...) is not None
-                self._sample_to_lib_info.setdefault(foreign_sample_id, bool(entry.is_library))
+        self._prefetchSampleEntries({match_ids[1] for match_ids in matches if match_ids[1] != sample_id})
         aggregation = {
             "num_own_functions_matched": 0,
             "num_foreign_functions_matched": 0,
@@ -704,6 +825,14 @@ class MatcherInterface:
                 if foreign_sample_id not in self._sample_to_lib_info:
                     self._sample_to_lib_info[foreign_sample_id] = self._storage.getLibraryInfoForSampleId(foreign_sample_id) is not None
                 has_libinfo = self._sample_to_lib_info[foreign_sample_id]
+                foreign_functions_matched.add(foreign_function_id)
+                own_functions_with_matches.add(own_function_id)
+                if has_libinfo:
+                    own_functions_with_library_matches.add(own_function_id)
+                if aggregation_only:
+                    # the totals are all that is asked for; building, sorting and keeping a
+                    # tuple per match is what grows with the number of matches (#69)
+                    continue
 
                 if foreign_sample_id not in self._sample_id_to_entry:
                     foreign_sample_entry = self._storage.getSampleById(foreign_sample_id)
@@ -721,18 +850,15 @@ class MatcherInterface:
                         flags,
                     )
                 )
-                foreign_functions_matched.add(foreign_function_id)
-                own_functions_with_matches.add(own_function_id)
-                if has_libinfo:
-                    own_functions_with_library_matches.add(own_function_id)
 
         # Anti-Value-Key post processing
         matches_function_list = []
-        for function_id, dict in match_function_mapping.items():
-            dict["fid"] = function_id
-            # this creates additional stability for tests and processing
-            dict["matches"] = sorted(dict["matches"])
-            matches_function_list.append(dict)
+        if not aggregation_only:
+            for function_id, dict in match_function_mapping.items():
+                dict["fid"] = function_id
+                # this creates additional stability for tests and processing
+                dict["matches"] = sorted(dict["matches"])
+                matches_function_list.append(dict)
 
         aggregation["num_self_matches"] = len(self_matched_functions)
         aggregation["num_own_functions_matched"] = len(own_functions_with_matches)
@@ -740,7 +866,7 @@ class MatcherInterface:
         aggregation["num_foreign_functions_matched"] = len(foreign_functions_matched)
         aggregation["num_own_functions_matched_as_library"] = len(own_functions_with_library_matches)
 
-        num_library_match_bytes = sum([match_function_mapping[function_id]["num_bytes"] for function_id in own_functions_with_library_matches])
+        num_library_match_bytes = sum([sample_fid_to_binweight[function_id] for function_id in own_functions_with_library_matches])
 
         return matches_function_list, match_function_mapping, aggregation, num_library_match_bytes
 
@@ -888,6 +1014,45 @@ class MatcherInterface:
                     matches_per_sample[foreign_sample_id][own_function_id].append(("library", 0))
         return matches_per_sample
 
+    def fellBackUnforeseen(self) -> bool:
+        """Whether a knob could not be applied although the job's arguments did not say it would not be."""
+        return self._shortlist_fallback is not None and self._shortlist_unavailable is None
+
+    def _getMatchingInfo(self) -> Dict[str, Any]:
+        """The knobs this job was asked for and the ones it applied, with why any of them differ (#217).
+
+        A job that fell back to matching the whole corpus is a different result from a shortlisted
+        one, so the report says so rather than leaving the caller to infer it from the matches.
+        `requested` holds the values the job was submitted with (None where its caller left one to
+        the worker's configuration). In `applied`, None marks a knob that had nothing to act on:
+        the shortlist of a match restricted to named samples, and both the shortlist and the df
+        cutoff when band_matches_required is 0 and no MinHash candidates are looked up at all.
+        """
+        minhash_stage = self._band_matches_required > 0
+        band_df_cutoff = self._band_df_cutoff
+        if band_df_cutoff is None:
+            band_df_cutoff = getattr(self._worker.config.STORAGE_CONFIG, "STORAGE_BAND_DF_CUTOFF", 0)
+        if self._sample_shortlist is not None:
+            shortlist_size = self._getShortlistSize()
+        elif minhash_stage and self._takesShortlist():
+            shortlist_size = 0
+        else:
+            shortlist_size = None
+        fallbacks = {}
+        if self._shortlist_fallback is not None:
+            fallbacks["shortlist_size"] = self._shortlist_fallback
+        return {
+            "requested": dict(self._requested_knobs),
+            "applied": {
+                "minhash_threshold": self._minhash_threshold,
+                "pichash_size": self._pichash_size,
+                "band_matches_required": self._band_matches_required,
+                "shortlist_size": shortlist_size,
+                "band_df_cutoff": band_df_cutoff if minhash_stage else None,
+            },
+            "fallbacks": fallbacks,
+        }
+
     def _craftResultDict(self, pichash_matches: HarmonizedMatches, minhash_matches: HarmonizedMatches, num_matches=None) -> Dict:
         # Query, VS, Sample
         # All use this version
@@ -904,9 +1069,9 @@ class MatcherInterface:
             else:
                 all_matches[key] = new_entry
 
-        _, _, pichash_aggregation, _ = self._summarizeMatches(self._sample_id, pichash_matches, False)
+        _, _, pichash_aggregation, _ = self._summarizeMatches(self._sample_id, pichash_matches, True)
         # Assume that every pichash is also a min hash:
-        _, _, minhash_aggregation, _ = self._summarizeMatches(self._sample_id, minhash_matches, False)
+        _, _, minhash_aggregation, _ = self._summarizeMatches(self._sample_id, minhash_matches, True)
 
         (all_functions_summary, all_functions_list, all_aggregation, num_library_bytes) = self._summarizeMatches(self._sample_id, all_matches, False)
         sample_summary = self._aggregateMatchSampleSummary(all_functions_list, self._sample_info, num_library_bytes)
@@ -915,6 +1080,7 @@ class MatcherInterface:
                 "job": None,
                 "sample": self._sample_info,
                 "type": "",
+                "matching": self._getMatchingInfo(),
             },
             "matches": {
                 "aggregation": {
