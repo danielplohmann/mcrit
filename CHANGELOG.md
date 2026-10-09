@@ -24,6 +24,514 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   stored before this carry no extras and rebuild with an empty report's defaults for them, and
   functions whose disassembly was dropped are absent from the rebuilt xcfg ([#94]).
 
+## [1.14.0] - 2026-10-09
+
+**Minor release: one addition, fixes, and nothing to run on a deployment that keeps the defaults.**
+The band df cutoff coverage report (#201) is new API, hence 1.14 rather than a patch. No new
+indexes, no change to `RESULTS_VERSION`, no repair jobs.
+
+- **A deployment that set `SHINGLER_LOGBUCKETS` or `SHINGLER_LOGBUCKET_RANGE` away from its default
+  needs a full re-index after upgrading**, and its exports regenerated afterwards: it was hashing
+  with the default table all along (see Fixed). On the defaults, MinHashes are unchanged.
+- Under `STORAGE_BAND_BUCKET_SIZE`, run `rebuild_band_df_index` once if band documents were ever
+  deleted: it recreates a bucket 0 that went missing, which the cutoff and the coverage report
+  otherwise cannot see (see Fixed).
+
+### Added
+
+- `docs/limitations.md` records what the data model deliberately leaves out, starting with
+  functions whose body a linker folded under several names: MCRIT keeps one of them, which bounds
+  attribution by name and understates it when scored against a single expected name ([#126]).
+
+- **What `STORAGE_BAND_DF_CUTOFF` skips is measurable** ([#201]), as a job:
+  `GET /band_df_cutoff_coverage` (optionally `?band_df_cutoff=N`, refused with a 400 unless an
+  integer from 0 to 2^63 - 1, the largest a BSON integer holds) answers a job id, and
+  `McritClient.requestBandDfCutoffCoverage()` does the same. Its result gives per band and in total
+  the band hashes, the postings (sum of df), how many of each are over the cutoff and the
+  fractions, plus the same totals at the reference cutoffs 50, 100, 200, 500 and 1000 - so a cutoff
+  of `0` still shows what one would skip, and two reports compare whatever cutoff each asked about.
+  The worker logs the headline at INFO.
+
+  The cutoff is a fixed number while posting lists lengthen with the corpus (band-hash vocabulary
+  follows Heaps' law, V(n) = 1412.8 · n^0.7247), so the share it skips grows silently. On a
+  7,244-sample real corpus, at 200, **46.4 % of band postings (51.8 M of 111.8 M) sit
+  in 0.97 % of band hashes (83,235 of 8,538,312)**. The count runs off the query path on purpose:
+  a per-lookup count would roughly double each band lookup's index work. On MongoDB each band is
+  one `$group` over a covered scan of the `(band_hash, df)` index (hinted, no band document
+  fetched, constant memory, no `allowDiskUse`); on that corpus (MongoDB 7.0) a single index-only
+  `$group` of exactly this shape took 39.3 s for all 20 bands, about 1.1 to 2 s per band.
+
+  **Caveats**: the share is a leading indicator, not recall - re-measure recall with
+  `benchmarks/compare_quality.py` when it moves. A database whose df is not trusted yet (built
+  before df, until `rebuild_band_df_index` has run) gets `available: false` and a message saying
+  so instead of numbers; df-less documents are never counted as empty posting lists. Under
+  `STORAGE_BAND_BUCKET_SIZE` a spilled hash counts once with its bucket-0 total; a hash whose
+  bucket 0 is missing is not counted (nor served under the cutoff) until `rebuild_band_df_index`
+  repairs it (see Fixed). MemoryStorage
+  counts the same numbers and, since [#217], applies the cutoff when matching as MongoDbStorage
+  does, so both report `backend_applies_cutoff: true`; a backend that did not apply it would say
+  so in the headline.
+  WAND/MaxScore pruning was not built: it needs posting lists sorted by function id, which the
+  fill-order buckets of `STORAGE_BAND_BUCKET_SIZE` are not.
+
+### Fixed
+
+- **Unique blocks in memory mode failed for any subset of the stored samples.**
+  `MemoryStorage.getUniqueBlocks` raised `KeyError` whenever the store held samples other than the
+  ones asked about: it collected the blocks of every stored function and then counted them against
+  the requested samples only. It now reads the blocks of the requested samples, as `MongoDbStorage`
+  does, and answers the same.
+
+- `SHINGLER_LOGBUCKETS` and `SHINGLER_LOGBUCKET_RANGE` take effect. The logbucket table was cached as
+  `mcrit/cache/logbuckets.json` whatever its parameters and loaded whenever that file existed, and
+  the package ships it, so every installed package hashed with the 100,000/1 default table
+  regardless of what it configured - `LogBucket(1024, 1)` answered with 100,000 entries ([#202],
+  [#215]); a source checkout whose copy of the file had been deleted hashed with whichever table it
+  built next, and needs a re-index as well unless that table was built for the values it is
+  configured with. The shipped file is now `logbuckets_100000_1.json`, byte for byte the same table, so **a
+  deployment on the defaults hashes exactly as before and needs nothing**. One that set either
+  value away from its default was hashing with the default table all along; its MinHashes now
+  follow its settings and no longer agree with what is stored, so it needs a full re-index after
+  upgrading. Its exports have to be regenerated after that re-index, too: their `config.shingler`
+  hash already encodes the non-default values, so an upgraded instance with the same settings
+  would accept them without complaint while their MinHashes came from the default table. A table
+  for other parameters is built in memory once per process (0.2 s at 100,000 entries) and never
+  written to disk, where the old code wrote one into the package directory. The builder cannot
+  produce a proper range for the lowest values once `SHINGLER_LOGBUCKET_RANGE` reaches 5, or when
+  `SHINGLER_LOGBUCKETS` is too small for the range (below 6 for a range of 4), which an installed
+  package never reached, since it always loaded the default table: such a
+  setting now raises `ValueError` when the shinglers are loaded - even with
+  `FuzzyStatPairShingler` weighted 0, as `ShingleLoader` instantiates every shingler - instead of
+  `KeyError` in the middle of indexing. A `SHINGLER_LOGBUCKETS` below 1 or a negative range raises
+  `ValueError` as well, and a non-int value of either `TypeError`.
+
+- **With `STORAGE_BAND_BUCKET_SIZE` set, a band hash that deletions shrank back under
+  `STORAGE_BAND_DF_CUTOFF` lost the candidates in its upper buckets.** The df-indexed lookup
+  matches bucket 0 alone, the only document carrying df. For a hash that never spilled that is all
+  of it, and a spilled hash has a df the cutoff rejects - but pulls can bring a spilled hash's df
+  back under the cutoff while its surviving postings sit in buckets above 0. The lookup then
+  returned bucket 0's postings only, often none, and matching treated the hash as one without
+  candidates, with no error. A lookup now also fetches the upper buckets of every admitted hash
+  whose bucket 0 names a tail above 0, in one indexed query per band; only deletions produce such
+  a hash, so the query is normally never made, and the df index flag is now read once per lookup
+  rather than once per band. This covers the df-indexed lookup; the `$size` fallback, used only
+  until `rebuild_band_df_index` has run once after enabling bucketing, still measures bucket 0
+  alone. The df match now admits bucket 0 alone, so a stray df on an upper bucket (only switching
+  bucketing back off, which is unsupported, stamps one) cannot admit that bucket twice, and a
+  lookup reads a bucket 0 without a posting list as an empty one instead of failing the job with
+  `KeyError: 'function_ids'`. `getCandidatesForMinHash`, the single-function lookup no matcher
+  uses but the storage interface offers, read only the first document the lookup returned, so
+  under bucketing it missed every bucket but one even without a cutoff; it reads them all now.
+  Whether the upper buckets are fetched is decided from the cutoff the job applies, so a
+  per-request `band_df_cutoff` neither counts a hash twice nor misses a shrunk hash's buckets.
+
+- **One function stored without its disassembly failed every function hashed beside it.** A
+  function's `xcfg` reads back as `{}` once `STORAGE_DROP_DISASSEMBLY` removed it, once a blob over
+  MongoDB's 16 MiB limit was dropped at insert ([#42]), or after importing an export of such an
+  instance, and smda rejects `{}` ("serialized function is incomplete"; smda before 4.4.5 raised
+  `KeyError`). `Worker.calculateMinHashes` handed it over anyway, so the minhashing job of that
+  sample - and every `complete_minhashes` batch of 10,000 functions it fell into - failed, on
+  every retry; `recalculateAllPicHashes` stopped on a stored `{}` and link-hunt clustering
+  (`MatchingResult.clusterLinkHuntResult`) on an entry whose disassembly was dropped. All of them now
+  rebuild through one helper, `FunctionEntry.smdaFunctionFromXcfg`, skip such a function and log
+  one warning per call with the number skipped; `recalculateAllPicHashes` no longer counts a
+  skipped function's old block hashes in `picblockhashes_updatable`.
+  `FunctionEntry.toSmdaFunction` answers `None` for it, so a caller that used its result
+  unchecked now has to handle `None`. An `xcfg` that is present but lacks a field smda requires
+  still raises, now naming the fields. The cause does not depend on the smda version: every smda
+  release MCRIT supports requires the same fields (4.4.5 and newer check for them, older ones read
+  them unconditionally), and none can rebuild a function from `{}`. A skipped function stays
+  without a minhash, and the warning with the count is the only trace of it.
+
+  The unique-blocks job (`getUniqueBlocks`) failed the same way, with `KeyError: 'blocks'`, when a
+  candidate block's function had no disassembly: MemoryStorage only guarded against `None`, and
+  MongoDbStorage decoded a missing or `{}` blob to `{}` and indexed it anyway. Such blocks are now
+  reported without instructions (an empty `instructions` list and `escaped_sequence`) on both
+  backends, as MemoryStorage already did for a block offset its xcfg lacks, instead of failing the
+  job. The job leaves them out of its result and counts them in
+  `statistics["blocks_without_instructions"]`: with no instructions to show and no bytes to match
+  on, a block cover that picked them claimed a complete rule that then failed to render (`max()` of
+  no instructions) or rendered an empty, invalid string, and MCRITweb's block table fails on a
+  block without instructions the same way. `UniqueBlocksResult.generateBlockCover` skips such a
+  block too, for results stored before. A sample hashed under `STORAGE_DROP_DISASSEMBLY` therefore
+  completes the job with no unique blocks to show and no YARA rule, and says why in that count.
+
+- With memory storage and the fake queue (`STORAGE_METHOD = "memory"`, `QUEUE_METHOD = "fake"`), no
+  job or result could be fetched by id: `LocalQueue` minted `uuid4` ids, and `/jobs/{id}`,
+  `/jobs/{id}/result`, `/results/{id}` and `/results/{id}/job`, as well as `DELETE /jobs/{id}`,
+  accept only the 24 hex characters of an ObjectId, so every one of them answered 400 ([#203]).
+  `LocalQueue` now mints ObjectIds as `MongoQueue` does; the accepted id format is unchanged. The id
+  check is also anchored at the end: an id that merely started with 24 hex characters used to pass
+  it and then fail as an invalid ObjectId inside `MongoQueue`, which the client saw as a 500
+  instead of the 400 it now gets. Ids from either queue have exactly 24, so no valid request is
+  affected, and the routes hand them on in lower case, the form both queues store, so an id in
+  upper case now finds its job in `LocalQueue` too, as it always did in `MongoQueue` - and so does
+  one in a `GET /jobs?job_ids=...` selection. Reaching these
+  routes in that mode exposed `LocalQueue` indexing its file tables with ids they did not hold.
+  `/results/{id}/job` for an unknown id and `DELETE /jobs/{id}` for a job without a result (failed
+  or terminated; this one also answered 500 and left the job half deleted) each left an empty entry
+  behind, on which the next periodic clean-up, and from then on every new job, failed with a
+  `TypeError`; `/results/{id}?compact=true` for an unknown id answered 500. All three now answer
+  `null`, or delete the job, and leave the tables alone. `MongoQueue` answered every one of the
+  result routes for an unknown result id with a 500 (GridFS raising `NoFile` for its metadata) and
+  now answers `null` as well.
+
+- **`rebuild_band_df_index` recreates a missing bucket 0** under `STORAGE_BAND_BUCKET_SIZE`. It
+  only updated an existing bucket 0, so a hash whose bucket 0 was gone while higher buckets
+  survived kept no df anywhere: the cutoff never served its postings and the coverage report
+  ([#201]) could not count them, with no error either way. The rebuild now upserts bucket 0 while
+  postings survive, as the recompute after a deletion already did. Both now create it with an
+  empty posting list: the recompute's upsert left `function_ids` out, so the next candidate lookup
+  that returned the recreated document raised `KeyError: 'function_ids'` and failed the job.
+
+## [1.13.0] - 2026-09-29
+
+**Results change in this release, and the upgrade has an order.** Matching stays within one
+architecture (#230), a request's `minhash_score` now applies (#235), and non-Intel block hashes and
+AArch64 minhashes are recomputed (#244, #245). Cached jobs are keyed on the values they run with and
+on `RESULTS_VERSION` 2 (#235, #243), so every cached match is recomputed once on its next request.
+Rehearsed on a copy of an 8,699-sample / 11.7M-function corpus whose reports go back to smda 1.9,
+with this release, smda 4.9.0 and picblocks 2.1.0:
+
+1. **Upgrade server and workers together.** The server now resolves the matching defaults, and an
+   older worker fails matching jobs on arguments it does not know. Rebuild images: picblocks 2.1.0 is
+   the floor (#230). smda 4.9.0 escapes Intel, AArch64, CIL and Dalvik exactly as 4.5.0 did, so its
+   fingerprints and every rehashed minhash and PicHash are unchanged.
+2. **The first start builds new indexes before storage answers** - 34 of them from 1.9.x, in
+   **7.5 min** on that corpus.
+3. **`recalculatePicHashes`**, then **`rebuildPicBlockHashIndex`**, then **`repairMinHashes`** - in
+   **1 h 46 min**, **5 min** and **6 s** there. `recalculatePicHashes` revisits every sample whose
+   report predates smda's escaper compatibility version (4.4.5), whatever its architecture, so on an
+   older corpus it is a full pass; most of it is the recompute, and the final `reIndex` of `functions`
+   took 8 min. NOTE that it is worth it beyond non-Intel samples: on that corpus it rewrote **435,122
+   function PicHashes**, 357,474 of them in the 376 Intel samples whose reports came from smda 1.9.x
+   (62% of their functions), whose minhashes had been repaired before but whose PicHashes never were.
+   Exact matches against such samples come back, e.g. 6,565 -> 24,824 foreign PicHash matches for
+   one of them.
+4. Serve matching after that. Job caches do not key on corpus data, so a match computed between the
+   upgrade and the end of the repairs would hold pre-repair PicHashes.
+
+### Added
+
+- `QUEUE_SPAWNINGWORKER_CHILD_MAX_MEMORY` bounds the memory of each job a spawning worker runs
+  ([#69]). Off by default. The worker measures the resident size of the job's process tree once a
+  second and kills a job over the limit, which then fails like any other failing job instead of
+  taking the host's memory from the workers beside it - the failure reported, one query growing a
+  worker to tens of GB and starving the rest. Linux only (it reads `/proc`); see `docs/TUNING.md`
+  for sizing.
+
+- A worker running jobs in its own process returns the memory a finished job freed to the operating
+  system (`malloc_trim`, glibc only), instead of holding on to its largest job's peak while idle
+  ([#69]). Sample matching on a 7,244-sample corpus left an idle worker at 1.0-2.3 GiB before and at
+  0.45-0.58 GiB after, for 30-120 ms per job; the reports are identical.
+
+- **`recalculatePicHashes` also redoes the block hashes of non-Intel samples that a picblocks
+  before 2.1.0 computed**, which escaped every block as Intel code, and `/status` counts them as
+  `num_samples_with_stale_picblockhashes` ([#240]). Samples stored from now on record the
+  picblocks their block hashes came from (`picblockhash_version`); a non-Intel sample without that
+  record, or with an older one, is rehashed and then recorded. That covers every sample stored
+  before, and every imported one, whose block hashes another instance computed. Intel samples are
+  left to the existing SMDA version check, since their block hashes did not change. MongoDB storage
+  only; the in-memory storage has no recalculation and leaves the count out of `/status`.
+
+  NOTE that a sample with a function whose disassembly is gone (e.g. dropped with
+  `STORAGE_DROP_DISASSEMBLY`) cannot be rehashed completely, so it stays counted until it is
+  deleted and submitted again. Rewritten block hashes mark the picblockhash index incomplete until
+  `rebuildPicBlockHashIndex` runs, as any recalculation that changes block hashes does, and
+  unique-blocks results computed before stay in the job cache until their job is deleted
+  (`DELETE /jobs/<job_id>`), since the unique-blocks routes do not take `force_recalculation`.
+
+- `POST /delete_orphaned_queue_files` (`McritClient.deleteOrphanedQueueFiles`) schedules a job that
+  deletes the queue's GridFS data no job refers to any more: results whose job is gone, submitted
+  files no existing job uses and no submission holds, and chunks whose file document is gone. Its
+  result says how many of each it deleted; with `dry_run=true` it deletes nothing and says how many
+  it would have, which a real run can undercut when a submission claims one of the files in between.
+  This is what the deletion paths fixed below left behind, so an instance that has deleted jobs
+  before - including through the query-sample cleanup - should run it once. MongoDB reuses the space
+  freed; returning it to the operating system still takes a `compact`. A job is looked for in every
+  queue of the database, since they share its GridFS. `dry_run=true` or `dry_run=false` has to be
+  given in the query string; a request without it, or with any other value, is answered with 400
+  rather than taken as a real run. Chunks younger than an hour are left alone, as GridFS writes a
+  file's chunks before its document, and so is a file still claimed by a submission that died before
+  creating its job. The submitted files it deletes include binaries of indexed samples that an
+  earlier bulk deletion left in the queue: MCRIT never serves those, but they may be a deployment's
+  only copy of a binary, so take one first if that matters; the dry run counts them among the file
+  parameters.
+
+- `/status` reports `escaper_fingerprints`, and exports record, a fingerprint of how smda escapes
+  AArch64, ARM (A32/Thumb), CIL and Dalvik code next to the Intel one ([#93]), so that a change in
+  how smda escapes any architecture MCRIT computes MinHashes for shows, not only an Intel one. ARM
+  reads `unavailable` under an smda that has no ARM escaper yet, as PyPI's 4.8.0 does. The Intel
+  fingerprint, and `escaper_fingerprint` in `/status`, are unchanged; an import compares only the
+  architectures the export holds samples of. An export made before carries the Intel fingerprint
+  alone: it is compared as before when it holds Intel samples, and otherwise logs that it has
+  nothing to compare.
+
+- **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
+  `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
+  parameters of the `/matches/sample/...` and `/query/...` endpoints, and as keyword arguments of
+  `McritClient.requestMatchesForSample`, `getMatchesForSmdaFunction` and the three
+  `requestMatchesFor...` query methods (`requestMatchesForSampleVs` and `requestMatchesCross` take
+  `band_df_cutoff` only). Both change which matches are reported, so they are a choice per request
+  rather than per deployment. `0` switches either off. A value that is not an integer from 0 to
+  2^63 - 1 (the largest integer a MongoDB query takes; the df cutoff goes into one) is refused with
+  a 400 - a repeated parameter as well - as is, with band bucketing on, a `band_df_cutoff` above
+  `STORAGE_BAND_BUCKET_SIZE` - the check the storage makes for a configured cutoff at startup
+  ([#196]) - and a `shortlist_size` on a match restricted to the samples it names: one sample
+  against another, within a group (`sample_group_only`) or across several (a cross compare).
+  Refused rather than replaced or dropped, unlike the older options, because a changed value
+  answers a question the caller did not ask and nothing in the response would say so.
+
+- **Matching presets, `hunt` and `identification`** ([#217]), per request as `preset=` on the
+  `/matches/sample/...` and `/query/...` endpoints, and as `preset` on `McritClient`'s matching
+  methods and `MinHashIndex`'s matching jobs. Both use `band_matches_required=1`, below the default
+  of 2: in the measurements on [#217] turning the shortlist on never moved top-10 or top-25 recall,
+  while every higher value did. `hunt` turns the shortlist off - the most exhaustive and slowest of
+  the measured configurations, the baseline the others were compared with. `identification` turns
+  it on, at the configured `MINHASH_MATCHING_SHORTLIST_SIZE` or else 100, the size measured on
+  [#195]; k=1 with the shortlist on was the only non-baseline combination that held recall at 1.000
+  on both queries measured, at about 3x the speed of k=1 without it. A preset only fills in the
+  knobs a request leaves out (the df cutoff keeps its configured value unless the request sets one)
+  and is expanded into their values before the job is submitted, so the job is keyed on what it
+  runs with, shares its result with the equivalent explicit request, and its report shows the
+  values rather than the preset's name. On a match restricted to the samples it names it applies
+  all but the shortlist. An unknown or repeated preset is refused with a 400. The "fast" preset the
+  issue floated is left out until a measurement defines it. `docs/TUNING.md` has the table.
+
+- **Every match report records its knobs under `info.matching`** ([#217]): `requested` (the values
+  the job was submitted with; the server and `MinHashIndex` fill in the configured value of every
+  knob a caller leaves out, so `null` appears for a knob the job does not take - the shortlist of a
+  match restricted to named samples - for a job handed to a `Worker` directly, and for every knob of
+  a job queued before this version), `applied`
+  (what it ran with; `null` for a knob with nothing to act on - the shortlist of a match restricted to
+  named samples, and both shortlist and df cutoff when `band_matches_required` is 0) and `fallbacks`
+  (knob to reason, for any that could not be applied). The one fallback so far is a shortlist while
+  the function range index is incomplete or unsupported (`function_range_index_incomplete` /
+  `function_range_index_unsupported`): the job matches against the whole corpus, as before, and now
+  says so instead of only logging it. `MatchingResult` keeps the block as `matching_info` through
+  `fromDict`/`toDict`.
+
+### Changed
+
+- Query matching (a binary or SMDA report matched without being stored) looks up PicHash matches in
+  one query for all of the query's hashes instead of one query per hash, and applies
+  `MINHASH_PICHASH_MAX_MATCHES` as sample matching already did, so a hash held by much of the
+  corpus no longer returns one tuple per holder there either ([#69]). With the knob at its default
+  of 0, the matches are exactly the ones reported before. `MemoryStorage` applies the cutoff too;
+  it ignored it for sample matching as well.
+
+- The pichash and minhash totals of a match report are computed without building the per-function
+  match lists they used to build and throw away, which were two of the three full passes over
+  every match ([#69]). The report is unchanged: tests compare both ways on every call during sample
+  and query matching.
+
+- **`FuzzyStatPairShingler` reads the frame size of AArch64 functions**, from `sub sp, sp, #imm`
+  and pre-indexed pushes such as `stp x29, x30, [sp, #-0x20]!` in the first ten instructions of the
+  entry block, as it reads `sub esp/rsp` for Intel, where it took 0 for every non-Intel function
+  before ([#238]). Matched through MCRIT's own banding on smda's AArch64 Mach-O corpus (12
+  families, one sample each) plus the FlexibleFerret/FrostyFerret test fixtures, MinHash-only
+  matches across families fell from 384 to 289, and those within the ferret family went from 109 to
+  111; one of the five confirmed ferret matches (score 56.25 now) shares one band with its partner
+  instead of two and is no longer found. CIL and Dalvik have no frame to read and keep 0.
+  `RESULTS_VERSION` goes up with this ([#241]), so match reports cached before are recomputed on
+  their next request rather than handed out with the old AArch64 matches.
+
+  NOTE that this changes the MinHashes of every AArch64 function. Samples now record the shingler
+  revision their MinHashes were computed at (`minhash_shingler_revision`), AArch64 samples hashed
+  before count in `num_samples_with_stale_minhashes` on `/status`, and `repairMinHashes` rehashes
+  them. A sample with no function large enough to hash is recorded as current instead of being
+  skipped; one whose disassembly was dropped with `STORAGE_DROP_DISASSEMBLY` still is, and has to be
+  deleted and submitted again. Until the repair has run, AArch64 samples indexed before and after
+  the upgrade match each other less well, and AArch64 match reports cached in that window keep
+  their results until requested with `force_recalculation`. Upgrade the workers before running the
+  repair: an older worker rehashes with the old shingler.
+
+### Fixed
+
+- A spawning worker started its job processes as `python` from `PATH`, which need not be the
+  interpreter MCRIT runs in; it now uses the same one.
+
+- **A query parameter given twice answered 500, or quietly matched nothing.** falcon hands a
+  repeated parameter over as a list, and the responders read single values. On `/jobs` and
+  `/jobs/count` a repeated `sample_ids` or `job_ids` ([#210]) failed in the comma-list parsers, a
+  repeated `start`, `limit`, `ascending`, `state` or `filter` failed converting or matching it,
+  and a repeated `method` or `username` reached the queue as a list and matched no job; the same
+  `.lower()` and `int()` calls failed on a repeated `compact` of the result routes, `with_refresh`
+  of `/jobs/stats`, and the flags and paging of the family, sample, function and status routes,
+  while the matching routes dropped a repeated `minhash_score` and friends for the configured
+  value. A middleware now refuses any repeated parameter with a 400 naming it, after routing (an
+  unknown route still answers 404) and before a responder runs - which of two values was meant is
+  unknowable - and logs it. `sample_ids` and `job_ids` are the exception: a repeat reads as its
+  comma-joined form.
+
+- **`McritClient.getJobCount` and `deleteQueueData` spliced their values into the URL unencoded**,
+  so a `filter` or `method` holding `&` or `#` became a second parameter or cut off the ones after
+  it. They are passed as request parameters now, which encodes them. `addBinarySample` keeps
+  splicing `filename`, `family` and `version` as given, since its caller encodes them (MCRITweb
+  does, and would otherwise see every name with a space or bracket encoded twice); its docstring
+  now says so.
+
+- Deleting a job left its data in GridFS ([#80]). `DELETE /jobs/{id}` and the query-sample cleanup
+  removed only the `fs.files` document of the job's result and of the files it was given, never
+  their `fs.chunks`, so every submitted binary and every result stayed in the database for good,
+  unreachable. Deleting jobs in bulk (`DELETE /jobs` by method or age) removed the result with its
+  chunks, but left the submitted files linked to the deleted jobs, so nothing could ever delete
+  those. Both now delete through GridFS, which takes the chunks along, and release the jobs' files,
+  deleting each one no other job uses. A file is only deleted after clearing its hash in the same
+  update that checks it is still unused, as `clean()` already did, because a new submission of the
+  same binary claims the file by that hash; before, a submission arriving between the check and the
+  deletion could be handed a file that was deleted under it. Bulk deletion also deletes exactly the
+  jobs it listed, rather than evaluating its filter a second time, which also caught a matching job
+  submitted in between without releasing its files and then failed on the count; it works through
+  them in chunks of 10,000, and it now lowers the queue counters for what it deleted, which it
+  computed and never applied, so `/jobs/stats` went on counting bulk-deleted jobs until asked
+  `with_refresh=true` - and even that left the counts of a method with no jobs left as they were,
+  which it now sets to zero. Both lower a job's count from its state just before it is deleted
+  rather than from one read long before, so the counts rarely drift; `with_refresh=true` corrects
+  them when they do. Either deletion removes the job before its result and files, so an interruption
+  leaves only files no job refers to, which the sweep above takes, rather than a finished job
+  without its result, which a repeated request would be handed. The memory queue deletes a job's
+  unused files with it too, and deletes a job without a result.
+
+- Sample, query, function query, vs, vs-group and cross match reports included matches against
+  samples of another architecture ([#93]). A PicHash or MinHash only means the same thing for two
+  functions escaped by one instruction set's rules; across architectures, shingles still collide in
+  bands now and then. On a corpus of 6,315 Intel, 458 CIL, 14 Dalvik and 13 AArch64 samples (and 444
+  SMDA could not disassemble), sample matching reported them at scores of 51 to 61, just over the
+  threshold - one Dalvik sample was reported against 84 samples of other architectures next to 13 of
+  its own. Such matches are now left out, and with `MINHASH_MATCHING_SHORTLIST_SIZE` set, samples of
+  another architecture no longer take places on the shortlist. A corpus of one architecture is
+  matched as before, with the same lookups (with the shortlist on, the entries of the samples voted
+  for are fetched in one batch as well). A sample whose architecture is unknown (an empty string, as
+  a sample SMDA could not disassemble has) is not taken as another one. ARM (A32/Thumb) and AArch64
+  are different architectures here. What is left out was not signal: on the Lazarus backdoor that
+  McAfee tied from Windows (two PE32 builds) to Android (three ARM ELFs) by its C2 protocol, sample
+  matching found no match between the PEs and the ELFs, while it matched the PEs at 100 and the ELFs
+  at 99 among themselves. Across all PE and ELF function pairs the best was 39, and the one pair
+  known to be the same function (the receive routine that checks for 0x301) scored 3.
+  `RESULTS_VERSION` goes to 2 with this, so reports the job cache kept from before, which still
+  hold such matches, are recomputed on their next request rather than handed out again ([#241]).
+
+- Block hashes of non-Intel code are computed with that architecture's escaper: MCRIT now requires
+  picblocks 2.1.0, which escaped every block as Intel code before ([#93]). picblocks was unpinned
+  above 1.1.2, so installations set up since its 2.1.0 release on 2026-09-13 compute the new hashes
+  already; this makes it the floor. Intel block hashes are unchanged. Non-Intel samples indexed
+  before keep the block hashes they were stored with, so their unique blocks compare correctly only
+  with samples indexed before, until `recalculatePicHashes` redoes them ([#240]).
+
+- **`shortlist_size` and `band_df_cutoff` can be set per matching request** ([#217]), overriding
+  `MINHASH_MATCHING_SHORTLIST_SIZE` and `STORAGE_BAND_DF_CUTOFF` for that job alone: as query
+  parameters of the `/matches/sample/...` and `/query/...` endpoints, and as keyword arguments of
+  `McritClient.requestMatchesForSample`, `getMatchesForSmdaFunction` and the three
+  `requestMatchesFor...` query methods (`requestMatchesForSampleVs` and `requestMatchesCross` take
+  `band_df_cutoff` only). Both change which matches are reported, so they are a choice per request
+  rather than per deployment. `0` switches either off. A value that is not an integer from 0 to
+  2^63 - 1 (the largest integer a MongoDB query takes; the df cutoff goes into one) is refused with
+  a 400 - a repeated parameter as well - as is, with band bucketing on, a `band_df_cutoff` above
+  `STORAGE_BAND_BUCKET_SIZE` - the check the storage makes for a configured cutoff at startup
+  ([#196]) - and a `shortlist_size` on a match restricted to the samples it names: one sample
+  against another, within a group (`sample_group_only`) or across several (a cross compare).
+  Refused rather than replaced or dropped, unlike the older options, because a changed value
+  answers a question the caller did not ask and nothing in the response would say so.
+
+- **Matching presets, `hunt` and `identification`** ([#217]), per request as `preset=` on the
+  `/matches/sample/...` and `/query/...` endpoints, and as `preset` on `McritClient`'s matching
+  methods and `MinHashIndex`'s matching jobs. Both use `band_matches_required=1`, below the default
+  of 2: in the measurements on [#217] turning the shortlist on never moved top-10 or top-25 recall,
+  while every higher value did. `hunt` turns the shortlist off - the most exhaustive and slowest of
+  the measured configurations, the baseline the others were compared with. `identification` turns
+  it on, at the configured `MINHASH_MATCHING_SHORTLIST_SIZE` or else 100, the size measured on
+  [#195]; k=1 with the shortlist on was the only non-baseline combination that held recall at 1.000
+  on both queries measured, at about 3x the speed of k=1 without it. A preset only fills in the
+  knobs a request leaves out (the df cutoff keeps its configured value unless the request sets one)
+  and is expanded into their values before the job is submitted, so the job is keyed on what it
+  runs with, shares its result with the equivalent explicit request, and its report shows the
+  values rather than the preset's name. On a match restricted to the samples it names it applies
+  all but the shortlist. An unknown or repeated preset is refused with a 400. The "fast" preset the
+  issue floated is left out until a measurement defines it. `docs/TUNING.md` has the table.
+
+- **Every match report records its knobs under `info.matching`** ([#217]): `requested` (the values
+  the job was submitted with; the server and `MinHashIndex` fill in the configured value of every
+  knob a caller leaves out, so `null` appears for a knob the job does not take - the shortlist of a
+  match restricted to named samples - for a job handed to a `Worker` directly, and for every knob of
+  a job queued before this version), `applied`
+  (what it ran with; `null` for a knob with nothing to act on - the shortlist of a match restricted to
+  named samples, and both shortlist and df cutoff when `band_matches_required` is 0) and `fallbacks`
+  (knob to reason, for any that could not be applied). The one fallback so far is a shortlist while
+  the function range index is incomplete or unsupported (`function_range_index_incomplete` /
+  `function_range_index_unsupported`): the job matches against the whole corpus, as before, and now
+  says so instead of only logging it. `MatchingResult` keeps the block as `matching_info` through
+  `fromDict`/`toDict`.
+
+- **A repeated request for a match report, cross compare or unique-blocks result is no longer
+  answered with a job computed before an upgrade that changed such results.** A job's cache key
+  held the method, its parameters and the hashes of uploaded files, so after an upgrade that
+  changes what these reports hold, asking again returned the job the old code computed until
+  someone passed `force_recalculation`, or deleted the job for unique blocks, whose routes do not
+  take that flag. These jobs now record a results version
+  (`mcrit.Worker.RESULTS_VERSION`, appended to the job descriptor) and are only reused within one.
+  NOTE that after upgrading to this release, and after any later release that bumps the version,
+  the first repeat of each request (the same method and parameters, or the same uploaded file for
+  a query) is computed again; the old jobs stay listed. Jobs that add, change or delete data keep
+  their cache as before ([#241]).
+
+- **A matching job's cached result could be served for different settings** ([#217]). A job is reused
+  for any later request with the same arguments, and a request that left an option out was keyed
+  on its absence, not on the value the worker then filled in from its configuration. So after a
+  change to `MINHASH_MATCHING_THRESHOLD`, `PICHASH_SIZE`, `BAND_MATCHES_REQUIRED`,
+  `MINHASH_MATCHING_SHORTLIST_SIZE` or `STORAGE_BAND_DF_CUTOFF`, every request relying on the default
+  was served the result computed under the old value. `MinHashIndex` - behind the server, and for
+  any direct caller - now puts the value of all five into each matching job's arguments, the
+  configured one where the caller names none (`mcrit.index.MatchingParameters`), in a fixed order so
+  a job listing shows each knob in the same position. Jobs from before the upgrade were keyed
+  without them, so the first repeat of each matching request after the upgrade computes a fresh
+  result instead of reusing the old one - a one-off recompute, not a correctness change.
+  **Upgrade server and workers together:** the server's configuration now decides these defaults for
+  the jobs it submits (it used to be each worker's), and a worker from before this change fails
+  every matching job on the `shortlist_size` and `band_df_cutoff` arguments it does not know.
+  A job submitted while the shortlist cannot be applied is marked so in its arguments
+  (`shortlist_unavailable`), so its whole-corpus result has a cache key of its own and is not served
+  for the same request once the index is complete again. A job whose shortlist became unavailable
+  only after submission - a rebuild of the function range index started in between, or during the
+  run - is marked `cacheable: false` on the job document before it completes, on every worker
+  (`mcrit worker` and each job `mcrit spawningworker` runs), and a request made after that is not
+  handed its result: a job method can return its result as a `QueueRemoteCalls.UncacheableResult`,
+  and both queues' cache lookups skip such jobs. A request that attached to the job while it was
+  still queued or running does receive that result, with the fallback named in
+  `info.matching.fallbacks`. Knob values are normalised in the key (`50.0` and `50`, `True` and `1`
+  are one job).
+
+- **A matching request's `minhash_score` had no effect on the result** ([#217]). The matchers filtered
+  candidate pairs on the configured `MINHASH_MATCHING_THRESHOLD` alone; the requested threshold was
+  handed to the scoring call only together with `ignore_threshold=True`. It now decides which
+  MinHash matches are reported, on both the vectorized and the pairwise path. Requests that do not
+  set it, or set the configured value, get the same result as before; the others get what they
+  asked for. The same holds on the process-pool path. `/query/function` also passed the requested
+  `minhash_score` and `pichash_size` on as `None`, hard-coded `exclude_self_matches` to `False`
+  although `McritClient.getMatchesForSmdaFunction` sends it, and failed on `force_recalculation`;
+  it applies all three now and accepts the last.
+
+- **`MemoryStorage` ignored `STORAGE_BAND_DF_CUTOFF`** ([#217]); it applies it now, and a job's own
+  `band_df_cutoff`.
+
+- **A match between named samples could leave some of them out** ([#217]). Matching one sample
+  against another (`/matches/sample/{a}/{b}`), within a group
+  (`sample_group_only`) or across several (`/matches/sample/cross/...`) with
+  `MINHASH_MATCHING_SHORTLIST_SIZE` set could leave out the very samples it was asked about: the
+  shortlist is ranked over the whole corpus, and a named sample outside its top entries was not
+  matched - in a cross compare its pair read as 0 %. None of them takes a shortlist any more: one
+  asked for is refused, with a 400 on the routes and a `TypeError` for a direct `MinHashIndex`
+  caller, and a cross compare asks its 1-vs-corpus jobs for `shortlist_size=0` explicitly, since a
+  job left without one would take the configured shortlist.
+
+- **The df-cutoff fallback served a spilled band hash as bucket 0 alone** ([#196]). With band
+  bucketing on and the df index not yet trusted (before `rebuild_band_df_index` has run), the
+  fallback measures bucket 0's list, and a full bucket 0 is exactly `STORAGE_BAND_BUCKET_SIZE`
+  long, so at a cutoff equal to the bucket size a spilled hash passed and a truncated posting list
+  was served. The fallback no longer serves a hash whose bucket 0 names a tail above 0; one that
+  pulls shrank below the cutoff is therefore left out by it rather than served truncated. (The
+  df-indexed lookup reads such a shrunk hash's upper buckets only with the separate fix for it.)
+
 ## [1.12.0] - 2026-09-25
 
 ### Added
@@ -596,3 +1104,17 @@ date, the version, and what changed.
 [#207]: https://github.com/danielplohmann/mcrit/issues/207
 [#210]: https://github.com/danielplohmann/mcrit/issues/210
 [#94]: https://github.com/danielplohmann/mcrit/issues/94
+[#241]: https://github.com/danielplohmann/mcrit/issues/241
+[#93]: https://github.com/danielplohmann/mcrit/issues/93
+[#196]: https://github.com/danielplohmann/mcrit/pull/196
+[#217]: https://github.com/danielplohmann/mcrit/issues/217
+[#195]: https://github.com/danielplohmann/mcrit/pull/195
+[#80]: https://github.com/danielplohmann/mcrit/issues/80
+[#238]: https://github.com/danielplohmann/mcrit/issues/238
+[#240]: https://github.com/danielplohmann/mcrit/issues/240
+[#69]: https://github.com/danielplohmann/mcrit/issues/69
+[#126]: https://github.com/danielplohmann/mcrit/issues/126
+[#201]: https://github.com/danielplohmann/mcrit/issues/201
+[#202]: https://github.com/danielplohmann/mcrit/issues/202
+[#203]: https://github.com/danielplohmann/mcrit/issues/203
+[#215]: https://github.com/danielplohmann/mcrit/issues/215

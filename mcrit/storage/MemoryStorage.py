@@ -15,6 +15,7 @@ from picblocks.blockhasher import BlockHasher
 from mcrit.index.SearchCursor import FullSearchCursor
 from mcrit.index.SearchQueryTree import AndNode, BaseVisitor, FilterSingleElementLists, NodeType, OrNode, PropagateNot, SearchConditionNode, SearchFieldResolver
 from mcrit.minhash.MinHash import MinHash
+from mcrit.minhash.MinHasher import MINHASH_SHINGLER_REVISION
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
@@ -153,6 +154,7 @@ class MemoryStorage(StorageInterface):
         self._pichashes = {}
         self._bands = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         self._minhash_versions: Dict[int, str] = {}
+        self._minhash_shingler_revisions: Dict[int, int] = {}
         self._counters = defaultdict(lambda: 0)
         # initialize query sample/function ids
         if self._counters["query_samples"] == 0:
@@ -371,6 +373,7 @@ class MemoryStorage(StorageInterface):
             function_entry.minhash = b""
             function_entry.shingler_composition = {}
         self._minhash_versions.pop(sample_id, None)
+        self._minhash_shingler_revisions.pop(sample_id, None)
         return num_hashed
 
     def deleteAllMinHashes(self, progress_reporter=None) -> int:
@@ -384,10 +387,16 @@ class MemoryStorage(StorageInterface):
         for sample_id in list(self._samples) if sample_ids is None else sample_ids:
             if sample_id in self._samples:
                 self._minhash_versions[sample_id] = smda_version
+                self._minhash_shingler_revisions[sample_id] = MINHASH_SHINGLER_REVISION
 
     def getSamplesWithStaleMinHashes(self, threshold_version: str) -> List[int]:
         threshold = packaging_version.parse(threshold_version)
-        return sorted(sample_id for sample_id in self._samples if self._isStaleMinHashVersion(self._minhash_versions.get(sample_id), threshold))
+        return sorted(
+            sample_id
+            for sample_id, sample_entry in self._samples.items()
+            if self._isStaleMinHashVersion(self._minhash_versions.get(sample_id), threshold)
+            or self._isStaleShinglerRevision(sample_entry.architecture, self._minhash_shingler_revisions.get(sample_id))
+        )
 
     def deleteFamily(self, family_id: int, keep_samples: bool = False) -> bool:
         if family_id not in self._families:
@@ -800,8 +809,17 @@ class MemoryStorage(StorageInterface):
                 pichash = self._functions[function_id].pichash
                 if pichash is None:
                     continue
-                pichashes[pichash] = deepcopy(self._pichashes[pichash])
+                # a hash over MINHASH_PICHASH_MAX_MATCHES keeps its key with no holders, as in MongoDbStorage
+                pichashes[pichash] = deepcopy(self._pichashes[pichash]) if self._isPicHashWithinMatchCount(pichash) else set()
         return pichashes
+
+    def getMatchesForPicHashes(self, pichashes: List[int]) -> Dict[int, Set[Tuple[int, int, int]]]:
+        return {pichash: set(self._pichashes[pichash]) for pichash in set(pichashes) if self._pichashes.get(pichash) and self._isPicHashWithinMatchCount(pichash)}
+
+    def _isPicHashWithinMatchCount(self, pichash: int) -> bool:
+        """False for a PicHash held by more than MINHASH_PICHASH_MAX_MATCHES functions; the knob is off at 0."""
+        cutoff = getattr(self._minhash_config, "MINHASH_PICHASH_MAX_MATCHES", 0)
+        return cutoff <= 0 or len(self._pichashes.get(pichash, ())) <= cutoff
 
     def getPicHashMatchesBySampleId(self, sample_id: int) -> Optional[Dict[int, Set[Tuple[int, int, int]]]]:
         function_entries = self.getFunctionsBySampleId(sample_id)
@@ -821,20 +839,23 @@ class MemoryStorage(StorageInterface):
 
     # -> Dict[function_id, Set[function_id]]
     # TODO optimize or move to interface
-    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1) -> Dict[int, Set[int]]:
+    def getCandidatesForMinHashes(self, function_id_to_minhash: Dict[int, "MinHash"], band_matches_required=1, band_df_cutoff=None) -> Dict[int, Set[int]]:
         candidates = {}
         for function_id, minhash in function_id_to_minhash.items():
-            candidates[function_id] = self.getCandidatesForMinHash(minhash, band_matches_required=band_matches_required)
+            candidates[function_id] = self.getCandidatesForMinHash(minhash, band_matches_required=band_matches_required, band_df_cutoff=band_df_cutoff)
         return candidates
 
     # -> Set[function_id]
-    def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1) -> Set[int]:
+    def getCandidatesForMinHash(self, minhash: "MinHash", band_matches_required=1, band_df_cutoff=None) -> Set[int]:
         if not minhash.hasMinHash():
             return set()
+        # as in MongoDbStorage: the job's cutoff, else STORAGE_BAND_DF_CUTOFF, and a posting list
+        # longer than it is skipped; this storage used to ignore the cutoff altogether
+        cutoff = getattr(self._storage_config, "STORAGE_BAND_DF_CUTOFF", 0) if band_df_cutoff is None else band_df_cutoff
         candidates = {}
         band_hashes = self.getBandHashesForMinHash(minhash)
         for band_number, band_hash in sorted(band_hashes.items()):
-            if band_hash in self._bands[band_number]:
+            if band_hash in self._bands[band_number] and (cutoff <= 0 or len(self._bands[band_number][band_hash]) <= cutoff):
                 for function_id in self._bands[band_number][band_hash]:
                     if function_id not in candidates:
                         candidates[function_id] = 0
@@ -932,8 +953,13 @@ class MemoryStorage(StorageInterface):
             "num_samples": len(sample_ids),
         }
         candidate_picblockhashes: Dict[int, Dict[str, Any]] = {}
+        wanted_sample_ids = set(sample_ids)
         for function_id, entry in self._functions.items():
             sample_id = entry.sample_id
+            # the blocks of the samples asked about only, as MongoDbStorage reads them; a block
+            # another sample holds too is removed below
+            if sample_id not in wanted_sample_ids:
+                continue
             for block_entry in entry.picblockhashes:
                 block_hash = block_entry["hash"]
                 if block_hash not in candidate_picblockhashes:
@@ -955,7 +981,7 @@ class MemoryStorage(StorageInterface):
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
         for functiond_id, entry in self._functions.items():
             sample_id = entry.sample_id
-            if sample_id not in sample_ids:
+            if sample_id not in wanted_sample_ids:
                 for block_entry in entry.picblockhashes:
                     candidate_picblockhashes.pop(block_entry["hash"], None)
         # update statistics again after having reduced to results
@@ -985,9 +1011,11 @@ class MemoryStorage(StorageInterface):
         for function_id, entry in self._functions.items():
             if function_id not in function_id_to_block_offsets.keys():
                 continue
-            if entry.xcfg is None:
+            # an xcfg is None when not loaded and {} once its disassembly was dropped
+            # (STORAGE_DROP_DISASSEMBLY, #42); either way its blocks keep no instructions
+            blocks = (entry.xcfg or {}).get("blocks")
+            if not blocks:
                 continue
-            blocks = entry.xcfg["blocks"]
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 # a live xcfg (from SmdaFunction.toDict()) keys blocks by int, while one that has
                 # been through a JSON round trip keys them by str - accept either
@@ -1044,6 +1072,21 @@ class MemoryStorage(StorageInterface):
 
     def isBandDfIndexComplete(self) -> bool:
         return True
+
+    # getCandidatesForMinHash skips a posting list longer than the cutoff (#217), so the coverage
+    # report's numbers are what this backend's lookup skips too
+    APPLIES_BAND_DF_CUTOFF = True
+
+    def _countBandDf(self, band_number: int, thresholds: List[int]) -> Dict[str, Any]:
+        # df is the length of the in-memory posting list; an empty list holds no posting, and the
+        # MongoDB count skips its empty documents the same way
+        lengths = [len(function_ids) for function_ids in self._bands[band_number].values() if function_ids]
+        return {
+            "band_hashes": len(lengths),
+            "postings": sum(lengths),
+            "max_df": max(lengths, default=0),
+            "over": {threshold: [sum(1 for df in lengths if df > threshold), sum(df for df in lengths if df > threshold)] for threshold in thresholds},
+        }
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):
         # TODO while minhashes are considerably small, there is a still chance that the

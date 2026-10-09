@@ -1,18 +1,21 @@
+import logging
 import math
 from operator import attrgetter
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from smda.common.BinaryInfo import BinaryInfo
-from smda.common.SmdaFunction import SmdaFunction
 
 import mcrit.matchers.MatcherFlags as MatcherFlags
 from mcrit.libs.graph import Graph
+from mcrit.storage.FunctionEntry import smdaFunctionFromXcfg
 from mcrit.storage.MatchedFunctionEntry import MatchedFunctionEntry
 from mcrit.storage.MatchedSampleEntry import MatchedSampleEntry
 from mcrit.storage.SampleEntry import SampleEntry
 
 if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.SampleEntry import SampleEntry
+
+LOGGER = logging.getLogger(__name__)
 
 # Dataclass, post init
 # constructor -> .fromSmdaFunction
@@ -42,6 +45,9 @@ class MatchingResult:
     is_pic_filtered: bool
     is_query: bool
     filter_values: Dict
+    # the knobs the job was asked for and applied, and why they differ (#217); None for reports
+    # made before the matchers recorded them
+    matching_info: Optional[Dict]
 
     def __init__(self, sample_entry: "SampleEntry") -> None:
         self.reference_sample_entry = sample_entry
@@ -49,6 +55,7 @@ class MatchingResult:
         self.family_id_to_name_map = None
         self.is_query = False
         self.filter_values = {}
+        self.matching_info = None
         self.function_id_to_family_ids_matched = {}
         self._filtered_sample_matches = None
         self._filtered_function_matches = None
@@ -570,11 +577,15 @@ class MatchingResult:
         # extract code references from function_entries via SmdaFunctions
         binfo = BinaryInfo(b"")
         all_function_links = {}
+        without_disassembly = 0
         for function_entry in function_entries:
             binfo.architecture = function_entry.architecture
-            if function_entry.xcfg is None:
+            # None for an entry loaded without its xcfg, and for one whose disassembly was dropped,
+            # which reads back as {}
+            smda_function = smdaFunctionFromXcfg(function_entry.xcfg, binfo)
+            if smda_function is None:
+                without_disassembly += 1
                 continue
-            smda_function = SmdaFunction.fromDict(function_entry.xcfg, binfo)
             for _, to_offsets in (smda_function.outrefs or {}).items():
                 for to_offset in [o for o in to_offsets if o in function_offsets]:
                     from_offset = smda_function.offset
@@ -584,6 +595,9 @@ class MatchingResult:
                     if to_offset not in all_function_links:
                         all_function_links[to_offset] = set()
                     all_function_links[to_offset].add(from_offset)
+        if without_disassembly:
+            # their own code references are unknown, so clusters can come out split - say so once
+            LOGGER.warning("Link hunt clustering: %d function entries have no disassembly and are skipped; their code references are not followed.", without_disassembly)
         # turn into proper (undirected) ICFG and DFS all clusters
         for fam_id, links in candidate_links.items():
             offset_to_link = {}
@@ -639,6 +653,8 @@ class MatchingResult:
             "info": {"sample": self.reference_sample_entry.toDict()},
             "matches": {"aggregation": self.match_aggregation, "functions": summaries, "samples": [match.toDict() for match in self.sample_matches]},
         }
+        if self.matching_info is not None:
+            matching_entry["info"]["matching"] = self.matching_info
         if self.other_sample_entry is not None:
             matching_entry["other_sample_info"] = self.other_sample_entry.toDict()
         return matching_entry
@@ -647,6 +663,7 @@ class MatchingResult:
     def fromDict(cls, entry_dict):
         matching_entry = cls(SampleEntry(None))
         matching_entry.reference_sample_entry = SampleEntry.fromDict(entry_dict["info"]["sample"])
+        matching_entry.matching_info = entry_dict["info"].get("matching")
         if "other_sample_info" in entry_dict:
             matching_entry.other_sample_entry = SampleEntry.fromDict(entry_dict["other_sample_info"])
         else:

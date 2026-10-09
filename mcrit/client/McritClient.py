@@ -191,7 +191,16 @@ class McritClient:
         return handle_response(response, raise_client_errors=self.raise_client_errors, raise_server_errors=self.raise_server_errors)
 
     def _getMatchingRequestParams(
-        self, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False, sample_group_only=False
+        self,
+        minhash_threshold=None,
+        pichash_size=None,
+        force_recalculation=None,
+        band_matches_required=None,
+        exclude_self_matches=False,
+        sample_group_only=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ):
         params = {}
         if minhash_threshold is not None:
@@ -206,6 +215,14 @@ class McritClient:
             params["exclude_self_matches"] = True
         if sample_group_only:
             params["sample_group_only"] = True
+        # left out, the server applies its configured value (#217)
+        if shortlist_size is not None:
+            params["shortlist_size"] = shortlist_size
+        if band_df_cutoff is not None:
+            params["band_df_cutoff"] = band_df_cutoff
+        # a named bundle of knobs (hunt, identification); knobs given explicitly still win
+        if preset is not None:
+            params["preset"] = preset
         return params
 
     def respawn(self):
@@ -251,6 +268,18 @@ class McritClient:
             return response
         return self._handle(response)
 
+    def requestBandDfCutoffCoverage(self, band_df_cutoff=None):
+        """
+        Schedule a job that measures what STORAGE_BAND_DF_CUTOFF skips - band hashes and postings over
+        the cutoff, per band and in total (#201); band_df_cutoff evaluates another cutoff than the
+        configured one. Answers the job id; the job's result is the coverage report
+        """
+        params = {} if band_df_cutoff is None else {"band_df_cutoff": band_df_cutoff}
+        response = requests.get(f"{self.mcrit_server}/band_df_cutoff_coverage", headers=self.headers, params=params, timeout=self.timeout)
+        if self.raw:
+            return response
+        return self._handle(response)
+
     def repairMinHashes(self):
         """
         Schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (#142); answers the job id
@@ -265,6 +294,15 @@ class McritClient:
         Schedule a job that sets every family's sample/function counters from the collections (#151); answers the job id
         """
         response = requests.post(f"{self.mcrit_server}/recompute_family_stats", headers=self.headers, timeout=self.timeout)
+        if self.raw:
+            return response
+        return self._handle(response)
+
+    def deleteOrphanedQueueFiles(self, dry_run=False):
+        """
+        Schedule a job that deletes the GridFS files and chunks no job refers to any more (#80); with dry_run it only counts them; answers the job id
+        """
+        response = requests.post(f"{self.mcrit_server}/delete_orphaned_queue_files", params={"dry_run": "true" if dry_run else "false"}, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return response
         return self._handle(response)
@@ -295,6 +333,12 @@ class McritClient:
             return SampleEntry.fromDict(data["sample_info"]), job_id
 
     def addBinarySample(self, binary: bytes, filename=None, family=None, version=None, is_dump=False, base_addr=None, bitness=None) -> Tuple[SampleEntry, Optional[str]]:
+        """Submit a binary for disassembly and indexing.
+
+        filename, family and version are spliced into the query string as given, so a caller passes
+        them percent-encoded (urllib.parse.quote(value, safe="")); MCRITweb does exactly that. They
+        are deliberately not handed to requests as params, which would encode them a second time.
+        """
         query_fields = []
         if filename is not None:
             query_fields.append(f"filename={filename}")
@@ -575,9 +619,14 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> Any:
         smda_json = smda_report.toDict()
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
         response = requests.post(f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return response
@@ -592,6 +641,9 @@ class McritClient:
         band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> Any:
         if disassemble_locally:
             disassembler = Disassembler()
@@ -604,9 +656,14 @@ class McritClient:
                 pichash_size=pichash_size,
                 band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
+                shortlist_size=shortlist_size,
+                band_df_cutoff=band_df_cutoff,
+                preset=preset,
             )
 
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
         response = requests.post(f"{self.mcrit_server}/query/binary/mapped/{base_address}", binary, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return response
@@ -620,6 +677,9 @@ class McritClient:
         band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> Any:
         if disassemble_locally:
             disassembler = Disassembler()
@@ -632,9 +692,14 @@ class McritClient:
                 pichash_size=pichash_size,
                 band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
+                shortlist_size=shortlist_size,
+                band_df_cutoff=band_df_cutoff,
+                preset=preset,
             )
 
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
 
         response = requests.post(f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
@@ -648,8 +713,13 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> Any:
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(
+            minhash_threshold, pichash_size, force_recalculation, band_matches_required, shortlist_size=shortlist_size, band_df_cutoff=band_df_cutoff, preset=preset
+        )
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return response
@@ -663,8 +733,10 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        band_df_cutoff=None,
+        preset=None,
     ) -> Any:
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required)
+        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, band_df_cutoff=band_df_cutoff, preset=preset)
         response = requests.get(f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return response
@@ -678,8 +750,20 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        band_df_cutoff=None,
+        preset=None,
     ) -> Any:
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, sample_group_only=sample_group_only)
+        # no shortlist_size: a cross compare is restricted to the samples it names, and a shortlist
+        # ranked over the whole corpus could only drop some of them (#217)
+        params = self._getMatchingRequestParams(
+            minhash_threshold,
+            pichash_size,
+            force_recalculation,
+            band_matches_required,
+            sample_group_only=sample_group_only,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
+        )
         response = requests.get(f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}", headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return response
@@ -691,13 +775,32 @@ class McritClient:
             return response
         return self._handle(response)
 
-    def getMatchesForSmdaFunction(self, smda_report, minhash_threshold=None, pichash_size=None, force_recalculation=None, band_matches_required=None, exclude_self_matches=False):
+    def getMatchesForSmdaFunction(
+        self,
+        smda_report,
+        minhash_threshold=None,
+        pichash_size=None,
+        force_recalculation=None,
+        band_matches_required=None,
+        exclude_self_matches=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
+    ):
         """
         Get all matches for a SmdaReport with a single SmdaFunction
         Supported by mcritweb API pass-through
         """
-        # TODO add the same parameter possibilities that are used for regular full matching jobs
-        params = self._getMatchingRequestParams(minhash_threshold, pichash_size, force_recalculation, band_matches_required, exclude_self_matches)
+        params = self._getMatchingRequestParams(
+            minhash_threshold,
+            pichash_size,
+            force_recalculation,
+            band_matches_required,
+            exclude_self_matches,
+            shortlist_size=shortlist_size,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
+        )
         response = requests.post(f"{self.mcrit_server}/query/function", json=smda_report.toDict(), headers=self.headers, params=params, timeout=self.timeout)
         if self.raw:
             return response
@@ -769,13 +872,8 @@ class McritClient:
         return None
 
     def getJobCount(self, filter=None):
-        query_string = ""
-        if isinstance(filter, str) and filter is not None:
-            if len(query_string) == 0:
-                query_string = f"?filter={filter}"
-            else:
-                query_string += f"&filter={filter}"
-        response = requests.get(f"{self.mcrit_server}/jobs{query_string}", headers=self.headers, timeout=self.timeout)
+        params = {"filter": filter} if isinstance(filter, str) else {}
+        response = requests.get(f"{self.mcrit_server}/jobs", params=params, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return response
         data = self._handle(response)
@@ -856,23 +954,14 @@ class McritClient:
         Delete Jobs that match given provided criteria
         Supported by mcritweb API pass-through
         """
-        query_string = ""
-        if isinstance(method, str) and method is not None:
-            if len(query_string) == 0:
-                query_string = f"?method={method}"
-            else:
-                query_string += f"&method={method}"
-        if isinstance(created_before, datetime.datetime) and created_before is not None:
-            if len(query_string) == 0:
-                query_string = f"?created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-            else:
-                query_string += f"&created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-        if isinstance(finished_before, datetime.datetime) and finished_before is not None:
-            if len(query_string) == 0:
-                query_string = f"?finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-            else:
-                query_string += f"&finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-        response = requests.delete(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers, timeout=self.timeout)
+        params = {}
+        if isinstance(method, str):
+            params["method"] = method
+        if isinstance(created_before, datetime.datetime):
+            params["created_before"] = created_before.strftime("%Y-%m-%dT%H:%M:%S")
+        if isinstance(finished_before, datetime.datetime):
+            params["finished_before"] = finished_before.strftime("%Y-%m-%dT%H:%M:%S")
+        response = requests.delete(f"{self.mcrit_server}/jobs/", params=params, headers=self.headers, timeout=self.timeout)
         if self.raw:
             return response
         return self._handle(response)
