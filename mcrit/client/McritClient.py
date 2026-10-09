@@ -1219,10 +1219,8 @@ class McritClient:
         return self._session.get(f"{self.mcrit_server}/search/{search_kind}?{encoded_params}", headers=self.headers, timeout=self.timeout)
 
     def _search_base(self, search_kind, search_term, cursor=None, is_ascending=True, sort_by=None, limit=None):
-        response = self._search_request(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit)
-        if self.raw:
-            return self._passthrough(response)
-        return self._handle(response)
+        # answers the parsed data in raw mode too, unlike the typed searches below
+        return self._handle(self._search_request(search_kind, search_term, cursor=cursor, is_ascending=is_ascending, sort_by=sort_by, limit=limit))
 
     search_families = functools.partialmethod(_search_base, "families")
 

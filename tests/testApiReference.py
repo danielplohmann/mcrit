@@ -84,8 +84,10 @@ class ClientSurfaceTest(unittest.TestCase):
         # a matcher that stops recognising the client's calls would pass the checks below over
         # nothing: the client sends requests from several dozen methods
         self.assertGreaterEqual(len(sending), 50, sending)
-        # _search_request hands the response to the methods that do the checking
-        exempt = {"_search_request"}
+        # _search_request hands the response to the methods that do the checking; _search_base,
+        # behind search_families/samples/functions, answers parsed data in raw mode as it does on
+        # main (tests/testSearchResult.py)
+        exempt = {"_search_request", "_search_base"}
         ignoring_raw = [
             method.name
             for method in _client_methods()
