@@ -1,5 +1,6 @@
 import datetime
-from typing import TYPE_CHECKING, Dict, Optional
+import json
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from mcrit.libs.utility import decode_two_complement, encode_two_complement
 
@@ -46,6 +47,64 @@ class SampleEntry:
             self.statistics = smda_report.statistics.toDict() if smda_report.statistics is not None else {}
             self.timestamp = smda_report.timestamp
             self.version = smda_report.version or ""
+
+    # the report fields SampleEntry represents in fields of its own, or that are the functions
+    _REPORT_FIELDS_HELD_ELSEWHERE = ("architecture", "base_addr", "binary_size", "bitness", "metadata", "sha256", "smda_version", "statistics", "timestamp", "xcfg")
+    _METADATA_FIELDS_HELD_ELSEWHERE = ("binweight", "component", "family", "filename", "is_library", "version")
+
+    @classmethod
+    def smdaExtrasOf(cls, smda_report: "SmdaReport") -> Dict[str, Any]:
+        """Everything of the SMDA report this entry and the functions hold no field for (#94).
+
+        Never part of the entry itself: the whole-binary data references and xmetadata grow with
+        the binary and have no cap, and the entry is the wire format of every sample listing, job
+        result and export. The storage keeps them apart, beside the functions' disassembly.
+        """
+        report_dict = smda_report.toDict()
+        # as JSON would carry them: the data references are keyed by integer addresses, which
+        # a report file cannot hold and MongoDB refuses; SmdaReport.fromDict reads the string
+        # keys back, exactly as it does for a report loaded from disk
+        extras = json.loads(json.dumps({key: value for key, value in report_dict.items() if key not in cls._REPORT_FIELDS_HELD_ELSEWHERE}))
+        metadata = report_dict.get("metadata") or {}
+        # an unset metadata value (None) is what SmdaReport emits for a field the report never
+        # had; handing it back explicitly would make fromDict normalise it into a value
+        extras["metadata"] = {key: value for key, value in metadata.items() if key not in cls._METADATA_FIELDS_HELD_ELSEWHERE and value is not None}
+        return extras
+
+    def toSmdaReportDict(self, xcfg: Dict[int, Dict[str, Any]], smda_extras: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """The SMDA report this sample came from, as SmdaReport.fromDict() reads it, given the
+        functions' xcfg by offset and the extras from smdaExtrasOf(). Without extras (a sample
+        stored before they were kept) the defaults of an empty report fill in (#94)."""
+        extras = dict(smda_extras or {})
+        metadata = dict(extras.pop("metadata", None) or {})
+        metadata.update(
+            {"binweight": self.binweight, "component": self.component, "family": self.family, "filename": self.filename, "is_library": self.is_library, "version": self.version}
+        )
+        report_dict: Dict[str, Any] = {
+            "code_areas": [],
+            "confidence_threshold": 0,
+            "disassembly_errors": {},
+            "execution_time": 0,
+            "identified_alignment": 0,
+            "message": "",
+            "status": "ok",
+        }
+        report_dict.update(extras)
+        report_dict.update(
+            {
+                "architecture": self.architecture,
+                "base_addr": self.base_addr,
+                "binary_size": self.binary_size,
+                "bitness": self.bitness,
+                "metadata": metadata,
+                "sha256": self.sha256,
+                "smda_version": self.smda_version,
+                "statistics": self.statistics,
+                "timestamp": self.timestamp.strftime("%Y-%m-%dT%H-%M-%S") if self.timestamp is not None else "",
+                "xcfg": {int(offset): function_dict for offset, function_dict in xcfg.items()},
+            }
+        )
+        return report_dict
 
     def getShortSha256(self, prefix=8, border=0):
         if border > 0:

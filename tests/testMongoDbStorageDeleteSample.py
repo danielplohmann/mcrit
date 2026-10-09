@@ -67,11 +67,15 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         # deleting a sample also removes the disassembly split out of the function documents (#137)
         xcfg = FakeCollection()
         query_xcfg = FakeCollection()
+        # and the SMDA report's extras, kept apart from the sample document (#94)
+        smda_extras = FakeCollection([{"sample_id": 7, "chunk": 0}])
         # deleteSample also drops the sample from the picblockhash index, which first asks settings
         # whether that index is trusted. Empty here, so the hook returns before touching functions -
         # which is what keeps the find_calls assertion below about the #137 projection alone.
         settings = FakeCollection()
-        setattr(self.storage, "_database", FakeDb(functions=functions, samples=samples, families=families, xcfg=xcfg, query_xcfg=query_xcfg, settings=settings))
+        setattr(
+            self.storage, "_database", FakeDb(functions=functions, samples=samples, families=families, xcfg=xcfg, query_xcfg=query_xcfg, smda_extras=smda_extras, settings=settings)
+        )
         setattr(
             self.storage,
             "getSampleById",
@@ -132,6 +136,7 @@ class MongoDbStorageDeleteSampleTest(TestCase):
         )
         self.assertEqual([{"sample_id": 7}], functions.delete_many_calls)
         self.assertEqual([{"sample_id": 7}], samples.delete_one_calls)
+        self.assertEqual([{"sample_id": 7}], smda_extras.delete_many_calls)
         self.assertEqual([7], deleted_binaries)
         # decremented by what was deleted (two function documents, one sample), and the family
         # deleted because no sample references it any more (#151)

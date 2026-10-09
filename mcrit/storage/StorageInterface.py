@@ -21,6 +21,7 @@ if TYPE_CHECKING:  # pragma: no cover
     from mcrit.storage.FamilyEntry import FamilyEntry
     from mcrit.storage.FunctionEntry import FunctionEntry
     from mcrit.storage.MatchingCache import MatchingCache
+    from mcrit.storage.RebuiltSmdaReport import RebuiltSmdaReport
     from mcrit.storage.SampleEntry import SampleEntry
 
 LOGGER = logging.getLogger(__name__)
@@ -361,6 +362,40 @@ class StorageInterface:
                 "family" and "version" containing the respective data from the sample_id's SampeEnty, otherwise None.
         """
         raise NotImplementedError
+
+    def getSmdaExtras(self, sample_id: int) -> Optional[Dict[str, Any]]:
+        """The SMDA report's extras stored for a sample (SampleEntry.smdaExtrasOf), kept apart
+        from the sample entry (#94). None when none were stored: an unknown sample, or one
+        stored before the extras were kept."""
+        raise NotImplementedError
+
+    def getSmdaReportForSample(self, sample_id: int) -> Optional["RebuiltSmdaReport"]:
+        """Rebuild the SMDA report a sample was submitted as from what the storage holds (#94).
+
+        None for an unknown sample. What cannot be rebuilt is flagged, not hidden: a sample
+        stored before the extras were kept is "extras_missing" (they fall back to an empty
+        report's defaults), and functions without stored disassembly (STORAGE_DROP_DISASSEMBLY,
+        or a blob over the 16 MiB limit) are "disassembly_missing", counted, and absent from
+        the report's xcfg.
+        """
+        from smda.common.SmdaReport import SmdaReport
+
+        from mcrit.storage.RebuiltSmdaReport import RebuiltSmdaReport
+
+        sample_entry = self.getSampleById(sample_id)
+        if sample_entry is None:
+            return None
+        smda_extras = self.getSmdaExtras(sample_id)
+        xcfg = {}
+        num_functions_without_disassembly = 0
+        for function_entry in self.getFunctionsBySampleId(sample_id) or []:
+            if function_entry.xcfg:
+                xcfg[function_entry.offset] = function_entry.xcfg
+            else:
+                num_functions_without_disassembly += 1
+        smda_report = SmdaReport.fromDict(sample_entry.toSmdaReportDict(xcfg, smda_extras))
+        assert smda_report is not None
+        return RebuiltSmdaReport(smda_report, extras_missing=smda_extras is None, num_functions_without_disassembly=num_functions_without_disassembly)
 
     def getFunctionsBySampleId(self, sample_id: int) -> Optional[List["FunctionEntry"]]:
         """For a given sample_id, get all corresponding FunctionEntries.

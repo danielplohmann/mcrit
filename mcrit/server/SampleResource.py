@@ -237,6 +237,20 @@ class SampleResource:
         db_log_msg(self.index, req, "SampleResource.on_get_function - success.")
 
     @timing
+    def on_get_smda_report(self, req, resp, sample_id=None):
+        """The SMDA report the sample was submitted as, rebuilt from storage (#94).
+
+        data: {"smda_report": {...}, "complete": bool, "incomplete_reasons": [...],
+        "num_functions_without_disassembly": int} - see RebuiltSmdaReport for the reasons."""
+        if not self.index.isSampleId(sample_id):
+            resp.data = jsonify({"status": "failed", "data": {"message": "We don't have a sample with that id."}})
+            resp.status = falcon.HTTP_404
+            db_log_msg(self.index, req, f"SampleResource.on_get_smda_report - failed - unknown sample_id {sample_id}.")
+            return
+        report = self.index.getSmdaReportForSample(sample_id)
+        resp.data = jsonify({"status": "successful", "data": report.toDict() if report is not None else None})
+        db_log_msg(self.index, req, "SampleResource.on_get_smda_report - success.")
+
     def on_get_binary(self, req, resp, sample_id=None):
         """The raw binary the sample was submitted as, when STORAGE_KEEP_SUBMITTED_BINARIES kept it
         and STORAGE_SERVE_SUBMITTED_BINARIES allows handing it out (#95)."""

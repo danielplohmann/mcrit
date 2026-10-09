@@ -12,6 +12,7 @@ from smda.Disassembler import Disassembler
 from mcrit.queue.LocalQueue import Job
 from mcrit.storage.FamilyEntry import FamilyEntry
 from mcrit.storage.FunctionEntry import FunctionEntry
+from mcrit.storage.RebuiltSmdaReport import RebuiltSmdaReport
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.SearchResult import SearchResult
 
@@ -519,6 +520,20 @@ class McritClient:
         data = self._handle(response)
         if data is not None:
             return SampleEntry.fromDict(data)
+
+    def getSmdaReportForSample(self, sample_id):
+        """
+        The SMDA report the sample was submitted as, rebuilt from what the server stores (#94), as a
+        RebuiltSmdaReport: `.smda_report`, plus `.complete` / `.incomplete_reasons` /
+        `.num_functions_without_disassembly` for what could not be rebuilt. None for an unknown sample
+        """
+        response = requests.get(f"{self.mcrit_server}/samples/{sample_id}/smda", headers=self.headers, timeout=self.timeout)
+        if self.raw:
+            return response
+        data = self._handle(response)
+        if data is None:
+            return None
+        return RebuiltSmdaReport.fromDict(data)
 
     def getSampleBinary(self, sample_id):
         """

@@ -376,6 +376,9 @@ class MongoDbStorage(StorageInterface):
         self._getDb()["query_samples"].create_index("sha256")
         self._getDb()["query_functions"].create_index("function_id")
         self._getDb()["query_functions"].create_index("sample_id")
+        # the SMDA report's extras, stored apart from the sample documents (#94)
+        for collection in ("smda_extras", "query_smda_extras"):
+            self._getDb()[collection].create_index([("sample_id", 1), ("chunk", 1)], unique=True)
         # stored binaries are keyed by content: one file per sha256, naming every sample it belongs to (#95).
         # Partial, so that a file retired for deletion (its sha256 cleared) does not hold the key.
         self._getDb()[self._BINARIES_BUCKET + ".files"].create_index("metadata.sha256", unique=True, partialFilterExpression={"metadata.sha256": {"$type": "string"}})
@@ -719,6 +722,37 @@ class MongoDbStorage(StorageInterface):
             if ids:
                 self._getDb()[collection].delete_many({"_id": {"$in": ids}})
 
+    # the SMDA report's top-level extras (#94) - whole-binary data references and xmetadata -
+    # grow with the binary and have no cap, so they never go into the sample document, which
+    # every sample listing and job result loads. They are a JSON blob split over documents of
+    # at most this many characters (ASCII, as json.dumps escapes), well under the 16 MiB limit
+    _SMDA_EXTRAS_CHUNK_CHARS = 8 * 1024 * 1024
+
+    @staticmethod
+    def _smdaExtrasCollectionFor(sample_id: int) -> str:
+        return "query_smda_extras" if sample_id < 0 else "smda_extras"
+
+    def _insertSmdaExtras(self, sample_id: int, smda_extras: Dict[str, Any]) -> None:
+        blob = json.dumps(smda_extras)
+        size = self._SMDA_EXTRAS_CHUNK_CHARS
+        pieces = [blob[start : start + size] for start in range(0, len(blob), size)] or [""]
+        documents = [{"sample_id": sample_id, "chunk": index, "num_chunks": len(pieces), "_extras": piece} for index, piece in enumerate(pieces)]
+        # clear chunks an earlier, interrupted store left under this id, or they collide on the unique index
+        self._deleteSmdaExtras(sample_id)
+        self._dbInsertMany(self._smdaExtrasCollectionFor(sample_id), documents)
+
+    def getSmdaExtras(self, sample_id: int) -> Optional[Dict[str, Any]]:
+        documents = list(self._getDb()[self._smdaExtrasCollectionFor(sample_id)].find({"sample_id": sample_id}, {"_id": 0}).sort("chunk", 1))
+        if not documents:
+            return None
+        if len(documents) != documents[0]["num_chunks"]:
+            LOGGER.warning("SMDA extras of sample %d are incomplete: %d of %d chunks present.", sample_id, len(documents), documents[0]["num_chunks"])
+            return None
+        return json.loads("".join(document["_extras"] for document in documents))
+
+    def _deleteSmdaExtras(self, sample_id: int) -> None:
+        self._getDb()[self._smdaExtrasCollectionFor(sample_id)].delete_many({"sample_id": sample_id})
+
     @staticmethod
     def _encodePichash(function_dict: Dict, delete_old: bool = True) -> None:
         if "pichash" in function_dict:
@@ -829,6 +863,7 @@ class MongoDbStorage(StorageInterface):
             query_function_ids = [document["function_id"] for document in self._getDb().query_functions.find({"sample_id": sample_id}, {"function_id": 1, "_id": 0})]
             self._deleteXcfgForFunctionIds(query_function_ids)
             self._getDb().query_functions.delete_many({"sample_id": sample_id})
+            self._deleteSmdaExtras(sample_id)
             # remove sample
             self._getDb().query_samples.delete_one({"sample_id": sample_id})
             return True
@@ -841,6 +876,9 @@ class MongoDbStorage(StorageInterface):
         self._deleteXcfgForFunctionIds([function_minhash["function_id"] for function_minhash in function_minhashes])
         num_functions_deleted = self._getDb().functions.delete_many({"sample_id": sample_id}).deleted_count
         # remove sample
+        # the report's extras before the sample document, as for a query sample: an interrupted
+        # deletion leaves a sample to delete again, never extras nothing refers to (#94)
+        self._deleteSmdaExtras(sample_id)
         num_samples_deleted = self._getDb().samples.delete_one({"sample_id": sample_id}).deleted_count
         # the raw submission goes with the sample it belongs to (#95)
         self.deleteSampleBinary(sample_id)
@@ -1212,7 +1250,7 @@ class MongoDbStorage(StorageInterface):
         return deleted
 
     # the collections the query cleanup deletes from, and so the ones compactQueryCollections reclaims
-    QUERY_COLLECTIONS = ("query_samples", "query_functions", "query_xcfg")
+    QUERY_COLLECTIONS = ("query_samples", "query_functions", "query_xcfg", "query_smda_extras")
     # where the job queue keeps the results of the query jobs the cleanup deletes
     QUEUE_GRIDFS_COLLECTIONS = ("fs.files", "fs.chunks")
 
@@ -1453,7 +1491,8 @@ class MongoDbStorage(StorageInterface):
 
     def clearStorage(self) -> None:
         # "xcfg"/"query_xcfg" hold the disassembly split out of the function documents (#137);
-        # leaving them behind while the counters reset would collide on _id at the next insert
+        # leaving them behind while the counters reset would collide on _id at the next insert;
+        # "smda_extras"/"query_smda_extras" are keyed by sample id in the same way (#94)
         # "picblockhashes" is the inverted block-hash index; leaving it behind would keep asserting
         # that hashes are held by samples that no longer exist, and getUniqueBlocks would believe it
         # the "sample_binaries" GridFS bucket holds the raw submissions (#95)
@@ -1468,6 +1507,8 @@ class MongoDbStorage(StorageInterface):
             "query_functions",
             "xcfg",
             "query_xcfg",
+            "smda_extras",
+            "query_smda_extras",
             "picblockhashes",
             "sample_binaries.files",
             "sample_binaries.chunks",
@@ -1534,6 +1575,7 @@ class MongoDbStorage(StorageInterface):
             # from a finished one (#68)
             sample_document["num_query_functions"] = smda_report.num_functions
             self._dbInsert("query_samples", sample_document)
+            self._insertSmdaExtras(sample_entry.sample_id, SampleEntry.smdaExtrasOf(smda_report))
             function_ids = self._useCounterBulk("query_functions", smda_report.num_functions)
             function_dicts = []
             for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):
@@ -1546,6 +1588,7 @@ class MongoDbStorage(StorageInterface):
                 sample_entry = SampleEntry(smda_report, sample_id=self._useCounter("samples"), family_id=family_id)
                 # its hashes are computed right here, by the running smda and picblocks
                 self._dbInsert("samples", {**sample_entry.toDict(), "pichash_smda_version": SmdaConfig().VERSION, "picblockhash_version": PICBLOCKS_VERSION})
+                self._insertSmdaExtras(sample_entry.sample_id, SampleEntry.smdaExtrasOf(smda_report))
                 function_ids = self._useCounterBulk("functions", smda_report.num_functions)
                 function_dicts = []
                 for function_id, smda_function in zip(function_ids, smda_report.getFunctions()):

@@ -136,6 +136,8 @@ class MemoryStorage(StorageInterface):
     _counters: Dict[str, int]
     _sample_by_sha256: Dict[str, int]
     _sample_id_to_function_ids: Dict[int, List[int]]
+    # the SMDA report's extras by sample id, kept apart from the entries as MongoDB does (#94)
+    _smda_extras: Dict[int, Dict[str, Any]]
 
     def __init__(self, config: "McritConfig") -> None:
         super().__init__(config)  # sets config
@@ -156,6 +158,7 @@ class MemoryStorage(StorageInterface):
         self._functions = {}
         self._query_samples = {}
         self._query_functions = {}
+        self._smda_extras = {}
         self._pichashes = {}
         self._bands = {band_number: {} for band_number in range(self._storage_config.STORAGE_NUM_BANDS)}
         self._minhash_versions: Dict[int, str] = {}
@@ -202,9 +205,10 @@ class MemoryStorage(StorageInterface):
         function_ids = self._sample_id_to_function_ids[sample_id]
         if sample_id < 0:
             for function_id in function_ids:
-                del self._functions[function_id]
+                self._query_functions.pop(function_id, None)
             del self._sample_id_to_function_ids[sample_id]
-            del self._samples[sample_id]
+            self._query_samples.pop(sample_id, None)
+            self._smda_extras.pop(sample_id, None)
             return True
         for function_id in function_ids:
             function_entry = self._functions[function_id]
@@ -238,6 +242,7 @@ class MemoryStorage(StorageInterface):
         self._updateFamilyStats(sample_entry.family_id, -1, -len(function_ids), -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
+        self._smda_extras.pop(sample_id, None)
         self.deleteSampleBinary(sample_id)
         if sample_entry.family_id != 0 and not any(s.family_id == sample_entry.family_id for s in self._samples.values()):
             self._families.pop(sample_entry.family_id, None)
@@ -461,12 +466,16 @@ class MemoryStorage(StorageInterface):
         if family_id not in self._families:
             return False
         sample_entries = self.getSamplesByFamilyId(family_id) or []
+        if not keep_samples:
+            # while the family still exists: deleteSample updates its counts
+            for sample_entry in sample_entries:
+                self.deleteSample(sample_entry.sample_id)
         if family_id == 0:
             self._families[0].num_samples = 0
             self._families[0].num_functions = 0
             self._families[0].num_library_samples = 0
         else:
-            self._families.pop(family_id)
+            self._families.pop(family_id, None)
         if keep_samples:
             for sample_entry in sample_entries:
                 self._samples[sample_entry.sample_id].family_id = 0
@@ -480,9 +489,6 @@ class MemoryStorage(StorageInterface):
             self._families[0].num_samples += len(sample_entries)
             self._families[0].num_functions += len(function_ids_to_modify)
             self._families[0].num_library_samples += len([s for s in sample_entries if s.is_library])
-        else:
-            for sample_entry in sample_entries:
-                self.deleteSample(sample_entry.sample_id)
         self._updateDbState()
         return True
 
@@ -520,6 +526,7 @@ class MemoryStorage(StorageInterface):
         if isQuery:
             sample_entry = SampleEntry(smda_report, sample_id=-1 * self._useCounter("query_samples"), family_id=0)
             self._query_samples[sample_entry.sample_id] = sample_entry
+            self._smda_extras[sample_entry.sample_id] = SampleEntry.smdaExtrasOf(smda_report)
             function_ids = []
             for smda_function in smda_report.getFunctions():
                 function_entry = self._addFunction(sample_entry, smda_function, isQuery=True)
@@ -531,6 +538,7 @@ class MemoryStorage(StorageInterface):
                 sample_entry = SampleEntry(smda_report, sample_id=self._useCounter("samples"), family_id=family_id)
                 self._samples[sample_entry.sample_id] = sample_entry
                 self._sample_by_sha256[sample_entry.sha256] = sample_entry.sample_id
+                self._smda_extras[sample_entry.sample_id] = SampleEntry.smdaExtrasOf(smda_report)
                 function_ids = []
                 for smda_function in smda_report.getFunctions():
                     function_entry = self._addFunction(sample_entry, smda_function)
@@ -802,6 +810,13 @@ class MemoryStorage(StorageInterface):
         if sample_id in self._query_samples:
             return deepcopy(self._query_samples[sample_id])
 
+    def _deleteSmdaExtras(self, sample_id: int) -> None:
+        self._smda_extras.pop(sample_id, None)
+
+    def getSmdaExtras(self, sample_id: int) -> Optional[Dict[str, Any]]:
+        extras = self._smda_extras.get(sample_id)
+        return deepcopy(extras) if extras is not None else None
+
     def getSampleEntriesByIds(self, sample_ids: List[int]) -> Dict[int, "SampleEntry"]:
         entries = {}
         for sample_id in sample_ids:
@@ -962,6 +977,8 @@ class MemoryStorage(StorageInterface):
             "samples": {sample_id: sample.toDict() for sample_id, sample in self._samples.items()},
             "functions": {function_id: function.toDict() for function_id, function in self._functions.items()},
             "bands": self._bands,
+            # query samples are not saved, so neither are their extras
+            "smda_extras": {sample_id: extras for sample_id, extras in self._smda_extras.items() if sample_id >= 0},
             # kept binaries (#95) travel with the rest; base64, as the content is carried as JSON
             "sample_binaries": {
                 sha256: {"binary": base64.b64encode(binary).decode("ascii"), "sample_ids": sorted(sample_ids)} for sha256, (binary, sample_ids) in self._sample_binaries.items()
@@ -974,6 +991,8 @@ class MemoryStorage(StorageInterface):
         self._families = {int(k): FamilyEntry.fromDict(v) for k, v in content["families"].items()}
         self._samples = {int(k): SampleEntry.fromDict(v) for k, v in content["samples"].items()}
         self._bands = {int(k): {int(ik): iv for ik, iv in v.items()} for k, v in content["bands"].items()}
+        # content saved before #94 has no extras
+        self._smda_extras = {int(k): v for k, v in content.get("smda_extras", {}).items()}
         self._sample_by_sha256 = {sample.sha256: sample_id for sample_id, sample in self._samples.items()}
         # content saved before binaries were kept has none
         self._sample_binaries = {
