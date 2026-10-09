@@ -964,8 +964,7 @@ class MemoryStorage(StorageInterface):
             "bands": self._bands,
             # kept binaries (#95) travel with the rest; base64, as the content is carried as JSON
             "sample_binaries": {
-                sha256: {"binary": base64.b64encode(binary).decode("ascii"), "sample_ids": sorted(sample_ids)}
-                for sha256, (binary, sample_ids) in self._sample_binaries.items()
+                sha256: {"binary": base64.b64encode(binary).decode("ascii"), "sample_ids": sorted(sample_ids)} for sha256, (binary, sample_ids) in self._sample_binaries.items()
             },
         }
         return content
@@ -978,8 +977,7 @@ class MemoryStorage(StorageInterface):
         self._sample_by_sha256 = {sample.sha256: sample_id for sample_id, sample in self._samples.items()}
         # content saved before binaries were kept has none
         self._sample_binaries = {
-            sha256: (base64.b64decode(stored["binary"]), {int(sample_id) for sample_id in stored["sample_ids"]})
-            for sha256, stored in content.get("sample_binaries", {}).items()
+            sha256: (base64.b64decode(stored["binary"]), {int(sample_id) for sample_id in stored["sample_ids"]}) for sha256, stored in content.get("sample_binaries", {}).items()
         }
         self._sample_id_to_function_ids = defaultdict(list)
         self._pichashes = {}

@@ -866,8 +866,6 @@ class MemoryStorageTest(TestCase):
         self.assertIsNone(self.storage.getFamilyEntriesByIds([id_a])[id_a].samples)
         self.assertNotIn("samples", self.storage.getFamilyEntriesByIds([id_a])[id_a].toDict())
 
-
-@pytest.mark.mongo
     def testKeptBinariesSurviveTheContentRoundTrip(self):
         """MemoryStorage's whole state travels as getContent/setContent, through JSON - kept
         binaries included, or a restored instance silently loses them (#95)."""
@@ -895,6 +893,7 @@ class MemoryStorageTest(TestCase):
         self.assertEqual({}, self.storage._sample_binaries)
 
 
+@pytest.mark.mongo
 class MongoDbStorageTest(MemoryStorageTest):
     def setUp(self):
         self._storage_config = buildMongoStorageConfig("test_mongodbstorage_mcrit")
