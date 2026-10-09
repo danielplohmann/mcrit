@@ -27,8 +27,6 @@ class SampleEntry:
     summary: Optional[str]
     statistics: Dict[str, int]
     timestamp: Optional[datetime.datetime]
-    # everything else the SMDA report carried, so it can be rebuilt from storage (#94)
-    smda_extras: Dict[str, Any]
 
     # TODO -> rename to fromSmdaReport
     def __init__(self, smda_report: Optional["SmdaReport"], sample_id=-1, family_id=0):
@@ -49,16 +47,20 @@ class SampleEntry:
             self.statistics = smda_report.statistics.toDict() if smda_report.statistics is not None else {}
             self.timestamp = smda_report.timestamp
             self.version = smda_report.version or ""
-            self.smda_extras = self._extrasOf(smda_report.toDict())
-        else:
-            self.smda_extras = {}
 
     # the report fields SampleEntry represents in fields of its own, or that are the functions
     _REPORT_FIELDS_HELD_ELSEWHERE = ("architecture", "base_addr", "binary_size", "bitness", "metadata", "sha256", "smda_version", "statistics", "timestamp", "xcfg")
     _METADATA_FIELDS_HELD_ELSEWHERE = ("binweight", "component", "family", "filename", "is_library", "version")
 
     @classmethod
-    def _extrasOf(cls, report_dict: Dict[str, Any]) -> Dict[str, Any]:
+    def smdaExtrasOf(cls, smda_report: "SmdaReport") -> Dict[str, Any]:
+        """Everything of the SMDA report this entry and the functions hold no field for (#94).
+
+        Never part of the entry itself: the whole-binary data references and xmetadata grow with
+        the binary and have no cap, and the entry is the wire format of every sample listing, job
+        result and export. The storage keeps them apart, beside the functions' disassembly.
+        """
+        report_dict = smda_report.toDict()
         # as JSON would carry them: the data references are keyed by integer addresses, which
         # a report file cannot hold and MongoDB refuses; SmdaReport.fromDict reads the string
         # keys back, exactly as it does for a report loaded from disk
@@ -69,11 +71,11 @@ class SampleEntry:
         extras["metadata"] = {key: value for key, value in metadata.items() if key not in cls._METADATA_FIELDS_HELD_ELSEWHERE and value is not None}
         return extras
 
-    def toSmdaReportDict(self, xcfg: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+    def toSmdaReportDict(self, xcfg: Dict[int, Dict[str, Any]], smda_extras: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """The SMDA report this sample came from, as SmdaReport.fromDict() reads it, given the
-        functions' xcfg by offset. Samples stored before the extras were kept get the defaults
-        of an empty report for what was not recorded (#94)."""
-        extras = dict(self.smda_extras or {})
+        functions' xcfg by offset and the extras from smdaExtrasOf(). Without extras (a sample
+        stored before they were kept) the defaults of an empty report fill in (#94)."""
+        extras = dict(smda_extras or {})
         metadata = dict(extras.pop("metadata", None) or {})
         metadata.update(
             {"binweight": self.binweight, "component": self.component, "family": self.family, "filename": self.filename, "is_library": self.is_library, "version": self.version}
@@ -134,7 +136,6 @@ class SampleEntry:
             "statistics": self.statistics,
             "timestamp": self.timestamp.strftime("%Y-%m-%dT%H-%M-%S") if self.timestamp is not None else None,
             "version": self.version,
-            "smda_extras": self.smda_extras,
         }
         return sample_entry
 
@@ -157,8 +158,6 @@ class SampleEntry:
         sample_entry.smda_version = entry_dict["smda_version"]
         sample_entry.statistics = entry_dict["statistics"]
         sample_entry.timestamp = datetime.datetime.strptime(entry_dict["timestamp"], "%Y-%m-%dT%H-%M-%S")
-        # samples stored before #94 carry no extras
-        sample_entry.smda_extras = entry_dict.get("smda_extras") or {}
         return sample_entry
 
     def __str__(self):

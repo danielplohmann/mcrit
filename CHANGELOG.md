@@ -18,11 +18,28 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 ### Added
 
 - **`GET /samples/{id}/smda` and `McritClient.getSmdaReportForSample` rebuild a sample's SMDA
-  report from storage.** `SampleEntry` keeps `smda_extras` - the report's top-level fields and
-  metadata it holds no field for, minus `xcfg` - and the disassembly comes from the functions'
-  blobs in one batched fetch. The example report round-trips byte for byte. NOTE that entries
-  stored before this carry no extras and rebuild with an empty report's defaults for them, and
-  functions whose disassembly was dropped are absent from the rebuilt xcfg ([#94]).
+  report from storage.** The report's top-level fields and metadata that `SampleEntry` holds no
+  field for - including smda's whole-binary `xdata_refs_from`/`xdata_refs_to` and `xmetadata` -
+  are kept in new `smda_extras`/`query_smda_extras` collections keyed by sample id, never in the
+  sample document: `SampleEntry.toDict()` is what `/samples`, job results and exports carry, and
+  those extras grow with the binary. They are stored as a JSON blob split into documents of at
+  most 8 MiB, so a report past the 16 MiB document limit still stores (a 25 MB test report takes
+  4 documents, its sample document stays under 1 KB). The disassembly comes from the functions'
+  `xcfg` blobs in one batched fetch, and the example report round-trips byte for byte. The
+  response is `{"smda_report", "complete", "incomplete_reasons",
+  "num_functions_without_disassembly"}`: `extras_missing` flags a sample stored before this (its
+  extras fall back to an empty report's defaults), `disassembly_missing` counts functions without
+  stored `xcfg` (`STORAGE_DROP_DISASSEMBLY`, or a blob over the limit), which are absent from the
+  rebuilt report. NOTE that exports do not carry the extras, so an imported sample rebuilds as
+  `extras_missing`; deleting a sample, its family or a query sample deletes its extras, and
+  `STORAGE_DROP_DISASSEMBLY` keeps them ([#94]).
+
+### Fixed
+
+- **`MemoryStorage` deletes query samples and families with samples again.** Deleting a query
+  sample raised `KeyError` (it looked in the corpus dicts), and `deleteFamily` removed the family
+  before its samples, so the first sample's count update failed its assertion. MongoDB was not
+  affected ([#94]).
 
 ## [1.14.0] - 2026-10-09
 

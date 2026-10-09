@@ -5,6 +5,7 @@ from unittest import TestCase, main
 from unittest.mock import patch
 
 import pytest
+from bson import encode as bson_encode
 from smda.common.SmdaReport import SmdaReport
 
 from mcrit.config.McritConfig import McritConfig
@@ -156,19 +157,117 @@ class MemoryStorageTest(TestCase):
         self.storage.deleteFamily(4)
         self.assertEqual(None, self.storage.getFamilyId("family_1a"))
 
-    def testTheSmdaReportCanBeRebuiltFromStorage(self):
-        # #94: nothing of the report but the functions' disassembly lives outside the sample entry
-        self.storage.clearStorage()
+    def _reportWithDataRefs(self, num_refs=2):
         with open(self.example_file_path) as fjson:
             report = SmdaReport.fromDict(json.load(fjson))
         assert report is not None
-        report.data_refs_from = {4096: [4200]}
+        report.data_refs_from = {0x10000000 + 16 * index: [0x20000000 + index, 0x30000000 + index] for index in range(num_refs)}
+        report.data_refs_to = {0x20000000 + index: [0x10000000 + 16 * index] for index in range(num_refs)}
+        return report
+
+    def testTheSmdaReportCanBeRebuiltFromStorage(self):
+        # #94: the extras live beside the sample, the disassembly beside the functions
+        self.storage.clearStorage()
+        report = self._reportWithDataRefs()
         sample_entry = self.storage.addSmdaReport(report)
         assert sample_entry is not None
         rebuilt = self.storage.getSmdaReportForSample(sample_entry.sample_id)
         assert rebuilt is not None
-        self.assertEqual(report.toDict(), rebuilt.toDict())
+        self.assertEqual(report.toDict(), rebuilt.smda_report.toDict())
+        self.assertTrue(rebuilt.complete)
+        self.assertEqual([], rebuilt.incomplete_reasons)
+        self.assertEqual(0, rebuilt.num_functions_without_disassembly)
         self.assertIsNone(self.storage.getSmdaReportForSample(4242))
+        # a query sample keeps its extras too
+        query_entry = self.storage.addSmdaReport(report, isQuery=True)
+        assert query_entry is not None
+        rebuilt = self.storage.getSmdaReportForSample(query_entry.sample_id)
+        assert rebuilt is not None
+        self.assertEqual(report.toDict(), rebuilt.smda_report.toDict())
+
+    def testTheSmdaExtrasNeverTravelWithTheSample(self):
+        # #94 review: SampleEntry.toDict() is the wire format of /samples, job results and
+        # exports, so the extras must not be part of it
+        self.storage.clearStorage()
+        sample_entry = self.storage.addSmdaReport(self._reportWithDataRefs())
+        assert sample_entry is not None
+        self.assertIsNotNone(self.storage.getSmdaExtras(sample_entry.sample_id))
+        loaded = self.storage.getSampleById(sample_entry.sample_id)
+        assert loaded is not None
+        for entry_dict in [sample_entry.toDict(), loaded.toDict()] + [entry.toDict() for entry in self.storage.getSamples(0, 0)]:
+            self.assertNotIn("smda_extras", entry_dict)
+            self.assertNotIn("xdata_refs_from", json.dumps(entry_dict))
+
+    def testALargeReportRoundTripsWhileTheSampleStaysSmall(self):
+        # #94 review: whole-binary data references grow with the binary and have no cap; about
+        # 25 MB of them here, past MongoDB's 16 MiB document limit
+        self.storage.clearStorage()
+        report = self._reportWithDataRefs(num_refs=400_000)
+        extras_size = len(json.dumps(SampleEntry.smdaExtrasOf(report)))
+        self.assertGreater(extras_size, 16 * 1024 * 1024)
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        self.assertLess(len(json.dumps(sample_entry.toDict())), 4096)
+        rebuilt = self.storage.getSmdaReportForSample(sample_entry.sample_id)
+        assert rebuilt is not None
+        self.assertTrue(rebuilt.complete)
+        self.assertEqual(report.toDict(), rebuilt.smda_report.toDict())
+        if isinstance(self.storage, MongoDbStorage):
+            db = self.storage._getDb()
+            sample_document = db.samples.find_one({"sample_id": sample_entry.sample_id})
+            self.assertLess(len(bson_encode(sample_document)), 4096)
+            chunks = list(db.smda_extras.find({"sample_id": sample_entry.sample_id}))
+            self.assertGreater(len(chunks), 1)
+            self.assertTrue(all(len(bson_encode(chunk)) < 16 * 1024 * 1024 for chunk in chunks))
+
+    def testASampleStoredWithoutExtrasIsFlaggedIncomplete(self):
+        # #94 review: a sample stored before the extras were kept must not pass for complete
+        self.storage.clearStorage()
+        report = self._reportWithDataRefs()
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        self.storage._deleteSmdaExtras(sample_entry.sample_id)
+        rebuilt = self.storage.getSmdaReportForSample(sample_entry.sample_id)
+        assert rebuilt is not None
+        self.assertFalse(rebuilt.complete)
+        self.assertEqual(["extras_missing"], rebuilt.incomplete_reasons)
+        self.assertEqual(report.sha256, rebuilt.smda_report.sha256)
+        self.assertEqual(len(report.xcfg), len(rebuilt.smda_report.xcfg))
+        self.assertEqual({}, rebuilt.smda_report.data_refs_from)
+
+    def testDroppedDisassemblyIsFlaggedWithItsCount(self):
+        # #94 review: functions without stored disassembly are counted, not silently left out
+        self.storage.clearStorage()
+        report = self._reportWithDataRefs()
+        sample_entry = self.storage.addSmdaReport(report)
+        assert sample_entry is not None
+        self.storage.deleteXcfgForSampleId(sample_entry.sample_id)
+        rebuilt = self.storage.getSmdaReportForSample(sample_entry.sample_id)
+        assert rebuilt is not None
+        self.assertFalse(rebuilt.complete)
+        self.assertEqual(["disassembly_missing"], rebuilt.incomplete_reasons)
+        self.assertEqual(report.num_functions, rebuilt.num_functions_without_disassembly)
+        self.assertGreater(rebuilt.num_functions_without_disassembly, 0)
+        self.assertEqual(0, len(rebuilt.smda_report.xcfg))
+
+    def testTheSmdaExtrasGoWithTheirSample(self):
+        self.storage.clearStorage()
+        report_a, report_b = self._twoReports(family="family_x")
+        entry_a = self.storage.addSmdaReport(report_a)
+        entry_b = self.storage.addSmdaReport(report_b)
+        query_entry = self.storage.addSmdaReport(report_a, isQuery=True)
+        assert entry_a is not None and entry_b is not None and query_entry is not None
+        self.assertTrue(self.storage.deleteSample(entry_a.sample_id))
+        self.assertIsNone(self.storage.getSmdaExtras(entry_a.sample_id))
+        self.assertIsNotNone(self.storage.getSmdaExtras(entry_b.sample_id))
+        self.assertTrue(self.storage.deleteSample(query_entry.sample_id))
+        self.assertIsNone(self.storage.getSmdaExtras(query_entry.sample_id))
+        self.assertTrue(self.storage.deleteFamily(entry_b.family_id))
+        self.assertIsNone(self.storage.getSmdaExtras(entry_b.sample_id))
+        entry_c = self.storage.addSmdaReport(report_a)
+        assert entry_c is not None
+        self.storage.clearStorage()
+        self.assertIsNone(self.storage.getSmdaExtras(entry_c.sample_id))
 
     def _twoReports(self, family="family_1"):
         with open(self.example_file_path) as fjson:

@@ -238,7 +238,10 @@ class SampleResource:
 
     @timing
     def on_get_smda_report(self, req, resp, sample_id=None):
-        """The SMDA report the sample was submitted as, rebuilt from storage (#94)."""
+        """The SMDA report the sample was submitted as, rebuilt from storage (#94).
+
+        data: {"smda_report": {...}, "complete": bool, "incomplete_reasons": [...],
+        "num_functions_without_disassembly": int} - see RebuiltSmdaReport for the reasons."""
         if not self.index.isSampleId(sample_id):
             resp.data = jsonify({"status": "failed", "data": {"message": "We don't have a sample with that id."}})
             resp.status = falcon.HTTP_404
