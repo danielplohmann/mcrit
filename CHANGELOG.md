@@ -15,6 +15,19 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-09
+
+**Minor release: one addition, fixes, and nothing to run on a deployment that keeps the defaults.**
+The band df cutoff coverage report (#201) is new API, hence 1.14 rather than a patch. No new
+indexes, no change to `RESULTS_VERSION`, no repair jobs.
+
+- **A deployment that set `SHINGLER_LOGBUCKETS` or `SHINGLER_LOGBUCKET_RANGE` away from its default
+  needs a full re-index after upgrading**, and its exports regenerated afterwards: it was hashing
+  with the default table all along (see Fixed). On the defaults, MinHashes are unchanged.
+- Under `STORAGE_BAND_BUCKET_SIZE`, run `rebuild_band_df_index` once if band documents were ever
+  deleted: it recreates a bucket 0 that went missing, which the cutoff and the coverage report
+  otherwise cannot see (see Fixed).
+
 ### Added
 
 - `docs/limitations.md` records what the data model deliberately leaves out, starting with
