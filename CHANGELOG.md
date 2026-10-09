@@ -185,6 +185,23 @@ indexes, no change to `RESULTS_VERSION`, no repair jobs.
   naming the status, which is where to start looking for the proxy. A JSON body that is not an
   object was already handled this way. The IDA and Binary Ninja plugin vendors this client and gets
   the same once it takes this version up.
+### Fixed
+
+- `McritClient.awaitResult` asked the server for the result of a job that failed, instead of
+  reporting the failure it had just waited for ([#252]). A job whose attempts ran out keeps
+  `result` None, and the wait had only two outcomes - terminated raises, anything else fetches
+  `job.result` - so the client went on to request `/results/None` and the server answered 400
+  (`Valid ResultIDs are hexstrings with 24 characters.`): as `None` by default, as that message
+  with `raise_client_errors=True`, and in neither case naming the job or its `last_error`.
+  docker-mcrit's `repair.sh` died that way when a production `recalculatePicHashes` lost its
+  attempts to its worker's child timeout plus a lock expiry counted as the last one. The wait now
+  raises a dedicated `JobFailedError`, carrying the job id and the queue's `last_error` when one
+  is recorded, next to `JobTerminatedError` and raised whatever the client's error mode, because a
+  caller that waited wants to know the job failed rather than receive a `None` it cannot tell
+  from other failures. NOTE that a job which finished despite a reclaimed lock still answers its
+  result: the failure is decided by the missing result, not by `attempts_left`. `Job.last_error`
+  reads a missing field as None now - the client wraps server answers in that class, and a job
+  that never errored does not carry one.
 
 ## [1.13.0] - 2026-09-29
 
@@ -1120,3 +1137,4 @@ date, the version, and what changed.
 [#203]: https://github.com/danielplohmann/mcrit/issues/203
 [#215]: https://github.com/danielplohmann/mcrit/issues/215
 [#257]: https://github.com/danielplohmann/mcrit/issues/257
+[#252]: https://github.com/danielplohmann/mcrit/issues/252
