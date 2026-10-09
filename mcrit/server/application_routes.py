@@ -140,6 +140,8 @@ def get_app():
     _app.add_route("/rebuild_picblockhash_index", status_resource, suffix="rebuild_picblockhash_index")  # get
     _app.add_route("/rebuild_function_range_index", status_resource, suffix="rebuild_function_range_index")  # get
     _app.add_route("/rebuild_band_df_index", status_resource, suffix="rebuild_band_df_index")  # get
+    # schedule a job that measures what STORAGE_BAND_DF_CUTOFF skips, from the (band_hash, df) index (#201)
+    _app.add_route("/band_df_cutoff_coverage", status_resource, suffix="band_df_cutoff_coverage")  # get
     _app.add_route("/recalculate_pichashes", status_resource, suffix="recalculate_pichashes")  # get
     # schedule a job that rehashes only the samples whose minhashes an older smda escaper produced (#142)
     _app.add_route("/repair_minhashes", status_resource, suffix="repair_minhashes")  # post
@@ -168,6 +170,8 @@ def get_app():
     #
     _app.add_route("/samples/sha256/{sample_sha256}", sample_resource, suffix="by_sha256")
     _app.add_route("/samples/{sample_id:int}/functions", sample_resource, suffix="functions")
+    # the raw submitted binary, when the instance keeps and serves them (STORAGE_KEEP_/STORAGE_SERVE_SUBMITTED_BINARIES, #95)
+    _app.add_route("/samples/{sample_id:int}/binary", sample_resource, suffix="binary")
     _app.add_route(
         "/samples/{sample_id:int}/functions/{function_id:int}",
         sample_resource,

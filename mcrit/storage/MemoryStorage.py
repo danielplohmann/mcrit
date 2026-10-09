@@ -1,5 +1,8 @@
+import base64
 import datetime
 import functools
+import hashlib
+import io
 import logging
 import operator
 import re
@@ -21,7 +24,7 @@ from mcrit.storage.FunctionEntry import FunctionEntry
 from mcrit.storage.FunctionLabelEntry import FunctionLabelEntry
 from mcrit.storage.MatchingCache import MatchingCache, StorageBackedMatchingCache
 from mcrit.storage.SampleEntry import SampleEntry
-from mcrit.storage.StorageInterface import StorageInterface
+from mcrit.storage.StorageInterface import BinaryStream, StorageInterface
 
 if TYPE_CHECKING:  # pragma: no cover
     from smda.common.SmdaFunction import SmdaFunction
@@ -148,6 +151,8 @@ class MemoryStorage(StorageInterface):
         self._db_timestamp = self._getCurrentTimestamp()
         self._families = {}
         self._samples = {}
+        # keyed by sha256 like MongoDbStorage's bucket: the bytes, and the ids of the samples they belong to (#95)
+        self._sample_binaries: Dict[str, Tuple[bytes, Set[int]]] = {}
         self._functions = {}
         self._query_samples = {}
         self._query_functions = {}
@@ -233,6 +238,7 @@ class MemoryStorage(StorageInterface):
         self._updateFamilyStats(sample_entry.family_id, -1, -len(function_ids), -int(sample_entry.is_library))
         # remove sample
         del self._samples[sample_id]
+        self.deleteSampleBinary(sample_id)
         if sample_entry.family_id != 0 and not any(s.family_id == sample_entry.family_id for s in self._samples.values()):
             self._families.pop(sample_entry.family_id, None)
         return True
@@ -294,6 +300,8 @@ class MemoryStorage(StorageInterface):
             return False
         old_family_info = self.getFamily(family_id)
         assert old_family_info is not None
+        if "actors" in update_information:
+            self._families[family_id].actors = FamilyEntry.normalizeActors(update_information["actors"])
         if "is_library" in update_information:
             for sample_id, sample_entry in self._samples.items():
                 if family_id == sample_entry.family_id:
@@ -311,6 +319,10 @@ class MemoryStorage(StorageInterface):
             new_num_samples = new_family_info.num_samples + old_family_info.num_samples
             new_num_functions = new_family_info.num_functions + old_family_info.num_functions
             new_num_lib_samples = new_family_info.num_library_samples + old_family_info.num_library_samples
+            # the attribution moves with the samples: a rename onto an existing family merges
+            # both actor lists (a review of #57 caught the rename dropping them)
+            merged_actors = FamilyEntry.normalizeActors(list(new_family_info.actors or []) + list(old_family_info.actors or []))
+            self._families[new_family_id].actors = merged_actors
             # update family_entry
             if family_id == 0:
                 self._families[0].num_samples = 0
@@ -332,6 +344,53 @@ class MemoryStorage(StorageInterface):
                     self._pichashes[function_entry.pichash].remove((family_id, function_entry.sample_id, function_id))
                     self._pichashes[function_entry.pichash].add((new_family_id, function_entry.sample_id, function_id))
         self._updateDbState()
+        return True
+
+    def deleteOrphanedQueryData(self) -> Dict[str, int]:
+        # query entries live in their own collections here, keyed like the regular ones
+        orphan_function_ids = [function_id for function_id, entry in self._query_functions.items() if entry.sample_id not in self._query_samples]
+        for function_id in orphan_function_ids:
+            del self._query_functions[function_id]
+        return {"query_functions": len(orphan_function_ids), "query_xcfg": 0}
+
+    def compactQueryCollections(self) -> Dict[str, Any]:
+        return {}
+
+    def storeSampleBinary(self, sample_id: int, binary: bytes) -> bool:
+        if not self.isSampleId(sample_id):
+            return False
+        binary = bytes(binary)
+        sha256 = hashlib.sha256(binary).hexdigest()
+        for other_sha256 in [key for key, (_, sample_ids) in self._sample_binaries.items() if sample_id in sample_ids and key != sha256]:
+            self._releaseSampleBinary(other_sha256, sample_id)
+        self._sample_binaries.setdefault(sha256, (binary, set()))[1].add(sample_id)
+        return True
+
+    def _releaseSampleBinary(self, sha256: str, sample_id: int) -> None:
+        sample_ids = self._sample_binaries[sha256][1]
+        sample_ids.discard(sample_id)
+        if not sample_ids:
+            del self._sample_binaries[sha256]
+
+    def _findSampleBinary(self, sample_id: int) -> Optional[str]:
+        return next((sha256 for sha256, (_, sample_ids) in self._sample_binaries.items() if sample_id in sample_ids), None)
+
+    def getSampleBinary(self, sample_id: int) -> Optional[bytes]:
+        sha256 = self._findSampleBinary(sample_id)
+        return self._sample_binaries[sha256][0] if sha256 is not None else None
+
+    def hasSampleBinary(self, sample_id: int) -> bool:
+        return self._findSampleBinary(sample_id) is not None
+
+    def openSampleBinary(self, sample_id: int) -> Optional[BinaryStream]:
+        binary = self.getSampleBinary(sample_id)
+        return io.BytesIO(binary) if binary is not None else None
+
+    def deleteSampleBinary(self, sample_id: int) -> bool:
+        sha256 = self._findSampleBinary(sample_id)
+        if sha256 is None:
+            return False
+        self._releaseSampleBinary(sha256, sample_id)
         return True
 
     def recomputeFamilyStats(self, progress_reporter=None) -> Dict[str, Any]:
@@ -903,6 +962,10 @@ class MemoryStorage(StorageInterface):
             "samples": {sample_id: sample.toDict() for sample_id, sample in self._samples.items()},
             "functions": {function_id: function.toDict() for function_id, function in self._functions.items()},
             "bands": self._bands,
+            # kept binaries (#95) travel with the rest; base64, as the content is carried as JSON
+            "sample_binaries": {
+                sha256: {"binary": base64.b64encode(binary).decode("ascii"), "sample_ids": sorted(sample_ids)} for sha256, (binary, sample_ids) in self._sample_binaries.items()
+            },
         }
         return content
 
@@ -912,6 +975,10 @@ class MemoryStorage(StorageInterface):
         self._samples = {int(k): SampleEntry.fromDict(v) for k, v in content["samples"].items()}
         self._bands = {int(k): {int(ik): iv for ik, iv in v.items()} for k, v in content["bands"].items()}
         self._sample_by_sha256 = {sample.sha256: sample_id for sample_id, sample in self._samples.items()}
+        # content saved before binaries were kept has none
+        self._sample_binaries = {
+            sha256: (base64.b64decode(stored["binary"]), {int(sample_id) for sample_id in stored["sample_ids"]}) for sha256, stored in content.get("sample_binaries", {}).items()
+        }
         self._sample_id_to_function_ids = defaultdict(list)
         self._pichashes = {}
         for function_id, function in content["functions"].items():
@@ -953,8 +1020,13 @@ class MemoryStorage(StorageInterface):
             "num_samples": len(sample_ids),
         }
         candidate_picblockhashes: Dict[int, Dict[str, Any]] = {}
+        wanted_sample_ids = set(sample_ids)
         for function_id, entry in self._functions.items():
             sample_id = entry.sample_id
+            # the blocks of the samples asked about only, as MongoDbStorage reads them; a block
+            # another sample holds too is removed below
+            if sample_id not in wanted_sample_ids:
+                continue
             for block_entry in entry.picblockhashes:
                 block_hash = block_entry["hash"]
                 if block_hash not in candidate_picblockhashes:
@@ -976,7 +1048,7 @@ class MemoryStorage(StorageInterface):
         LOGGER.info(f"Found {len(candidate_picblockhashes)} candidate picblock hashes")
         for functiond_id, entry in self._functions.items():
             sample_id = entry.sample_id
-            if sample_id not in sample_ids:
+            if sample_id not in wanted_sample_ids:
                 for block_entry in entry.picblockhashes:
                     candidate_picblockhashes.pop(block_entry["hash"], None)
         # update statistics again after having reduced to results
@@ -1006,9 +1078,11 @@ class MemoryStorage(StorageInterface):
         for function_id, entry in self._functions.items():
             if function_id not in function_id_to_block_offsets.keys():
                 continue
-            if entry.xcfg is None:
+            # an xcfg is None when not loaded and {} once its disassembly was dropped
+            # (STORAGE_DROP_DISASSEMBLY, #42); either way its blocks keep no instructions
+            blocks = (entry.xcfg or {}).get("blocks")
+            if not blocks:
                 continue
-            blocks = entry.xcfg["blocks"]
             for block_offset, picblockhash in function_id_to_block_offsets[function_id]:
                 # a live xcfg (from SmdaFunction.toDict()) keys blocks by int, while one that has
                 # been through a JSON round trip keys them by str - accept either
@@ -1065,6 +1139,21 @@ class MemoryStorage(StorageInterface):
 
     def isBandDfIndexComplete(self) -> bool:
         return True
+
+    # getCandidatesForMinHash skips a posting list longer than the cutoff (#217), so the coverage
+    # report's numbers are what this backend's lookup skips too
+    APPLIES_BAND_DF_CUTOFF = True
+
+    def _countBandDf(self, band_number: int, thresholds: List[int]) -> Dict[str, Any]:
+        # df is the length of the in-memory posting list; an empty list holds no posting, and the
+        # MongoDB count skips its empty documents the same way
+        lengths = [len(function_ids) for function_ids in self._bands[band_number].values() if function_ids]
+        return {
+            "band_hashes": len(lengths),
+            "postings": sum(lengths),
+            "max_df": max(lengths, default=0),
+            "over": {threshold: [sum(1 for df in lengths if df > threshold), sum(df for df in lengths if df > threshold)] for threshold in thresholds},
+        }
 
     def rebuildMinhashBandIndex(self, progress_reporter=None):
         # TODO while minhashes are considerably small, there is a still chance that the

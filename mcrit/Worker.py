@@ -31,6 +31,7 @@ from mcrit.minhash.MinHasher import MINHASH_SHINGLER_REVISION, MinHasher
 from mcrit.queue.LocalQueue import Job
 from mcrit.queue.QueueFactory import QueueFactory
 from mcrit.queue.QueueRemoteCalls import NoProgressReporter, QueueRemoteCallee, Remote, UncacheableResult
+from mcrit.storage.FunctionEntry import smdaFunctionFromXcfg
 from mcrit.storage.SampleEntry import SampleEntry
 from mcrit.storage.StorageFactory import StorageFactory
 
@@ -159,7 +160,12 @@ class Worker(QueueRemoteCallee):
         sample_entry = self._storage.getSampleBySha256(binary_sha256)
         if sample_entry:
             LOGGER.info("Sample is already known with ID: %d", sample_entry.sample_id)
-            return {"sample_info": sample_entry.toDict()}
+            result = {"sample_info": sample_entry.toDict()}
+            if self._storage_config.STORAGE_KEEP_SUBMITTED_BINARIES and not self._storage.hasSampleBinary(sample_entry.sample_id):
+                # a retried job (the sample was committed, storing the binary was not) or a
+                # sample submitted before binaries were kept: complete it here
+                result["binary_stored"] = self._storage.storeSampleBinary(sample_entry.sample_id, binary)
+            return result
         config = SmdaConfig()
         SMDA_REPORT = None
         DISASSEMBLER = Disassembler(config)
@@ -176,29 +182,42 @@ class Worker(QueueRemoteCallee):
             SMDA_REPORT.version = version
         sample_entry = self._addReport(SMDA_REPORT)
         LOGGER.info("Disassembled and indexed sample: %s", sample_entry)
-        if sample_entry is not None:
-            return {"sample_info": sample_entry.toDict()}
-        else:
+        if sample_entry is None:
             return None
+        result = {"sample_info": sample_entry.toDict()}
+        if self._storage_config.STORAGE_KEEP_SUBMITTED_BINARIES:
+            # the raw submission, for whatever wants the bytes later (#95)
+            result["binary_stored"] = self._storage.storeSampleBinary(sample_entry.sample_id, binary)
+        return result
+
+    QUERY_JOB_METHODS = ("getMatchesForUnmappedBinary", "getMatchesForMappedBinary", "getMatchesForSmdaReport")
+
+    def _querySampleOfJob(self, job: Job) -> Optional["SampleEntry"]:
+        """The query sample a query job produced, or None when the job left no result (it
+        failed before matching, or was terminated) - such a job must not take the cleanup down."""
+        result = self.getResultForJob(job.job_id)
+        if not result or "info" not in result or not result["info"].get("sample"):
+            return None
+        return SampleEntry.fromDict(result["info"]["sample"])
 
     # Reports PROGRESS
     @Remote(progress=True)
-    def doDbCleanup(self, progress_reporter=NoProgressReporter()):
+    def doDbCleanup(self, progress_reporter=NoProgressReporter()) -> Dict[str, Any]:
+        """Delete query samples and query jobs older than STORAGE_MONGODB_CLEANUP_TTL, then the
+        query functions and disassembly no query sample refers to any more, and optionally
+        compact the collections they lived in (#68)."""
         now = datetime.now()
         delta = timedelta(seconds=self._storage_config.STORAGE_MONGODB_CLEANUP_TTL)
         time_cutoff = now - delta
         LOGGER.info("Fetching data from the queues.")
-        unmapped_finished = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="finished")
-        mapped_finished = self.getQueueData(0, 0, method="getMatchesForMappedBinary", state="finished")
-        unmapped_failed = self.getQueueData(0, 0, method="getMatchesForUnmappedBinary", state="failed")
-        mapped_failed = self.getQueueData(0, 0, method="getMatchesForMappedBinary", state="failed")
-        smda_finished = self.getQueueData(0, 0, method="getMatchesForSmdaReport", state="finished")
+        query_jobs = []
+        for method in self.QUERY_JOB_METHODS:
+            for state in ("finished", "failed"):
+                query_jobs.extend((state, Job(job_dict, None)) for job_dict in self.getQueueData(0, 0, method=method, state=state))
         protected_sample_ids = set([])
         samples_to_be_deleted = {}
         jobs_to_be_deleted = []
-        LOGGER.info(
-            f"Collected all data from the queues, now iterating {len(unmapped_finished) + len(mapped_finished) + len(unmapped_failed) + len(mapped_failed) + len(smda_finished)} items."
-        )
+        LOGGER.info(f"Collected all data from the queues, now iterating {len(query_jobs)} items.")
         # first iterate and collect all potentially stale sample_entries by their submission/processing timestamp
         for sample_entry in self._storage.getSamples(start_index=0, limit=0, is_query=True):
             if sample_entry.timestamp is None:
@@ -208,39 +227,18 @@ class Worker(QueueRemoteCallee):
                 samples_to_be_deleted[sample_entry.sha256] = []
             if sample_entry.timestamp < time_cutoff:
                 samples_to_be_deleted[sample_entry.sha256].append(sample_entry)
-
-        for job_collection in [unmapped_finished, mapped_finished]:
-            for job_dict in job_collection:
-                job = Job(job_dict, None)
-                result = self.getResultForJob(job.job_id)
-                reference_sample_entry = SampleEntry.fromDict(result["info"]["sample"])
-                # we keep those query samples that have been submitted since the cutoff
-                if job.finished_at > time_cutoff:
-                    protected_sample_ids.add(reference_sample_entry.sample_id)
-                else:
+        for state, job in query_jobs:
+            # a finished job is dated by when it finished, a failed one by when it last ran
+            job_timestamp = job.finished_at if state == "finished" else job.started_at
+            is_recent = job_timestamp is not None and job_timestamp > time_cutoff
+            reference_sample_entry = self._querySampleOfJob(job)
+            if reference_sample_entry is None:
+                # nothing to protect or to collect; an old job without a result just goes
+                if not is_recent:
                     jobs_to_be_deleted.append(job)
-                    if reference_sample_entry.sha256 not in samples_to_be_deleted:
-                        samples_to_be_deleted[reference_sample_entry.sha256] = []
-                    samples_to_be_deleted[reference_sample_entry.sha256].append(reference_sample_entry)
-        for failed_job_collection in [unmapped_failed, mapped_failed]:
-            for failed_job_dict in failed_job_collection:
-                job = Job(failed_job_dict, None)
-                result = self.getResultForJob(job.job_id)
-                reference_sample_entry = SampleEntry.fromDict(result["info"]["sample"])
-                if job.started_at > time_cutoff:
-                    protected_sample_ids.add(reference_sample_entry.sample_id)
-                else:
-                    jobs_to_be_deleted.append(job)
-                    if reference_sample_entry.sha256 not in samples_to_be_deleted:
-                        samples_to_be_deleted[reference_sample_entry.sha256] = []
-                    samples_to_be_deleted[reference_sample_entry.sha256].append(reference_sample_entry)
-        LOGGER.info("Decoding SMDA reports for SHA256 hashes.")
-        for job_dict in smda_finished:
-            job = Job(job_dict, None)
-            result = self.getResultForJob(job.job_id)
-            reference_sample_entry = SampleEntry.fromDict(result["info"]["sample"])
+                continue
             # we keep those query samples that have been submitted since the cutoff
-            if job.finished_at > time_cutoff:
+            if is_recent:
                 protected_sample_ids.add(reference_sample_entry.sample_id)
             else:
                 jobs_to_be_deleted.append(job)
@@ -249,16 +247,25 @@ class Worker(QueueRemoteCallee):
                 samples_to_be_deleted[reference_sample_entry.sha256].append(reference_sample_entry)
         LOGGER.info(f"Found {len(samples_to_be_deleted)} query samples that can be deleted")
         progress_reporter.set_total(len(samples_to_be_deleted))
+        num_samples_deleted = 0
         for sample_sha256, sample_entries in samples_to_be_deleted.items():
-            LOGGER.info(f"Deleting {sample_entry.sample_id}.")
             for sample_id in set([sample_entry.sample_id for sample_entry in sample_entries]):
                 if sample_id not in protected_sample_ids:
-                    self._storage.deleteSample(sample_id)
+                    LOGGER.info(f"Deleting query sample {sample_id} ({sample_sha256}).")
+                    if self._storage.deleteSample(sample_id):
+                        num_samples_deleted += 1
             progress_reporter.step()
         # now remove the respective data also from the queue, which also deletes the results from GridFS
         LOGGER.info(f"Found {len(jobs_to_be_deleted)} query jobs that can be deleted.")
         for job in jobs_to_be_deleted:
             self.queue.delete_job(job.job_id)
+        # whatever a deleted or half-deleted query sample left behind (#68)
+        orphans = self._storage.deleteOrphanedQueryData()
+        LOGGER.info(f"Deleted orphaned query data: {orphans}")
+        report: Dict[str, Any] = {"num_query_samples_deleted": num_samples_deleted, "num_query_jobs_deleted": len(jobs_to_be_deleted), "orphans": orphans}
+        if self._storage_config.STORAGE_MONGODB_COMPACT_AFTER_CLEANUP:
+            report["compacted"] = self._storage.compactQueryCollections()
+        return report
 
     # Reports PROGRESS
     @Remote(progress=True)
@@ -287,6 +294,18 @@ class Worker(QueueRemoteCallee):
     @Remote(progress=True)
     def rebuildBandDfIndex(self, progress_reporter=NoProgressReporter()):
         return self._storage.rebuildBandDfIndex(progress_reporter=progress_reporter)
+
+    # Reports PROGRESS
+    @Remote(progress=True)
+    def getBandDfCutoffCoverage(self, band_df_cutoff=None, progress_reporter=NoProgressReporter()):
+        """What STORAGE_BAND_DF_CUTOFF (or band_df_cutoff) skips, per band and in total (#201).
+
+        A job rather than a request because it scans the (band_hash, df) index of every band: on a
+        7,244-sample corpus (MongoDB 7.0) a single index-only $group of exactly this shape took
+        39.3 s for all 20 bands, about 1.1 to 2 s per band. It is kept off the query path because a
+        per-lookup count would roughly double each band lookup's index work.
+        """
+        return self._storage.getBandDfCutoffCoverage(band_df_cutoff=band_df_cutoff, progress_reporter=progress_reporter)
 
     # Reports PROGRESS
     @Remote(progress=True)
@@ -444,6 +463,9 @@ class Worker(QueueRemoteCallee):
         blocks covering the least covered sample, i.e. the k the cover actually achieved. It also
         echoes the two parameters, so a result says what shaped it, and "blocks_considered" records
         how many blocks survived min_instructions while the counts above describe everything found.
+        "blocks_without_instructions" counts the blocks found whose function was stored without its
+        disassembly: they are left out of unique_blocks and of the cover, having no instructions to
+        show and no bytes to match on.
         """
         # TODO we could propagate this progress reporter into the storage function for more fine grained progress tracking
         progress_reporter.set_total(1)
@@ -453,9 +475,15 @@ class Worker(QueueRemoteCallee):
         blocks_result_dict["statistics"]["has_yara_rule"] = False
         blocks_result_dict["statistics"]["yara_covers"] = 0
         blocks_result_dict["statistics"]["has_complete_yara_rule"] = False
+        # a block whose function has no disassembly (STORAGE_DROP_DISASSEMBLY, #42) has no
+        # instructions to show and no bytes to match on: it is counted rather than returned, since
+        # whatever renders the blocks reads their instructions, and it can never join the cover
+        found_blocks = blocks_result_dict["unique_blocks"]
+        unique_blocks = {block_hash: entry for block_hash, entry in found_blocks.items() if entry["instructions"]}
+        blocks_result_dict["statistics"]["blocks_without_instructions"] = len(found_blocks) - len(unique_blocks)
         if min_instructions:
-            blocks_result_dict["unique_blocks"] = {block_hash: entry for block_hash, entry in blocks_result_dict["unique_blocks"].items() if entry["length"] >= min_instructions}
-        unique_blocks = blocks_result_dict["unique_blocks"]
+            unique_blocks = {block_hash: entry for block_hash, entry in unique_blocks.items() if entry["length"] >= min_instructions}
+        blocks_result_dict["unique_blocks"] = unique_blocks
         blocks_result_dict["statistics"]["covers_required"] = covers_required
         blocks_result_dict["statistics"]["min_instructions"] = min_instructions
         blocks_result_dict["statistics"]["blocks_considered"] = len(unique_blocks)
@@ -720,10 +748,20 @@ class Worker(QueueRemoteCallee):
         minhashes = []
         smda_functions = []
         LOGGER.info("Calculating MinHashes: hashing for %d function entries requested.", len(function_entries))
+        without_disassembly = 0
         for func in function_entries:
             binary_info = BinaryInfo(b"")
             binary_info.architecture = func.architecture
-            smda_functions.append((func.function_id, SmdaFunction.fromDict(func.xcfg, binary_info=binary_info)))
+            smda_function = smdaFunctionFromXcfg(func.xcfg, binary_info)
+            if smda_function is None:
+                without_disassembly += 1
+                continue
+            smda_functions.append((func.function_id, smda_function))
+        if without_disassembly:
+            # a function whose disassembly was dropped (STORAGE_DROP_DISASSEMBLY, or over the 16 MiB
+            # document limit, #42) cannot be hashed; failing the batch would leave every other
+            # function in it unhashed as well, on every retry
+            LOGGER.warning("Calculating MinHashes: %d function entries have no stored disassembly and are skipped.", without_disassembly)
         # filter down to functions that fulfill size requirements
         smda_functions = [(function_id, smda_function) for function_id, smda_function in smda_functions if self.minhasher.isMinHashableFunction(smda_function)]
         LOGGER.info("Calculating MinHashes: %d function entries are indexable.", len(smda_functions))
