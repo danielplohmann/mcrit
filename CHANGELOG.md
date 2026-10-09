@@ -616,6 +616,16 @@ with this release, smda 4.9.0 and picblocks 2.1.0:
   inserted at once that finished out of order had the disassembly of the one still writing its
   functions deleted under it. Query samples written before this release have no count and hold
   the disassembly judgment back until the last of them has expired.
+### Added
+
+- **Families carry `actors`, the names they are attributed to**, set through
+  `PUT /families/{id}` and `McritClient.modifyFamily(family_id, actors=[...])` (an empty list
+  clears them), kept through a rename, and carried by exports as `family_actors`, which imports
+  merge into what the target already knows. Names are 1-64 characters of letters, digits,
+  spaces, dots, dashes and underscores; anything else answers 400 without touching the family.
+  Families stored before read as an empty list, so no migration. NOTE that
+  `McritClient.modifyFamily` now sends its update as JSON, since a list does not survive form
+  encoding; the route accepts both ([#57]).
 
 ## [1.12.0] - 2026-09-25
 
@@ -1205,3 +1215,4 @@ date, the version, and what changed.
 [#257]: https://github.com/danielplohmann/mcrit/issues/257
 [#252]: https://github.com/danielplohmann/mcrit/issues/252
 [#249]: https://github.com/danielplohmann/mcrit/issues/249
+[#57]: https://github.com/danielplohmann/mcrit/issues/57
