@@ -57,6 +57,85 @@ def short_form(value):
     return hex(int(value, 16))
 
 
+class PichashMigrationConnectionTest(TestCase):
+    """The migration reaches the database MCRIT itself connects to; no MongoDB needed.
+
+    Port 27999: these clients are never used, but the test guard refuses any client to 27017.
+    """
+
+    def test_the_uri_is_built_as_mcrit_builds_it(self):
+        build = migrate_pichash_padding.build_mongo_uri
+        self.assertEqual("mongodb://h:27999/db", build("h", "27999", "db", None, None, ""))
+        # credentials go in as configured: a password holding "@" has to be configured as "%40"
+        # for MCRIT to connect at all, and quoting it again would send "%2540"
+        self.assertEqual("mongodb://u:s3cr%40t@h:27999/db?authSource=admin", build("h", "27999", "db", "u", "s3cr%40t", "authSource=admin"))
+        # only both together are credentials, and an empty port is how a host list is given
+        self.assertEqual("mongodb://h:27999/db", build("h", "27999", "db", "u", "", ""))
+        self.assertEqual("mongodb://a:1,b:2/db?replicaSet=rs", build("a:1,b:2", "", "db", None, None, "replicaSet=rs"))
+
+    def test_mcrit_connects_with_the_same_uri(self):
+        # what keeps the claim true: MongoDbStorage._initDb, given the same settings, builds the same URI
+        from mcrit.storage.MongoDbStorage import MongoDbStorage
+
+        for server, port, username, password, flags in (("a:1,b:2", "", "u", "s3cr%40t", "authSource=admin"), ("h", "27999", "", "", "")):
+            storage_config = StorageConfig(STORAGE_SERVER=server, STORAGE_PORT=port, STORAGE_MONGODB_DBNAME="db")
+            storage_config.STORAGE_MONGODB_USERNAME = username
+            storage_config.STORAGE_MONGODB_PASSWORD = password
+            storage_config.STORAGE_MONGODB_FLAGS = flags
+            config = McritConfig()
+            config.STORAGE_CONFIG = storage_config
+            with (
+                patch("mcrit.storage.MongoDbStorage.MongoClient") as client,
+                patch.object(MongoDbStorage, "_ensureIndexAndUnknownFamily"),
+            ):
+                MongoDbStorage(config)._getDb()
+            self.assertEqual(migrate_pichash_padding.build_mongo_uri(server, port, "db", username, password, flags), client.call_args.args[0])
+
+    def _runMain(self, argv, **storage_values):
+        """main() with the given storage config; returns (uri connected to, database name used)."""
+        storage_config = StorageConfig(STORAGE_SERVER="h", STORAGE_PORT="27999", STORAGE_MONGODB_DBNAME="db")
+        for key, value in storage_values.items():
+            setattr(storage_config, key, value)
+        config = McritConfig()
+        config.STORAGE_CONFIG = storage_config
+        uris, databases = [], []
+
+        def client_for(uri, connect=True):
+            uris.append(uri)
+            return pymongo.MongoClient(uri, connect=False)
+
+        def record_run(db, mode, batch):
+            databases.append(db.name)
+            db.client.close()
+            return {}
+
+        with (
+            patch.object(migrate_pichash_padding, "McritConfig", return_value=config),
+            patch.object(migrate_pichash_padding, "MongoClient", side_effect=client_for),
+            patch.object(migrate_pichash_padding, "run", side_effect=record_run),
+            patch("builtins.print"),
+        ):
+            self.assertEqual(0, migrate_pichash_padding.main(argv))
+        return uris[0], databases[0]
+
+    def test_the_migration_connects_as_mcrit_does(self):
+        credentials = {"STORAGE_MONGODB_USERNAME": "u", "STORAGE_MONGODB_PASSWORD": "s3cr%40t", "STORAGE_MONGODB_FLAGS": "authSource=admin"}
+        self.assertEqual(("mongodb://u:s3cr%40t@h:27999/db?authSource=admin", "db"), self._runMain(["--mode", "verify"], **credentials))
+        # a host list has no port of its own
+        self.assertEqual(
+            ("mongodb://a:1,b:2/db?replicaSet=rs", "db"),
+            self._runMain(["--mode", "verify"], STORAGE_SERVER="a:1,b:2", STORAGE_PORT="", STORAGE_MONGODB_FLAGS="replicaSet=rs"),
+        )
+
+    def test_a_uri_names_the_database_unless_db_does(self):
+        self.assertEqual(("mongodb://other:1/x", "x"), self._runMain(["--mode", "verify", "--uri", "mongodb://other:1/x"]))
+        self.assertEqual(("mongodb://other:1/x", "y"), self._runMain(["--mode", "verify", "--uri", "mongodb://other:1/x", "--db", "y"]))
+        # a URI without a database falls back to the configured one
+        self.assertEqual(("mongodb://other:1", "db"), self._runMain(["--mode", "verify", "--uri", "mongodb://other:1"]))
+        # --db alone migrates that database, and authenticates against it as MCRIT would
+        self.assertEqual(("mongodb://h:27999/z", "z"), self._runMain(["--mode", "verify", "--db", "z"]))
+
+
 @pytest.mark.mongo
 class PichashPaddingTest(TestCase):
     """#145: pichashes are stored 16 digits wide so that their hex order is their numeric order"""
@@ -146,12 +225,6 @@ class PichashPaddingTest(TestCase):
         by_many = self.storage.getPicHashMatchesByFunctionIds([first, second])
         self.assertEqual({first, second}, {t[2] for t in by_many[value]})
         self.assertEqual(1, len(by_many))
-
-    def test_the_migration_connects_with_the_configured_credentials(self):
-        self.assertEqual("mongodb://h:27017/db", migrate_pichash_padding.build_mongo_uri("h", 27017, "db", None, None, ""))
-        self.assertEqual(
-            "mongodb://u%40x:p%3Aw@h:27017/db?authSource=admin&tls=true", migrate_pichash_padding.build_mongo_uri("h", 27017, "db", "u@x", "p:w", "authSource=admin&tls=true")
-        )
 
     def test_a_legacy_instance_in_the_middle_of_a_migration_misses_nothing(self):
         self._make_legacy()

@@ -33,6 +33,10 @@ Both readers then fall back to the functions collection, correct but slow (and t
 until rebuildPicHashCountIndex and rebuildPicBlockHashIndex (GET /rebuild_picblockhash_index)
 have run again; `verify` reports an index that is marked complete but holds the other width.
 
+It connects the way MCRIT does, with the credentials and flags it is configured with
+(STORAGE_MONGODB_USERNAME, _PASSWORD, _FLAGS). --uri takes a complete MongoDB URI instead; the
+database is then --db, else the one the URI names, else the configured one.
+
 Usage:
     python -m mcrit.migrations.migrate_pichash_padding --mode pad
     python -m mcrit.migrations.migrate_pichash_padding --mode verify
@@ -45,7 +49,6 @@ import sys
 import time
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
-from urllib.parse import quote_plus
 
 from pymongo import ASCENDING, MongoClient, UpdateOne
 
@@ -66,10 +69,17 @@ COLLECTIONS = ("functions", "query_functions")
 PROJECTION = {"function_id": 1, "_pichash": 1, "_picblockhashes.hash": 1, "_id": 0}
 
 
-def build_mongo_uri(host: str, port: int, db_name: str, username: Optional[str], password: Optional[str], flags: Optional[str]) -> str:
-    credentials = "%s:%s@" % (quote_plus(username), quote_plus(password)) if username and password else ""
+def build_mongo_uri(host: str, port: str, db_name: str, username: Optional[str], password: Optional[str], flags: Optional[str]) -> str:
+    """The URI MongoDbStorage._initDb builds from the same settings, so this reaches the same database.
+
+    Credentials go in as configured: MCRIT does not quote them, so a password holding `@`, `:` or
+    `/` is configured percent-encoded already. An empty port leaves it out, which is how a host
+    list is given.
+    """
+    credentials = "%s:%s@" % (username, password) if username and password else ""
+    port_part = ":%s" % port if port else ""
     query = "?%s" % flags if flags else ""
-    return "mongodb://%s%s:%d/%s%s" % (credentials, host, port, db_name, query)
+    return "mongodb://%s%s%s/%s%s" % (credentials, host, port_part, db_name, query)
 
 
 def log(message):
@@ -247,19 +257,26 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--mode", choices=["pad", "verify", "unpad"], required=True)
     storage_config = McritConfig().STORAGE_CONFIG
     parser.add_argument("--host", default=storage_config.STORAGE_SERVER)
-    parser.add_argument("--port", type=int, default=int(storage_config.STORAGE_PORT))
-    parser.add_argument("--db", default=storage_config.STORAGE_MONGODB_DBNAME)
-    parser.add_argument("--uri", default=None, help="complete MongoDB URI; overrides host/port and the configured credentials and flags")
+    # a string, as in the config: an empty port is how a host list is configured
+    parser.add_argument("--port", default=storage_config.STORAGE_PORT)
+    parser.add_argument("--db", default=None, help="database to migrate; defaults to the one --uri names, else the configured one")
+    parser.add_argument("--uri", default=None, help="complete MongoDB URI; replaces host, port and the configured credentials and flags")
     parser.add_argument("--batch", type=int, default=2000)
     parser.add_argument("--out", default=None)
     args = parser.parse_args(argv)
 
-    # the same credentials and connection flags MongoDbStorage connects with (STORAGE_MONGODB_*),
-    # so a secured deployment needs nothing beyond its mcrit configuration
-    uri = args.uri or build_mongo_uri(
-        args.host, args.port, args.db, storage_config.STORAGE_MONGODB_USERNAME, storage_config.STORAGE_MONGODB_PASSWORD, storage_config.STORAGE_MONGODB_FLAGS
-    )
-    db = MongoClient(uri, connect=True)[args.db]
+    # the URI MongoDbStorage itself connects with (STORAGE_MONGODB_* credentials and flags), so a
+    # secured deployment needs nothing beyond its mcrit configuration
+    configured_db = storage_config.STORAGE_MONGODB_DBNAME
+    if args.uri:
+        client = MongoClient(args.uri, connect=True)
+        db = client[args.db] if args.db else client.get_default_database(default=configured_db)
+    else:
+        db_name = args.db or configured_db
+        uri = build_mongo_uri(args.host, args.port, db_name, storage_config.STORAGE_MONGODB_USERNAME, storage_config.STORAGE_MONGODB_PASSWORD, storage_config.STORAGE_MONGODB_FLAGS)
+        db = MongoClient(uri, connect=True)[db_name]
+    # the database name only: the URI can carry a password
+    log("database %s" % db.name)
     result = run(db, args.mode, args.batch)
     print(json.dumps(result, indent=2, default=str))
     if args.out:
