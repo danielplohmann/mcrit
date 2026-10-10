@@ -1468,6 +1468,10 @@ class MongoDbStorage(StorageInterface):
         # "picblockhashes" is the inverted block-hash index; leaving it behind would keep asserting
         # that hashes are held by samples that no longer exist, and getUniqueBlocks would believe it
         # the "sample_binaries" GridFS bucket holds the raw submissions (#95)
+        # the pichash counts and the function ranges go for the same reason as the picblockhash
+        # index (#261): _ensureIndexAndUnknownFamily vouches for both on the emptied database, so
+        # left behind, the counts would count every re-added function twice and the ranges would
+        # map the reset function ids to samples that no longer exist
         collections = [
             "samples",
             "families",
@@ -1482,6 +1486,8 @@ class MongoDbStorage(StorageInterface):
             "picblockhashes",
             "sample_binaries.files",
             "sample_binaries.chunks",
+            self._PICHASH_COUNT_COLLECTION,
+            self._FUNCTION_RANGE_COLLECTION,
         ]
         for band_id in range(self._storage_config.STORAGE_NUM_BANDS):
             collections.append("band_%d" % band_id)

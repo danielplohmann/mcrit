@@ -87,8 +87,12 @@ reasoning is still at hand, rather than reconstructing it from the commit log at
   matches whose pichash an inflated count pushed over the cap. A corpus that deleted samples
   before this release still carries the surplus. `MongoDbStorage.rebuildPicHashCountIndex()`
   clears it, though no route or client method runs it yet; `rebuild_function_range_index`
-  (`McritClient.rebuildFunctionRangeIndex()`) drops the stale ranges, which are harmless since
-  function ids are never reused.
+  (`McritClient.rebuildFunctionRangeIndex()`) drops the stale ranges, which are harmless after a
+  delete since function ids are never reused. `clearStorage` (`POST /respawn`,
+  `McritClient.respawn()`) left both collections behind too, and there they did harm: it resets
+  the id counters and vouches for both indexes on the emptied database, so re-added samples were
+  counted twice, and with the matching shortlist on (`MINHASH_MATCHING_SHORTLIST_SIZE`, off by
+  default) their function ids could resolve to a cleared sample's range. It now drops both.
 
 - **`McritClient` raised a `JSONDecodeError` for a 2xx whose body is not JSON** ([#257]). A reverse
   proxy's error or login page, or an empty answer, with a 200 or 202 status went through

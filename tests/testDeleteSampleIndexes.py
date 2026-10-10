@@ -1,8 +1,9 @@
-"""deleteSample keeps the pichash counts and the function ranges in step with what is stored (#261).
+"""deleteSample and clearStorage keep the pichash counts and the function ranges in step with what is stored (#261).
 
 addSmdaReport adds a sample's functions to both indexes; deleteSample used to leave them there, so
-a deleted sample stayed counted and a deleted and re-added one was counted twice. Every check here
-compares against the truth the rebuilds derive from the functions collection.
+a deleted sample stayed counted and a deleted and re-added one was counted twice. clearStorage left
+both collections behind as well. Every check here compares against the truth the rebuilds derive
+from the functions collection.
 """
 
 import json
@@ -117,6 +118,23 @@ class DeleteSampleIndexesTest(TestCase):
         self.assertTrue(own, "the fixture corpus carries no pichashes, so this proves nothing")
         self.assertEqual({}, self._storedCounts())
         self.assertEqual([], self._storedRanges())
+
+    def testClearingStorageEmptiesBothIndexes(self):
+        # clearStorage resets the function id counter and then vouches for both indexes on the
+        # emptied database, so whatever it left in them would be trusted: the counts doubled on
+        # re-adding, and ranges naming deleted samples over the reused function ids
+        self.storage.clearStorage()
+        self.assertEqual({}, self._storedCounts())
+        self.assertEqual([], self._storedRanges())
+        self.assertTrue(self.storage.isPicHashCountIndexComplete())
+        self.assertTrue(self.storage.isFunctionRangeIndexComplete())
+
+        readded = self.storage.addSmdaReport(loadReport(REPORTS[0]))
+
+        self.assertEqual(self._storedCounts(), self._countsFromFunctions())
+        ranges = self._storedRanges()
+        self.assertEqual([readded.sample_id], [sample_id for sample_id, _, _ in ranges])
+        self.assertEqual(ranges, self._rangesFromRebuild())
 
     def testAnIncompleteCountIndexIsLeftToItsRebuild(self):
         # while incomplete the counts are not trusted and a rebuild will replace them, so a
