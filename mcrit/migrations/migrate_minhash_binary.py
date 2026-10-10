@@ -18,7 +18,10 @@ was rehashed in the meantime is left as it is. Only minhashes still in the old f
 which makes a run resumable without keeping state: a killed run is started again, and re-running
 after completion changes nothing. Functions that are not hashed yet keep their "" marker.
 
-Usage (--host, --port and --db default to MCRIT's storage config, --batch to 2000):
+Usage (--host, --port and --db default to MCRIT's storage config, --batch to 2000). It connects the
+way MCRIT does, with the credentials and flags it is configured with (STORAGE_MONGODB_USERNAME,
+_PASSWORD, _FLAGS). --uri takes a complete MongoDB URI instead; the database is then --db, else the
+one the URI names, else the configured one:
     python -m mcrit.migrations.migrate_minhash_binary --mode count
     python -m mcrit.migrations.migrate_minhash_binary --mode binary
     python -m mcrit.migrations.migrate_minhash_binary --mode revert
@@ -28,10 +31,12 @@ import argparse
 import sys
 import time
 from datetime import UTC, datetime
+from typing import List, Optional
 
 from pymongo import ASCENDING, MongoClient, UpdateOne
 
 from mcrit.config.McritConfig import McritConfig
+from mcrit.storage.MongoDbStorage import MongoDbStorage
 
 COLLECTIONS = ("functions", "query_functions")
 HEX_MINHASH = {"minhash": {"$type": "string", "$ne": ""}}
@@ -80,19 +85,34 @@ def convert(db, collection_name, mode, batch_size):
     return num_converted
 
 
-def main():
+def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--mode", choices=["count", "binary", "revert"], required=True)
     storage_config = McritConfig().STORAGE_CONFIG
     parser.add_argument("--host", default=storage_config.STORAGE_SERVER)
-    parser.add_argument("--port", type=int, default=int(storage_config.STORAGE_PORT))
-    parser.add_argument("--db", default=storage_config.STORAGE_MONGODB_DBNAME)
+    # a string, as in the config: an empty port is how a host list is configured
+    parser.add_argument("--port", default=storage_config.STORAGE_PORT)
+    parser.add_argument("--db", default=None, help="database to migrate; defaults to the one --uri names, else the configured one")
+    parser.add_argument("--uri", default=None, help="complete MongoDB URI; replaces host, port and the configured credentials and flags")
     parser.add_argument("--batch", type=int, default=2000)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.batch < 1:
         parser.error("--batch must be at least 1")
 
-    db = MongoClient("mongodb://%s:%d" % (args.host, args.port), connect=True)[args.db]
+    # the URI MongoDbStorage itself connects with (STORAGE_MONGODB_* credentials and flags), so a
+    # secured deployment needs nothing beyond its mcrit configuration
+    configured_db = storage_config.STORAGE_MONGODB_DBNAME
+    if args.uri:
+        client = MongoClient(args.uri, connect=True)
+        db = client[args.db] if args.db else client.get_default_database(default=configured_db)
+    else:
+        db_name = args.db or configured_db
+        uri = MongoDbStorage.buildMongoUri(
+            args.host, args.port, db_name, storage_config.STORAGE_MONGODB_USERNAME, storage_config.STORAGE_MONGODB_PASSWORD, storage_config.STORAGE_MONGODB_FLAGS
+        )
+        db = MongoClient(uri, connect=True)[db_name]
+    # the database name only: the URI can carry a password
+    log("database %s" % db.name)
     if args.mode != "count":
         for collection_name in COLLECTIONS:
             num_converted = convert(db, collection_name, args.mode, args.batch)

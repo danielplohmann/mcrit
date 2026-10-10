@@ -91,6 +91,85 @@ class MinHashUnitTest(unittest.TestCase):
         self.assertEqual("", MongoDbStorage._minHashForStorage(b""))
         self.assertIs(str, type(MongoDbStorage._minHashForStorage(b"")))
 
+    def test_the_uri_is_built_as_mcrit_builds_it(self):
+        build = MongoDbStorage.buildMongoUri
+        self.assertEqual("mongodb://h:27999/db", build("h", "27999", "db"))
+        # credentials go in as configured: a password holding "@" has to be configured as "%40"
+        # for MCRIT to connect at all, and quoting it again would send "%2540"
+        self.assertEqual("mongodb://u:s3cr%40t@h:27999/db?authSource=admin", build("h", "27999", "db", "u", "s3cr%40t", "authSource=admin"))
+        # only both together are credentials, and an empty port is how a host list is given
+        self.assertEqual("mongodb://h:27999/db", build("h", "27999", "db", "u", ""))
+        self.assertEqual("mongodb://a:1,b:2/db?replicaSet=rs", build("a:1,b:2", "", "db", flags="replicaSet=rs"))
+
+    def test_mcrit_connects_with_the_uri_the_migration_builds(self):
+        # what keeps "connects the way MCRIT does" true: MongoDbStorage itself goes through
+        # buildMongoUri, credentials, flags and an empty port included
+        storage_config = StorageConfig(STORAGE_SERVER="a:1,b:2", STORAGE_PORT="", STORAGE_MONGODB_DBNAME="db")
+        storage_config.STORAGE_MONGODB_USERNAME = "u"
+        storage_config.STORAGE_MONGODB_PASSWORD = "s3cr%40t"
+        storage_config.STORAGE_MONGODB_FLAGS = "authSource=admin"
+        config = McritConfig()
+        config.STORAGE_CONFIG = storage_config
+        storage = MongoDbStorage(config)
+        with (
+            patch("mcrit.storage.MongoDbStorage.MongoClient") as client,
+            patch.object(MongoDbStorage, "_ensureIndexAndUnknownFamily"),
+        ):
+            storage._getDb()
+        self.assertEqual("mongodb://u:s3cr%40t@a:1,b:2/db?authSource=admin", client.call_args.args[0])
+        self.assertEqual(MongoDbStorage.buildMongoUri("a:1,b:2", "", "db", "u", "s3cr%40t", "authSource=admin"), client.call_args.args[0])
+
+    def _runMigrationMain(self, argv, **storage_values):
+        """main() with the given storage config; returns (uri connected to, database name used).
+
+        Port 27999: the clients are never used, but the test guard refuses any client to 27017.
+        """
+        storage_config = StorageConfig(STORAGE_SERVER="h", STORAGE_PORT="27999", STORAGE_MONGODB_DBNAME="db")
+        for key, value in storage_values.items():
+            setattr(storage_config, key, value)
+        config = McritConfig()
+        config.STORAGE_CONFIG = storage_config
+        uris, databases = [], []
+
+        def client_for(uri, connect=True):
+            uris.append(uri)
+            return pymongo.MongoClient(uri, connect=False)
+
+        def record_count(db):
+            databases.append(db.name)
+            db.client.close()
+            return {}
+
+        with (
+            patch.object(migrate_minhash_binary, "McritConfig", return_value=config),
+            patch.object(migrate_minhash_binary, "MongoClient", side_effect=client_for),
+            patch.object(migrate_minhash_binary, "count", side_effect=record_count),
+        ):
+            self.assertEqual(0, migrate_minhash_binary.main(argv))
+        return uris[0], databases[0]
+
+    def test_the_migration_connects_as_mcrit_does(self):
+        # a deployment that requires a login needs nothing beyond its mcrit configuration
+        credentials = {"STORAGE_MONGODB_USERNAME": "u", "STORAGE_MONGODB_PASSWORD": "s3cr%40t", "STORAGE_MONGODB_FLAGS": "authSource=admin"}
+        self.assertEqual(
+            ("mongodb://u:s3cr%40t@h:27999/db?authSource=admin", "db"),
+            self._runMigrationMain(["--mode", "count"], **credentials),
+        )
+        self.assertEqual(MongoDbStorage.buildMongoUri("h", "27999", "db", "u", "s3cr%40t", "authSource=admin"), self._runMigrationMain(["--mode", "count"], **credentials)[0])
+        # a host list has no port of its own
+        self.assertEqual(
+            ("mongodb://a:1,b:2/db?replicaSet=rs", "db"),
+            self._runMigrationMain(["--mode", "count"], STORAGE_SERVER="a:1,b:2", STORAGE_PORT="", STORAGE_MONGODB_FLAGS="replicaSet=rs"),
+        )
+
+    def test_a_uri_names_the_database_unless_db_does(self):
+        self.assertEqual(("mongodb://other:1/x", "x"), self._runMigrationMain(["--mode", "count", "--uri", "mongodb://other:1/x"]))
+        self.assertEqual(("mongodb://other:1/x", "y"), self._runMigrationMain(["--mode", "count", "--uri", "mongodb://other:1/x", "--db", "y"]))
+        # a URI without a database falls back to the configured one
+        self.assertEqual(("mongodb://other:1", "db"), self._runMigrationMain(["--mode", "count", "--uri", "mongodb://other:1"]))
+        # --db alone migrates that database, and authenticates against it as MCRIT would
+        self.assertEqual(("mongodb://h:27999/z", "z"), self._runMigrationMain(["--mode", "count", "--db", "z"]))
+
     def test_encode_turns_the_hex_of_a_function_dict_into_binary(self):
         function_dict = {"function_id": 1, "minhash": self.SIGNATURE.hex()}
         MongoDbStorage._encodeMinHash(function_dict)
