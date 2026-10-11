@@ -87,6 +87,10 @@ class IdaReportVersionTest(unittest.TestCase):
         self.storage = StorageFactory.getStorage(mongo_config)
         self.storage.clearStorage()
         self.sample_entry = self.storage.addSmdaReport(SmdaReport.fromFile(EXAMPLE_REPORT))
+        # a sample added now is stamped as hashed by the running smda (#249), and only one without
+        # that stamp - stored before it existed - is judged by the smda_version of its report, which
+        # is what these tests are about
+        self.storage._getDb().samples.update_one({"sample_id": self.sample_entry.sample_id}, {"$unset": {"pichash_smda_version": ""}})
 
     def tearDown(self):
         self.storage.clearStorage()

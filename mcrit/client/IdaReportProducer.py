@@ -213,7 +213,9 @@ def produceIdaReport(filepath: str, sig_root: Optional[str] = None, min_matches:
     with open(filepath, "rb") as input_file:
         report.sha256 = hashlib.file_digest(input_file, "sha256").hexdigest()
     report.filename = os.path.basename(filepath)
-    report.binary_size = os.path.getsize(filepath)
+    # binary_size stays what the disassembly set, the size of the mapped image: with base_addr it
+    # bounds what the escaper takes for an address, so the pic hashes were computed against it, and
+    # the file size - smaller for a PE with uninitialised sections - would contradict them
     # MongoDbStorage.recalculateAllPicHashes() parses the trailing token as the smda version
     report.smda_version = f"MCRIT4IDA cli via SMDA {SmdaConfig().VERSION}"
     return report

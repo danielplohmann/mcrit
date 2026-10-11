@@ -91,7 +91,8 @@ class FakeReport:
     def __init__(self):
         self.sha256 = "unset"
         self.filename = "unset"
-        self.binary_size = -1
+        # the mapped image the disassembly covered, larger than the file for a PE with .bss
+        self.binary_size = 0x2000
         self.smda_version = "unset"
 
 
@@ -239,7 +240,10 @@ class ProduceIdaReportTest(unittest.TestCase):
         report = self._patchedRun(FakeDisassembler)
         self.assertEqual(hashlib.sha256(self.sample_content).hexdigest(), report.sha256)
         self.assertEqual("sample.exe", report.filename)
-        self.assertEqual(len(self.sample_content), report.binary_size)
+        # binary_size bounds the escaper's address range, so it stays the image size the pic
+        # hashes were computed against, never the file size
+        self.assertEqual(0x2000, report.binary_size)
+        self.assertNotEqual(len(self.sample_content), report.binary_size)
         self.assertTrue(report.smda_version.startswith("MCRIT4IDA"))
         version.parse(report.smda_version.rsplit(" ", 1)[-1])
         self.assertTrue(self.interface.closed)
